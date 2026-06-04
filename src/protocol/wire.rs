@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use super::datatype::{DataTypeConstraints, parse_data_element};
 use super::{DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
@@ -233,7 +234,7 @@ fn collect_field_child(
                     format!("{path} expected one FinTS field value"),
                 ));
             };
-            insert_value(values, path, value)
+            insert_data_element_value(values, path, child, value)
         }
         SyntaxChildKind::Deg => {
             let definition = referenced_definition(syntax, child, DefinitionKind::Deg)?;
@@ -316,7 +317,7 @@ fn collect_component_child(
                     format!("{path} expected a FinTS data-element component"),
                 )
             })?;
-            insert_value(values, path, value)
+            insert_data_element_value(values, path, child, value)
         }
         SyntaxChildKind::Deg => {
             let definition = referenced_definition(syntax, child, DefinitionKind::Deg)?;
@@ -423,6 +424,35 @@ fn parse_occurrence(
     })
 }
 
+fn data_type_constraints(child: &SyntaxChild) -> HbciResult<DataTypeConstraints> {
+    Ok(DataTypeConstraints {
+        min_size: Some(parse_size(&child.min_size, 1, "minsize", child)?),
+        max_size: Some(parse_size(&child.max_size, 0, "maxsize", child)?),
+    })
+}
+
+fn parse_size(
+    value: &Option<String>,
+    default_value: usize,
+    attribute_name: &str,
+    child: &SyntaxChild,
+) -> HbciResult<usize> {
+    let Some(value) = value else {
+        return Ok(default_value);
+    };
+
+    value.parse::<usize>().map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            format!(
+                "invalid {attribute_name} on protocol child {}",
+                child_display_name(child),
+            ),
+            err,
+        )
+    })
+}
+
 fn child_path(parent_path: &str, child: &SyntaxChild, occurrence_index: usize) -> String {
     let name = child_name(child);
     if occurrence_index == 0 {
@@ -440,8 +470,19 @@ fn child_display_name(child: &SyntaxChild) -> &str {
     child.name.as_deref().unwrap_or(&child.type_name)
 }
 
-fn insert_value(values: &mut BTreeMap<String, String>, path: &str, value: &str) -> HbciResult<()> {
-    if values.insert(path.to_owned(), value.to_owned()).is_some() {
+fn insert_data_element_value(
+    values: &mut BTreeMap<String, String>,
+    path: &str,
+    child: &SyntaxChild,
+    value: &str,
+) -> HbciResult<()> {
+    let parsed_value = if value.is_empty() {
+        String::new()
+    } else {
+        parse_data_element(&child.type_name, value, data_type_constraints(child)?)?
+    };
+
+    if values.insert(path.to_owned(), parsed_value).is_some() {
         return Err(HbciError::new(
             HbciErrorKind::Protocol,
             format!("FinTS value path {path} was parsed more than once"),

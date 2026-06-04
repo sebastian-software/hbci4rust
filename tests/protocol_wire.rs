@@ -197,6 +197,42 @@ fn extracts_flat_values_from_repeated_data_element_groups() {
 }
 
 #[test]
+fn extracts_datatype_parsed_values_from_resolved_segments() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message =
+        parse_wire_message("HIPRO:3:4+DIALOG1:1+2+20240229+070809+0010::Status erhalten'")
+            .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved.segments()[0]
+        .values(&syntax)
+        .expect("segment values extract");
+
+    assert_eq!(resolved.segments()[0].definition().id, "StatusRes4");
+    assert_eq!(
+        values.get("StatusRes4.date").map(String::as_str),
+        Some("2024-02-29")
+    );
+    assert_eq!(
+        values.get("StatusRes4.time").map(String::as_str),
+        Some("07:08:09")
+    );
+    assert_eq!(
+        values.get("StatusRes4.segref").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        values.get("StatusRes4.RetVal.text").map(String::as_str),
+        Some("Status erhalten")
+    );
+}
+
+#[test]
 fn rejects_unknown_or_incomplete_segment_headers_during_resolution() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

@@ -51,6 +51,49 @@ pub(crate) fn render_data_element(
     }
 }
 
+pub(crate) fn parse_data_element(
+    type_name: &str,
+    value: &str,
+    constraints: DataTypeConstraints,
+) -> HbciResult<String> {
+    match type_name {
+        "AN" | "Code" | "DTAUS" | "JN" => parse_passthrough(type_name, value, constraints),
+        "ID" => parse_passthrough(
+            type_name,
+            value,
+            DataTypeConstraints {
+                max_size: Some(30),
+                ..constraints
+            },
+        ),
+        "Num" => parse_num(value, constraints),
+        "Dig" => parse_dig(value, constraints),
+        "Ctr" => parse_country(value),
+        "Cur" => parse_currency(value),
+        "Date" => parse_date(value),
+        "Time" => parse_time(value),
+        "Float" => parse_float(value, constraints),
+        "Wrt" => parse_float(
+            value,
+            DataTypeConstraints {
+                max_size: Some(15),
+                ..constraints
+            },
+        ),
+        "Bin" => parse_binary_data_element(value, constraints),
+        _ => parse_passthrough(type_name, value, constraints),
+    }
+}
+
+fn parse_passthrough(
+    type_name: &str,
+    value: &str,
+    constraints: DataTypeConstraints,
+) -> HbciResult<String> {
+    check_size(type_name, value, constraints)?;
+    Ok(value.to_owned())
+}
+
 fn render_num(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
     value.parse::<i64>().map_err(|err| {
         HbciError::with_source(
@@ -69,6 +112,18 @@ fn render_num(value: &str, constraints: DataTypeConstraints) -> HbciResult<Strin
     Ok(rendered)
 }
 
+fn parse_num(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
+    require_ascii_digits("Num", value)?;
+    if value.len() != 1 && value.starts_with('0') {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Num data element value must not contain leading zeroes: {value}"),
+        ));
+    }
+    check_size("Num", value, constraints)?;
+    Ok(value.to_owned())
+}
+
 fn render_dig(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
     let value = value.trim();
     require_ascii_digits("Dig", value)?;
@@ -82,6 +137,12 @@ fn render_dig(value: &str, constraints: DataTypeConstraints) -> HbciResult<Strin
 
     check_size("Dig", &rendered, constraints)?;
     Ok(rendered)
+}
+
+fn parse_dig(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
+    require_ascii_digits("Dig", value)?;
+    check_size("Dig", value, constraints)?;
+    Ok(value.to_owned())
 }
 
 fn render_country(value: &str) -> HbciResult<String> {
@@ -131,8 +192,66 @@ fn render_country(value: &str) -> HbciResult<String> {
     Ok(code.to_owned())
 }
 
+fn parse_country(value: &str) -> HbciResult<String> {
+    let name = match value {
+        "280" => "DE",
+        "040" => "AT",
+        "250" => "FR",
+        "056" => "BE",
+        "100" => "BG",
+        "208" => "DK",
+        "246" => "FI",
+        "300" => "GR",
+        "826" => "GB",
+        "372" => "IE",
+        "352" => "IS",
+        "380" => "IT",
+        "392" => "JP",
+        "124" => "CA",
+        "191" => "HR",
+        "438" => "LI",
+        "442" => "LU",
+        "528" => "NL",
+        "578" => "NO",
+        "616" => "PL",
+        "620" => "PT",
+        "642" => "RO",
+        "643" => "RU",
+        "752" => "SE",
+        "756" => "CH",
+        "703" => "SK",
+        "705" => "SI",
+        "724" => "ES",
+        "203" => "CZ",
+        "792" => "TR",
+        "348" => "HU",
+        "840" => "US",
+        "978" => "EU",
+        _ => {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("unknown Ctr data element country code: {value}"),
+            ));
+        }
+    };
+
+    Ok(name.to_owned())
+}
+
 fn render_currency(value: &str) -> HbciResult<String> {
     let value = value.trim();
+    check_size(
+        "Cur",
+        value,
+        DataTypeConstraints {
+            min_size: Some(3),
+            max_size: Some(3),
+        },
+    )?;
+    Ok(value.to_owned())
+}
+
+fn parse_currency(value: &str) -> HbciResult<String> {
     check_size(
         "Cur",
         value,
@@ -174,6 +293,23 @@ fn render_date(value: &str) -> HbciResult<String> {
     Ok(format!("{year}{month_num:02}{day_num:02}"))
 }
 
+fn parse_date(value: &str) -> HbciResult<String> {
+    require_ascii_digits("Date", value)?;
+    if value.len() != 8 {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Date data element value must use YYYYMMDD: {value}"),
+        ));
+    }
+
+    let year = &value[0..4];
+    let month = &value[4..6];
+    let day = &value[6..8];
+    let month_num = parse_bounded_usize("Date month", month, 1, 12)?;
+    let day_num = parse_bounded_usize("Date day", day, 1, days_in_month(year, month_num)?)?;
+    Ok(format!("{year}-{month_num:02}-{day_num:02}"))
+}
+
 fn render_time(value: &str) -> HbciResult<String> {
     let value = value.trim();
     let parts: Vec<_> = value.split(':').collect();
@@ -188,6 +324,21 @@ fn render_time(value: &str) -> HbciResult<String> {
     let minute = parse_bounded_usize("Time minute", parts[1], 0, 59)?;
     let second = parse_bounded_usize("Time second", parts[2], 0, 59)?;
     Ok(format!("{hour:02}{minute:02}{second:02}"))
+}
+
+fn parse_time(value: &str) -> HbciResult<String> {
+    require_ascii_digits("Time", value)?;
+    if value.len() != 6 {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Time data element value must use HHMMSS: {value}"),
+        ));
+    }
+
+    let hour = parse_bounded_usize("Time hour", &value[0..2], 0, 23)?;
+    let minute = parse_bounded_usize("Time minute", &value[2..4], 0, 59)?;
+    let second = parse_bounded_usize("Time second", &value[4..6], 0, 59)?;
+    Ok(format!("{hour:02}:{minute:02}:{second:02}"))
 }
 
 fn render_float(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
@@ -218,6 +369,22 @@ fn render_float(value: &str, constraints: DataTypeConstraints) -> HbciResult<Str
     Ok(rendered)
 }
 
+fn parse_float(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
+    let parsed = value.replace(',', ".");
+    if !parsed.is_empty() {
+        parsed.parse::<f64>().map_err(|err| {
+            HbciError::with_source(
+                HbciErrorKind::InvalidArgument,
+                format!("invalid Float data element value: {value}"),
+                err,
+            )
+        })?;
+    }
+
+    check_size("Float", value, constraints)?;
+    Ok(parsed)
+}
+
 fn render_binary_data_element(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
     let Some(payload) = value.strip_prefix('B') else {
         return Err(HbciError::new(
@@ -228,6 +395,41 @@ fn render_binary_data_element(value: &str, constraints: DataTypeConstraints) -> 
 
     check_size("Bin", payload, constraints)?;
     Ok(format!("@{}@{}", payload.len(), payload))
+}
+
+fn parse_binary_data_element(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
+    if !value.starts_with('@') {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid Bin data element value: {value}"),
+        ));
+    }
+    let Some(length_end) = value[1..].find('@').map(|index| index + 1) else {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid Bin data element value: {value}"),
+        ));
+    };
+
+    let length = value[1..length_end].parse::<usize>().map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid Bin data element length: {value}"),
+            err,
+        )
+    })?;
+    let payload_start = length_end + 1;
+    let payload_end = payload_start + length;
+    if payload_end > value.len() || !value.is_char_boundary(payload_end) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("truncated Bin data element value: {value}"),
+        ));
+    }
+
+    let payload = &value[payload_start..payload_end];
+    check_size("Bin", payload, constraints)?;
+    Ok(payload.to_owned())
 }
 
 fn require_ascii_digits(type_name: &str, value: &str) -> HbciResult<()> {
@@ -368,6 +570,51 @@ mod tests {
         assert!(
             render_data_element("Wrt", "123456789012345.6", DataTypeConstraints::default())
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn parses_date_and_time_values() {
+        assert_eq!(
+            parse_data_element("Date", "20240229", DataTypeConstraints::default())
+                .expect("date parses"),
+            "2024-02-29"
+        );
+        assert_eq!(
+            parse_data_element("Time", "070809", DataTypeConstraints::default())
+                .expect("time parses"),
+            "07:08:09"
+        );
+
+        assert!(parse_data_element("Date", "20230229", DataTypeConstraints::default()).is_err());
+        assert!(parse_data_element("Time", "240000", DataTypeConstraints::default()).is_err());
+    }
+
+    #[test]
+    fn parses_core_wire_datatypes() {
+        assert_eq!(
+            parse_data_element("Num", "7", DataTypeConstraints::default()).expect("num parses"),
+            "7"
+        );
+        assert!(parse_data_element("Num", "007", DataTypeConstraints::default()).is_err());
+        assert_eq!(
+            parse_data_element("Dig", "007", DataTypeConstraints::default()).expect("dig parses"),
+            "007"
+        );
+        assert_eq!(
+            parse_data_element("Ctr", "280", DataTypeConstraints::default())
+                .expect("country parses"),
+            "DE"
+        );
+        assert_eq!(
+            parse_data_element("Float", "12,3", DataTypeConstraints::default())
+                .expect("float parses"),
+            "12.3"
+        );
+        assert_eq!(
+            parse_data_element("Bin", "@5@A+B:C", DataTypeConstraints::default())
+                .expect("binary parses"),
+            "A+B:C"
         );
     }
 }
