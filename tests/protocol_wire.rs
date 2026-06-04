@@ -358,6 +358,44 @@ fn rejects_wire_messages_that_do_not_match_the_message_definition() {
 }
 
 #[test]
+fn skips_absent_optional_syntax_functions_in_message_mapping() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Initialisiert'HNHBS:3:1+1'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved
+        .values_for_message(&syntax, "DialogInitRes")
+        .expect("message values extract");
+
+    assert_eq!(
+        values
+            .get("DialogInitRes.MsgHead.SegHead.code")
+            .map(String::as_str),
+        Some("HNHBK")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.RetGlob.RetVal.text")
+            .map(String::as_str),
+        Some("Initialisiert")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.MsgTail.msgnum")
+            .map(String::as_str),
+        Some("1")
+    );
+}
+
+#[test]
 fn validates_resolved_segment_sequence_numbers() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

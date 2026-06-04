@@ -327,6 +327,9 @@ fn collect_message_segments<'syntax, 'wire>(
                 collect_message_segment_child(syntax, child, parent_path, cursor, values)?;
             }
             SyntaxChildKind::Sf => {
+                if occurrence_min(child)? == 0 {
+                    continue;
+                }
                 return Err(HbciError::new(
                     HbciErrorKind::Unsupported,
                     format!(
