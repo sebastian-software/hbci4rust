@@ -528,6 +528,50 @@ fn extracts_values_from_gvres_syntax_function() {
 }
 
 #[test]
+fn extracts_retseg_before_gvres_syntax_function() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+2+DIALOG0:1'HIRMG:2:2+0010::OK'HIRMS:3:2+0020:4:Saldo bereitgestellt'HISAL:4:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605'HNHBS:5:1+2'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved
+        .values_for_message(&syntax, "CustomMsgRes")
+        .expect("message values extract");
+
+    assert_eq!(
+        values
+            .get("CustomMsgRes.RetSeg.RetVal.ref")
+            .map(String::as_str),
+        Some("4")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.RetSeg.RetVal.text")
+            .map(String::as_str),
+        Some("Saldo bereitgestellt")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.SegHead.seq")
+            .map(String::as_str),
+        Some("4")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.booked.BTG.value")
+            .map(String::as_str),
+        Some("123.45")
+    );
+}
+
+#[test]
 fn suffixes_repeated_gvres_syntax_function_roots() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
