@@ -592,7 +592,7 @@ fn extracts_values_from_present_optional_syntax_functions() {
         .parse_syntax()
         .expect("syntax parses");
     let message = parse_wire_message(
-        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Initialisiert'HIBPA:3:3+3+280:12345678+Bank+1+1+300'HNHBS:4:1+1'",
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Initialisiert'HIBPA:3:3+3+280:12345678+Bank+1+1+300'HIKPV:4:1+0:1'HNHBS:5:1+1'",
     )
     .expect("wire message parses");
     let resolved = message
@@ -626,6 +626,24 @@ fn extracts_values_from_present_optional_syntax_functions() {
             .get("DialogInitRes.BPD.BPA.SuppVersions.version")
             .map(String::as_str),
         Some("300")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.CompMethod.SegHead.code")
+            .map(String::as_str),
+        Some("HIKPV")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.CompMethod.SuppCompMethods.func")
+            .map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.CompMethod.SuppCompMethods.version")
+            .map(String::as_str),
+        Some("1")
     );
     assert_eq!(
         values
