@@ -72,6 +72,12 @@ impl HbciMessage {
             })
             .collect()
     }
+
+    pub fn to_fints_string(&self) -> HbciResult<String> {
+        self.root
+            .render(None, true)
+            .map(|rendered| rendered.unwrap_or_default())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +169,11 @@ impl SyntaxElement {
         &self.children
     }
 
+    pub fn to_fints_string(&self) -> HbciResult<String> {
+        self.render(None, true)
+            .map(|rendered| rendered.unwrap_or_default())
+    }
+
     pub fn element(&self, path: &str) -> Option<&SyntaxElement> {
         if self.path == path {
             return Some(self);
@@ -231,6 +242,148 @@ impl SyntaxElement {
 
         for child in &self.children {
             child.collect_values(values);
+        }
+    }
+
+    fn has_any_value(&self) -> bool {
+        self.value.is_some() || self.requested || self.children.iter().any(Self::has_any_value)
+    }
+
+    fn render(
+        &self,
+        parent_kind: Option<SyntaxElementKind>,
+        required: bool,
+    ) -> HbciResult<Option<String>> {
+        if self.needs_request_tag && !self.requested {
+            return Ok(None);
+        }
+
+        match self.kind {
+            SyntaxElementKind::De => self.render_de(required),
+            SyntaxElementKind::Msg => self.render_msg(),
+            SyntaxElementKind::Seg => {
+                self.render_delimited_children(parent_kind, '+', true, required)
+            }
+            SyntaxElementKind::Deg => {
+                let trim_trailing = parent_kind != Some(SyntaxElementKind::Deg);
+                self.render_delimited_children(parent_kind, ':', trim_trailing, required)
+            }
+            SyntaxElementKind::Sf => self.render_concatenated_children(required),
+        }
+    }
+
+    fn render_de(&self, required: bool) -> HbciResult<Option<String>> {
+        match &self.value {
+            Some(value) => Ok(Some(render_data_element(&self.type_name, value)?)),
+            None if required => Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!("message element {} has no value", self.path),
+            )),
+            None => Ok(None),
+        }
+    }
+
+    fn render_msg(&self) -> HbciResult<Option<String>> {
+        let mut rendered = String::new();
+        for child in &self.children {
+            match child.render_optional_aware(Some(self.kind))? {
+                Some(child_rendered) => rendered.push_str(&child_rendered),
+                None if child.min_num > 0 => {
+                    return Err(HbciError::new(
+                        HbciErrorKind::Protocol,
+                        format!("required message element {} is not renderable", child.path),
+                    ));
+                }
+                None => {}
+            }
+        }
+        Ok(Some(rendered))
+    }
+
+    fn render_concatenated_children(&self, required: bool) -> HbciResult<Option<String>> {
+        let mut rendered = String::new();
+        let mut has_rendered_child = false;
+
+        for child in &self.children {
+            match child.render_optional_aware(Some(self.kind))? {
+                Some(child_rendered) => {
+                    has_rendered_child = true;
+                    rendered.push_str(&child_rendered);
+                }
+                None if child.min_num > 0 => {
+                    return Err(HbciError::new(
+                        HbciErrorKind::Protocol,
+                        format!("required message element {} is not renderable", child.path),
+                    ));
+                }
+                None => {}
+            }
+        }
+
+        if has_rendered_child || required {
+            Ok(Some(rendered))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn render_delimited_children(
+        &self,
+        parent_kind: Option<SyntaxElementKind>,
+        delimiter: char,
+        trim_trailing_empty: bool,
+        required: bool,
+    ) -> HbciResult<Option<String>> {
+        let mut rendered_children = Vec::with_capacity(self.children.len());
+        let mut has_rendered_child = false;
+
+        for child in &self.children {
+            match child.render_optional_aware(Some(self.kind))? {
+                Some(rendered) => {
+                    has_rendered_child |= !rendered.is_empty();
+                    rendered_children.push(rendered);
+                }
+                None if child.min_num > 0 => {
+                    return Err(HbciError::new(
+                        HbciErrorKind::Protocol,
+                        format!("required message element {} is not renderable", child.path),
+                    ));
+                }
+                None => rendered_children.push(String::new()),
+            }
+        }
+
+        if trim_trailing_empty {
+            while rendered_children.last().is_some_and(String::is_empty) {
+                rendered_children.pop();
+            }
+        }
+
+        if !has_rendered_child && !required {
+            return Ok(None);
+        }
+
+        let mut rendered = rendered_children.join(&delimiter.to_string());
+        if self.kind == SyntaxElementKind::Seg {
+            rendered.push('\'');
+        }
+
+        if rendered.is_empty() && parent_kind.is_some() && !required {
+            Ok(None)
+        } else {
+            Ok(Some(rendered))
+        }
+    }
+
+    fn render_optional_aware(
+        &self,
+        parent_kind: Option<SyntaxElementKind>,
+    ) -> HbciResult<Option<String>> {
+        let required = self.min_num > 0;
+        match self.render(parent_kind, required) {
+            Ok(rendered) => Ok(rendered),
+            Err(_) if !required && !self.has_any_value() => Ok(None),
+            Err(err) => Err(err),
         }
     }
 }
@@ -482,4 +635,35 @@ fn with_counter(name: &str, index: usize) -> String {
     } else {
         format!("{name}_{}", index + 1)
     }
+}
+
+fn render_data_element(type_name: &str, value: &str) -> HbciResult<String> {
+    if type_name == "Bin" {
+        return render_binary_data_element(value);
+    }
+
+    Ok(quote_data_element(value))
+}
+
+fn quote_data_element(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '+' | ':' | '\'' | '?' | '@' => quoted.push('?'),
+            _ => {}
+        }
+        quoted.push(character);
+    }
+    quoted
+}
+
+fn render_binary_data_element(value: &str) -> HbciResult<String> {
+    let Some(payload) = value.strip_prefix('B') else {
+        return Err(HbciError::new(
+            HbciErrorKind::Unsupported,
+            "numeric binary data element rendering is not ported yet",
+        ));
+    };
+
+    Ok(format!("@{}@{}", payload.len(), payload))
 }
