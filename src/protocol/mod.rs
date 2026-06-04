@@ -1,3 +1,10 @@
+mod model;
+
+pub use model::{
+    DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition, SyntaxValidSet,
+    SyntaxValue,
+};
+
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
 pub const HBCI_DTD: &str = include_str!("../../resources/protocol/hbci.dtd");
@@ -9,6 +16,10 @@ pub struct ProtocolSpec {
 }
 
 impl ProtocolSpec {
+    pub fn parse_syntax(&self) -> HbciResult<ProtocolSyntax> {
+        ProtocolSyntax::parse(self)
+    }
+
     pub fn deg_definition_count(&self) -> HbciResult<usize> {
         self.definition_count(b"DEGdef")
     }
