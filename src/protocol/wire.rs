@@ -1,4 +1,6 @@
-use super::{ProtocolSyntax, SyntaxDefinition};
+use std::collections::BTreeMap;
+
+use super::{DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +102,19 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
     pub fn version(&self) -> Option<&str> {
         self.wire_segment.version()
     }
+
+    pub fn values(&self, syntax: &ProtocolSyntax) -> HbciResult<BTreeMap<String, String>> {
+        let mut values = BTreeMap::new();
+        let mut cursor = FieldCursor::new(self.wire_segment.fields());
+        collect_fields(
+            syntax,
+            self.definition.children.as_slice(),
+            &self.definition.id,
+            &mut cursor,
+            &mut values,
+        )?;
+        Ok(values)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +172,327 @@ impl WireField {
 pub fn parse_wire_message(input: &str) -> HbciResult<WireMessage> {
     let mut parser = WireParser::new(input);
     parser.parse()
+}
+
+fn collect_fields(
+    syntax: &ProtocolSyntax,
+    children: &[SyntaxChild],
+    parent_path: &str,
+    cursor: &mut FieldCursor<'_>,
+    values: &mut BTreeMap<String, String>,
+) -> HbciResult<()> {
+    for (child_index, child) in children.iter().enumerate() {
+        let min_num = occurrence_min(child)?;
+        let max_num = occurrence_max(child)?;
+        let min_rest = minimum_field_slots(&children[child_index + 1..])?;
+        let mut occurrence_index = 0;
+
+        while occurrence_index < max_num
+            && cursor.remaining() > 0
+            && (occurrence_index < min_num || cursor.remaining() > min_rest)
+        {
+            let path = child_path(parent_path, child, occurrence_index);
+            let field = cursor.next().expect("remaining field exists");
+            collect_field_child(syntax, child, &path, field, values)?;
+            occurrence_index += 1;
+        }
+
+        if occurrence_index < min_num {
+            return Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "FinTS segment field {} is missing required value at {parent_path}",
+                    child_display_name(child),
+                ),
+            ));
+        }
+    }
+
+    if cursor.remaining() != 0 {
+        return Err(HbciError::new(
+            HbciErrorKind::Protocol,
+            format!("{parent_path} has trailing FinTS fields"),
+        ));
+    }
+
+    Ok(())
+}
+
+fn collect_field_child(
+    syntax: &ProtocolSyntax,
+    child: &SyntaxChild,
+    path: &str,
+    field: &WireField,
+    values: &mut BTreeMap<String, String>,
+) -> HbciResult<()> {
+    match child.kind {
+        SyntaxChildKind::De => {
+            let Some(value) = field.value() else {
+                return Err(HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("{path} expected one FinTS field value"),
+                ));
+            };
+            insert_value(values, path, value)
+        }
+        SyntaxChildKind::Deg => {
+            let definition = referenced_definition(syntax, child, DefinitionKind::Deg)?;
+            let mut cursor = ComponentCursor::new(field.components());
+            collect_components(
+                syntax,
+                definition.children.as_slice(),
+                path,
+                &mut cursor,
+                values,
+            )?;
+            if cursor.remaining() != 0 {
+                return Err(HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("{path} has trailing FinTS data-element components"),
+                ));
+            }
+            Ok(())
+        }
+        SyntaxChildKind::Seg | SyntaxChildKind::Sf | SyntaxChildKind::EntityRef => {
+            Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "unsupported FinTS field child {} in {path}",
+                    child_display_name(child),
+                ),
+            ))
+        }
+    }
+}
+
+fn collect_components(
+    syntax: &ProtocolSyntax,
+    children: &[SyntaxChild],
+    parent_path: &str,
+    cursor: &mut ComponentCursor<'_>,
+    values: &mut BTreeMap<String, String>,
+) -> HbciResult<()> {
+    for (child_index, child) in children.iter().enumerate() {
+        let min_num = occurrence_min(child)?;
+        let max_num = occurrence_max(child)?;
+        let min_rest = minimum_component_slots(syntax, &children[child_index + 1..])?;
+        let mut occurrence_index = 0;
+
+        while occurrence_index < max_num
+            && cursor.remaining() > 0
+            && (occurrence_index < min_num || cursor.remaining() > min_rest)
+        {
+            let path = child_path(parent_path, child, occurrence_index);
+            collect_component_child(syntax, child, &path, cursor, values)?;
+            occurrence_index += 1;
+        }
+
+        if occurrence_index < min_num {
+            return Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "FinTS data-element component {} is missing required value at {parent_path}",
+                    child_display_name(child),
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_component_child(
+    syntax: &ProtocolSyntax,
+    child: &SyntaxChild,
+    path: &str,
+    cursor: &mut ComponentCursor<'_>,
+    values: &mut BTreeMap<String, String>,
+) -> HbciResult<()> {
+    match child.kind {
+        SyntaxChildKind::De => {
+            let value = cursor.next().ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("{path} expected a FinTS data-element component"),
+                )
+            })?;
+            insert_value(values, path, value)
+        }
+        SyntaxChildKind::Deg => {
+            let definition = referenced_definition(syntax, child, DefinitionKind::Deg)?;
+            collect_components(syntax, definition.children.as_slice(), path, cursor, values)
+        }
+        SyntaxChildKind::Seg | SyntaxChildKind::Sf | SyntaxChildKind::EntityRef => {
+            Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "unsupported FinTS component child {} in {path}",
+                    child_display_name(child),
+                ),
+            ))
+        }
+    }
+}
+
+fn minimum_field_slots(children: &[SyntaxChild]) -> HbciResult<usize> {
+    children
+        .iter()
+        .map(occurrence_min)
+        .try_fold(0usize, |total, min_num| {
+            min_num.map(|min_num| total.saturating_add(min_num))
+        })
+}
+
+fn minimum_component_slots(syntax: &ProtocolSyntax, children: &[SyntaxChild]) -> HbciResult<usize> {
+    let mut total = 0usize;
+
+    for child in children {
+        let min_num = occurrence_min(child)?;
+        let child_min = match child.kind {
+            SyntaxChildKind::De => 1,
+            SyntaxChildKind::Deg => {
+                let definition = referenced_definition(syntax, child, DefinitionKind::Deg)?;
+                minimum_component_slots(syntax, definition.children.as_slice())?
+            }
+            SyntaxChildKind::Seg | SyntaxChildKind::Sf | SyntaxChildKind::EntityRef => 0,
+        };
+        total = total.saturating_add(min_num.saturating_mul(child_min));
+    }
+
+    Ok(total)
+}
+
+fn referenced_definition<'a>(
+    syntax: &'a ProtocolSyntax,
+    child: &SyntaxChild,
+    expected_kind: DefinitionKind,
+) -> HbciResult<&'a SyntaxDefinition> {
+    let definition = syntax.definition(&child.type_name).ok_or_else(|| {
+        HbciError::new(
+            HbciErrorKind::Protocol,
+            format!(
+                "protocol definition {} is not defined",
+                child_display_name(child),
+            ),
+        )
+    })?;
+
+    if definition.kind != expected_kind {
+        return Err(HbciError::new(
+            HbciErrorKind::Protocol,
+            format!(
+                "protocol definition {} has unexpected kind",
+                child_display_name(child),
+            ),
+        ));
+    }
+
+    Ok(definition)
+}
+
+fn occurrence_min(child: &SyntaxChild) -> HbciResult<usize> {
+    parse_occurrence(&child.min_num, 1, "minnum", child)
+}
+
+fn occurrence_max(child: &SyntaxChild) -> HbciResult<usize> {
+    match parse_occurrence(&child.max_num, 1, "maxnum", child)? {
+        0 => Ok(usize::MAX),
+        value => Ok(value),
+    }
+}
+
+fn parse_occurrence(
+    value: &Option<String>,
+    default_value: usize,
+    attribute_name: &str,
+    child: &SyntaxChild,
+) -> HbciResult<usize> {
+    let Some(value) = value else {
+        return Ok(default_value);
+    };
+
+    value.parse::<usize>().map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            format!(
+                "invalid {attribute_name} on protocol child {}",
+                child_display_name(child),
+            ),
+            err,
+        )
+    })
+}
+
+fn child_path(parent_path: &str, child: &SyntaxChild, occurrence_index: usize) -> String {
+    let name = child_name(child);
+    if occurrence_index == 0 {
+        format!("{parent_path}.{name}")
+    } else {
+        format!("{parent_path}.{name}_{}", occurrence_index + 1)
+    }
+}
+
+fn child_name(child: &SyntaxChild) -> &str {
+    child.name.as_deref().unwrap_or(&child.type_name)
+}
+
+fn child_display_name(child: &SyntaxChild) -> &str {
+    child.name.as_deref().unwrap_or(&child.type_name)
+}
+
+fn insert_value(values: &mut BTreeMap<String, String>, path: &str, value: &str) -> HbciResult<()> {
+    if values.insert(path.to_owned(), value.to_owned()).is_some() {
+        return Err(HbciError::new(
+            HbciErrorKind::Protocol,
+            format!("FinTS value path {path} was parsed more than once"),
+        ));
+    }
+    Ok(())
+}
+
+struct FieldCursor<'a> {
+    fields: &'a [WireField],
+    index: usize,
+}
+
+impl<'a> FieldCursor<'a> {
+    fn new(fields: &'a [WireField]) -> Self {
+        Self { fields, index: 0 }
+    }
+
+    fn remaining(&self) -> usize {
+        self.fields.len().saturating_sub(self.index)
+    }
+
+    fn next(&mut self) -> Option<&'a WireField> {
+        let field = self.fields.get(self.index)?;
+        self.index += 1;
+        Some(field)
+    }
+}
+
+struct ComponentCursor<'a> {
+    components: &'a [String],
+    index: usize,
+}
+
+impl<'a> ComponentCursor<'a> {
+    fn new(components: &'a [String]) -> Self {
+        Self {
+            components,
+            index: 0,
+        }
+    }
+
+    fn remaining(&self) -> usize {
+        self.components.len().saturating_sub(self.index)
+    }
+
+    fn next(&mut self) -> Option<&'a str> {
+        let component = self.components.get(self.index)?;
+        self.index += 1;
+        Some(component)
+    }
 }
 
 struct WireParser<'a> {

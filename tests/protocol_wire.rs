@@ -79,6 +79,124 @@ fn resolves_wire_segments_to_protocol_definitions() {
 }
 
 #[test]
+fn extracts_flat_values_from_resolved_message_head_segment() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message("HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'")
+        .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved.segments()[0]
+        .values(&syntax)
+        .expect("segment values extract");
+
+    assert_eq!(
+        values.get("MsgHeadInst.SegHead.code").map(String::as_str),
+        Some("HNHBK")
+    );
+    assert_eq!(
+        values.get("MsgHeadInst.SegHead.seq").map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        values
+            .get("MsgHeadInst.SegHead.version")
+            .map(String::as_str),
+        Some("3")
+    );
+    assert_eq!(
+        values.get("MsgHeadInst.msgsize").map(String::as_str),
+        Some("000000000123")
+    );
+    assert_eq!(
+        values.get("MsgHeadInst.dialogid").map(String::as_str),
+        Some("DIALOG1")
+    );
+    assert_eq!(
+        values.get("MsgHeadInst.msgnum").map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        values
+            .get("MsgHeadInst.MsgRef.dialogid")
+            .map(String::as_str),
+        Some("DIALOG0")
+    );
+    assert_eq!(
+        values.get("MsgHeadInst.MsgRef.msgnum").map(String::as_str),
+        Some("1")
+    );
+}
+
+#[test]
+fn extracts_flat_values_from_repeated_data_element_groups() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HIRMG:2:2+0010::Nachricht erhalten+0020:ABC:Zweite Meldung:param1:param2'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved.segments()[0]
+        .values(&syntax)
+        .expect("segment values extract");
+
+    assert_eq!(
+        values.get("RetGlob.SegHead.code").map(String::as_str),
+        Some("HIRMG")
+    );
+    assert_eq!(
+        values.get("RetGlob.SegHead.seq").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        values.get("RetGlob.SegHead.version").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal.code").map(String::as_str),
+        Some("0010")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal.ref").map(String::as_str),
+        Some("")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal.text").map(String::as_str),
+        Some("Nachricht erhalten")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal_2.code").map(String::as_str),
+        Some("0020")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal_2.ref").map(String::as_str),
+        Some("ABC")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal_2.text").map(String::as_str),
+        Some("Zweite Meldung")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal_2.parm").map(String::as_str),
+        Some("param1")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal_2.parm_2").map(String::as_str),
+        Some("param2")
+    );
+}
+
+#[test]
 fn rejects_unknown_or_incomplete_segment_headers_during_resolution() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
