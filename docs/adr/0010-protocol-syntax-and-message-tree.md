@@ -52,8 +52,9 @@ Rendering follows hbci4java's `toString(0)` structure:
   mirroring hbci4java's `org.kapott.hbci.datatypes.Syntax*` split.
 - The first datatype slice ports render-time behavior for `AN`, `Code`, `ID`,
   `Num`, `Dig`, `Ctr`, `Cur`, and `Bin` in its hbci4java `B...` input form.
-  Numeric `Bin` input (`N...`) and richer date/time/amount conversions remain
-  later datatype-port slices.
+- The second datatype slice adds render-time behavior for `Date`, `Time`,
+  `Float`, and `Wrt`. Numeric `Bin` input (`N...`) and remaining specialized
+  datatypes remain later datatype-port slices.
 
 Outgoing message preparation follows hbci4java's order closely:
 
@@ -89,6 +90,10 @@ only after original-near parity tests are green.
 - Upstream: `org.kapott.hbci.datatypes.SyntaxAN`
 - Upstream: `org.kapott.hbci.datatypes.SyntaxBin`
 - Upstream: `org.kapott.hbci.datatypes.SyntaxCtr`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxDate`
 - Upstream: `org.kapott.hbci.datatypes.SyntaxDig`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxFloat`
 - Upstream: `org.kapott.hbci.datatypes.SyntaxID`
 - Upstream: `org.kapott.hbci.datatypes.SyntaxNum`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxTime`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxWrt`
