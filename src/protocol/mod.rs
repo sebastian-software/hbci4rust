@@ -1,8 +1,10 @@
+mod message;
 mod model;
 
+pub use message::{HbciMessage, SyntaxElement, SyntaxElementKind};
 pub use model::{
-    DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition, SyntaxValidSet,
-    SyntaxValue,
+    DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition, SyntaxEntity,
+    SyntaxValidSet, SyntaxValue,
 };
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
