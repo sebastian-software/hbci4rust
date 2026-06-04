@@ -420,6 +420,12 @@ fn render_numeric_binary_payload(value: &str) -> HbciResult<String> {
 }
 
 fn positive_decimal_to_java_big_integer_bytes(value: &str) -> HbciResult<Vec<u8>> {
+    if value.is_empty() {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "Bin numeric data element value must not be empty",
+        ));
+    }
     require_ascii_digits("Bin", value)?;
     let mut digits: Vec<u8> = value.bytes().map(|byte| byte - b'0').collect();
     while digits.len() > 1 && digits.first() == Some(&0) {
@@ -647,6 +653,7 @@ mod tests {
                 .message()
                 .contains("not UTF-8 representable")
         );
+        assert!(render_data_element("Bin", "N", DataTypeConstraints::default()).is_err());
     }
 
     #[test]
