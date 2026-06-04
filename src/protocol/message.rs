@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use super::datatype::{DataTypeConstraints, render_data_element};
 use super::{
     DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition, SyntaxValidSet,
     SyntaxValue,
@@ -161,8 +162,8 @@ impl SyntaxElement {
     }
 
     fn with_sizes(mut self, child: &SyntaxChild) -> HbciResult<Self> {
-        self.min_size = parse_optional_usize_attr(&child.min_size, "minsize")?;
-        self.max_size = parse_optional_usize_attr(&child.max_size, "maxsize")?;
+        self.min_size = Some(parse_optional_usize_attr(&child.min_size, "minsize")?.unwrap_or(1));
+        self.max_size = Some(parse_optional_usize_attr(&child.max_size, "maxsize")?.unwrap_or(0));
         Ok(self)
     }
 
@@ -379,7 +380,14 @@ impl SyntaxElement {
 
     fn render_de(&self, required: bool) -> HbciResult<Option<String>> {
         match &self.value {
-            Some(value) => Ok(Some(render_data_element(&self.type_name, value)?)),
+            Some(value) => Ok(Some(render_data_element(
+                &self.type_name,
+                value,
+                DataTypeConstraints {
+                    min_size: self.min_size,
+                    max_size: self.max_size,
+                },
+            )?)),
             None if required => Err(HbciError::new(
                 HbciErrorKind::Protocol,
                 format!("message element {} has no value", self.path),
@@ -759,35 +767,4 @@ fn with_counter(name: &str, index: usize) -> String {
     } else {
         format!("{name}_{}", index + 1)
     }
-}
-
-fn render_data_element(type_name: &str, value: &str) -> HbciResult<String> {
-    if type_name == "Bin" {
-        return render_binary_data_element(value);
-    }
-
-    Ok(quote_data_element(value))
-}
-
-fn quote_data_element(value: &str) -> String {
-    let mut quoted = String::with_capacity(value.len());
-    for character in value.chars() {
-        match character {
-            '+' | ':' | '\'' | '?' | '@' => quoted.push('?'),
-            _ => {}
-        }
-        quoted.push(character);
-    }
-    quoted
-}
-
-fn render_binary_data_element(value: &str) -> HbciResult<String> {
-    let Some(payload) = value.strip_prefix('B') else {
-        return Err(HbciError::new(
-            HbciErrorKind::Unsupported,
-            "numeric binary data element rendering is not ported yet",
-        ));
-    };
-
-    Ok(format!("@{}@{}", payload.len(), payload))
 }

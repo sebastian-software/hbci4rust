@@ -109,7 +109,7 @@ fn renders_dialog_end_with_original_delimiters() {
             ("DialogEnd.SigHead.HashAlg.alg", "999"),
             ("DialogEnd.SigHead.SigAlg.alg", "10"),
             ("DialogEnd.SigHead.SigAlg.mode", "16"),
-            ("DialogEnd.SigHead.KeyName.KIK.country", "280"),
+            ("DialogEnd.SigHead.KeyName.KIK.country", "DE"),
             ("DialogEnd.SigHead.KeyName.userid", "user"),
             ("DialogEnd.SigHead.KeyName.keynum", "1"),
             ("DialogEnd.SigHead.KeyName.keyversion", "1"),
@@ -169,6 +169,56 @@ fn renders_hbci_quoted_data_element_values() {
         .expect("segment renders");
 
     assert_eq!(rendered, "HNHBK:1:3+000000000000+300+DIALOG?+1+1'");
+}
+
+#[test]
+fn renders_core_datatypes_like_hbci4java() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("DialogEnd.MsgHead.SegHead.seq", "0007"),
+            ("DialogEnd.MsgHead.msgsize", "42"),
+            ("DialogEnd.MsgHead.dialogid", " DIALOG+1 "),
+            ("DialogEnd.MsgHead.msgnum", "0002"),
+        ],
+    );
+
+    let rendered = message
+        .element("DialogEnd.MsgHead")
+        .expect("MsgHead segment exists")
+        .to_fints_string()
+        .expect("segment renders");
+
+    assert_eq!(rendered, "HNHBK:7:3+000000000042+300+DIALOG?+1+2'");
+}
+
+#[test]
+fn rejects_unknown_country_datatype_values() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+
+    message
+        .set_value("DialogEnd.SigHead.KeyName.KIK.country", "280")
+        .expect("country path exists");
+
+    assert!(
+        message
+            .element("DialogEnd.SigHead.KeyName.KIK")
+            .expect("KIK data-element group exists")
+            .to_fints_string()
+            .is_err()
+    );
 }
 
 fn set_all<'a>(message: &mut HbciMessage, values: impl IntoIterator<Item = (&'a str, &'a str)>) {
