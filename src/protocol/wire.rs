@@ -128,6 +128,44 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
 
         Ok(values)
     }
+
+    pub fn values_for_message(
+        &self,
+        syntax: &ProtocolSyntax,
+        message_name: &str,
+    ) -> HbciResult<BTreeMap<String, String>> {
+        let message_definition = syntax.definition(message_name).ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::Protocol,
+                format!("message definition {message_name} is not defined"),
+            )
+        })?;
+        if message_definition.kind != DefinitionKind::Msg {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("definition {message_name} is not a message definition"),
+            ));
+        }
+
+        let mut values = BTreeMap::new();
+        let mut cursor = SegmentCursor::new(self.segments());
+        collect_message_segments(
+            syntax,
+            message_definition.children.as_slice(),
+            message_name,
+            &mut cursor,
+            &mut values,
+        )?;
+
+        if cursor.remaining() != 0 {
+            return Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!("{message_name} has trailing FinTS segments"),
+            ));
+        }
+
+        Ok(values)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,11 +235,20 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
         syntax: &ProtocolSyntax,
         root: &str,
     ) -> HbciResult<BTreeMap<String, String>> {
+        self.values_with_definition_and_root(syntax, self.definition, root)
+    }
+
+    fn values_with_definition_and_root(
+        &self,
+        syntax: &ProtocolSyntax,
+        definition: &SyntaxDefinition,
+        root: &str,
+    ) -> HbciResult<BTreeMap<String, String>> {
         let mut values = BTreeMap::new();
         let mut cursor = FieldCursor::new(self.wire_segment.fields());
         collect_fields(
             syntax,
-            self.definition.children.as_slice(),
+            definition.children.as_slice(),
             root,
             &mut cursor,
             &mut values,
@@ -265,6 +312,95 @@ impl WireField {
 pub fn parse_wire_message(input: &str) -> HbciResult<WireMessage> {
     let mut parser = WireParser::new(input);
     parser.parse()
+}
+
+fn collect_message_segments<'syntax, 'wire>(
+    syntax: &'syntax ProtocolSyntax,
+    children: &[SyntaxChild],
+    parent_path: &str,
+    cursor: &mut SegmentCursor<'syntax, 'wire>,
+    values: &mut BTreeMap<String, String>,
+) -> HbciResult<()> {
+    for child in children {
+        match child.kind {
+            SyntaxChildKind::Seg => {
+                collect_message_segment_child(syntax, child, parent_path, cursor, values)?;
+            }
+            SyntaxChildKind::Sf => {
+                return Err(HbciError::new(
+                    HbciErrorKind::Unsupported,
+                    format!(
+                        "message parsing for nested syntax function {} is not ported yet",
+                        child_display_name(child),
+                    ),
+                ));
+            }
+            SyntaxChildKind::De | SyntaxChildKind::Deg | SyntaxChildKind::EntityRef => {
+                return Err(HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!(
+                        "unsupported message child {} in {parent_path}",
+                        child_display_name(child),
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_message_segment_child<'syntax, 'wire>(
+    syntax: &'syntax ProtocolSyntax,
+    child: &SyntaxChild,
+    parent_path: &str,
+    cursor: &mut SegmentCursor<'syntax, 'wire>,
+    values: &mut BTreeMap<String, String>,
+) -> HbciResult<()> {
+    let definition = referenced_definition(syntax, child, DefinitionKind::Seg)?;
+    let min_num = occurrence_min(child)?;
+    let max_num = occurrence_max(child)?;
+    let mut occurrence_index = 0;
+
+    while occurrence_index < max_num {
+        let Some(segment) = cursor.peek() else {
+            break;
+        };
+        if !segment_matches_definition(segment, definition) {
+            break;
+        }
+
+        let segment = cursor.next().expect("peeked segment exists");
+        let root = child_path(parent_path, child, occurrence_index);
+        for (path, value) in segment.values_with_definition_and_root(syntax, definition, &root)? {
+            if values.insert(path.clone(), value).is_some() {
+                return Err(HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("FinTS message value path {path} was parsed more than once"),
+                ));
+            }
+        }
+        occurrence_index += 1;
+    }
+
+    if occurrence_index < min_num {
+        return Err(HbciError::new(
+            HbciErrorKind::Protocol,
+            format!(
+                "FinTS message segment {} is missing required value at {parent_path}",
+                child_display_name(child),
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn segment_matches_definition(
+    segment: &ResolvedWireSegment<'_, '_>,
+    definition: &SyntaxDefinition,
+) -> bool {
+    segment.code() == definition.segment_code() && segment.version() == definition.segment_version()
 }
 
 fn collect_fields(
@@ -625,6 +761,31 @@ impl<'a> ComponentCursor<'a> {
         let component = self.components.get(self.index)?;
         self.index += 1;
         Some(component)
+    }
+}
+
+struct SegmentCursor<'syntax, 'wire> {
+    segments: &'wire [ResolvedWireSegment<'syntax, 'wire>],
+    index: usize,
+}
+
+impl<'syntax, 'wire> SegmentCursor<'syntax, 'wire> {
+    fn new(segments: &'wire [ResolvedWireSegment<'syntax, 'wire>]) -> Self {
+        Self { segments, index: 0 }
+    }
+
+    fn remaining(&self) -> usize {
+        self.segments.len().saturating_sub(self.index)
+    }
+
+    fn peek(&self) -> Option<&'wire ResolvedWireSegment<'syntax, 'wire>> {
+        self.segments.get(self.index)
+    }
+
+    fn next(&mut self) -> Option<&'wire ResolvedWireSegment<'syntax, 'wire>> {
+        let segment = self.segments.get(self.index)?;
+        self.index += 1;
+        Some(segment)
     }
 }
 

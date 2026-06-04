@@ -294,6 +294,70 @@ fn suffixes_repeated_segment_roots_in_resolved_wire_message_values() {
 }
 
 #[test]
+fn extracts_values_for_direct_segment_message_definitions() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Dialog beendet'HNHBS:3:1+1'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved
+        .values_for_message(&syntax, "DialogEndRes")
+        .expect("message values extract");
+
+    assert_eq!(
+        values
+            .get("DialogEndRes.MsgHead.SegHead.code")
+            .map(String::as_str),
+        Some("HNHBK")
+    );
+    assert_eq!(
+        values
+            .get("DialogEndRes.MsgHead.MsgRef.dialogid")
+            .map(String::as_str),
+        Some("DIALOG0")
+    );
+    assert_eq!(
+        values
+            .get("DialogEndRes.RetGlob.RetVal.text")
+            .map(String::as_str),
+        Some("Dialog beendet")
+    );
+    assert_eq!(
+        values
+            .get("DialogEndRes.MsgTail.msgnum")
+            .map(String::as_str),
+        Some("1")
+    );
+}
+
+#[test]
+fn rejects_wire_messages_that_do_not_match_the_message_definition() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Dialog beendet'HNHBS:3:1+1'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let err = resolved
+        .values_for_message(&syntax, "DialogEnd")
+        .expect_err("wrong message definition is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Protocol);
+}
+
+#[test]
 fn validates_resolved_segment_sequence_numbers() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
