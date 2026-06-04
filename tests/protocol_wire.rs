@@ -654,6 +654,56 @@ fn extracts_values_from_present_optional_syntax_functions() {
 }
 
 #[test]
+fn extracts_values_from_nested_params_syntax_function() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Initialisiert'HIBPA:3:3+3+280:12345678+Bank+1+1+300'HIKPV:4:1+0:1'HIKAZS:5:6+1+1+1+30:J:N'HNHBS:6:1+1'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved
+        .values_for_message(&syntax, "DialogInitRes")
+        .expect("message values extract");
+
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.Params.KUmsZeitPar6.SegHead.code")
+            .map(String::as_str),
+        Some("HIKAZS")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.Params.KUmsZeitPar6.secclass")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.Params.KUmsZeitPar6.ParKUmsZeit.timerange")
+            .map(String::as_str),
+        Some("30")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.Params.KUmsZeitPar6.ParKUmsZeit.canmaxentries")
+            .map(String::as_str),
+        Some("J")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.Params.KUmsZeitPar6.ParKUmsZeit.canallaccounts")
+            .map(String::as_str),
+        Some("N")
+    );
+}
+
+#[test]
 fn validates_resolved_segment_sequence_numbers() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
