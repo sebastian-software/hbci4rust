@@ -1,0 +1,28 @@
+[package]
+name = "hbci4rust"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-2.1-or-later"
+repository = "https://github.com/hbci4j/hbci4java"
+description = "Original-near Rust port scaffold for hbci4java, focused on FinTS PinTAN/HBCI-Plus."
+readme = "README.md"
+
+[dependencies]
+argon2 = { version = "0.5", features = ["std"] }
+async-trait = "0.1"
+chacha20poly1305 = { version = "0.10", features = ["std"] }
+quick-xml = { version = "0.40", features = ["async-tokio", "serialize"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync"] }
+zeroize = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[package.metadata.hbci4rust.upstream]
+repository = "https://github.com/hbci4j/hbci4java.git"
+tag = "hbci4j-core-4.1.11"
+commit = "3b7ce667c73724daa1c836ed7333ed090c21a831"
