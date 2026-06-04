@@ -36,8 +36,23 @@ Build an original-near message tree from the expanded syntax definitions:
   tree during construction.
 
 The first implementation provides tree construction, path lookup, value setting,
-and Java-style data extraction. Delimiter rendering, parsing, validation, segment
-enumeration, and rewrite hooks remain follow-up work.
+Java-style data extraction, and original-near delimiter rendering.
+
+Rendering follows hbci4java's `toString(0)` structure:
+
+- `MSG` and `SF` concatenate their rendered children.
+- `SEG` joins children with `+` and appends `'`.
+- `DEG` joins children with `:`.
+- Trailing empty children are trimmed for `SEG` and for `DEG` unless the `DEG`
+  is nested inside another `DEG`.
+- Incomplete optional complex children may be omitted, matching hbci4java's
+  handling of optional `MultipleSyntaxElements`.
+- Data element values quote FinTS delimiter characters with `?`; `Bin` currently
+  supports the hbci4java `B...` input form and leaves numeric `N...` conversion
+  for a later datatype-port slice.
+
+Full incoming-message parsing, complete datatype validation/conversion, segment
+enumeration, message-size auto-updates, and rewrite hooks remain follow-up work.
 
 ## Consequences
 
@@ -57,3 +72,7 @@ only after original-near parity tests are green.
 - Upstream: `org.kapott.hbci.protocol.SyntaxElement`
 - Upstream: `org.kapott.hbci.protocol.MultipleSyntaxElements`
 - Upstream: `org.kapott.hbci.protocol.MSG`
+- Upstream: `org.kapott.hbci.protocol.SEG`
+- Upstream: `org.kapott.hbci.protocol.DEG`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxAN`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxBin`
