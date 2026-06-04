@@ -1,9 +1,56 @@
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
+pub const HBCI_DTD: &str = include_str!("../../resources/protocol/hbci.dtd");
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolSpec {
     pub version: &'static str,
     pub xml: &'static str,
+}
+
+impl ProtocolSpec {
+    pub fn deg_definition_count(&self) -> HbciResult<usize> {
+        self.definition_count(b"DEGdef")
+    }
+
+    pub fn seg_definition_count(&self) -> HbciResult<usize> {
+        self.definition_count(b"SEGdef")
+    }
+
+    pub fn sf_definition_count(&self) -> HbciResult<usize> {
+        self.definition_count(b"SFdef")
+    }
+
+    pub fn msg_definition_count(&self) -> HbciResult<usize> {
+        self.definition_count(b"MSGdef")
+    }
+
+    fn definition_count(&self, element_name: &[u8]) -> HbciResult<usize> {
+        let mut reader = quick_xml::Reader::from_str(self.xml);
+        reader.config_mut().trim_text(false);
+
+        let mut count = 0;
+        loop {
+            match reader.read_event() {
+                Ok(quick_xml::events::Event::Start(event))
+                | Ok(quick_xml::events::Event::Empty(event)) => {
+                    if event.name().as_ref() == element_name {
+                        count += 1;
+                    }
+                }
+                Ok(quick_xml::events::Event::Eof) => break,
+                Ok(_) => {}
+                Err(err) => {
+                    return Err(HbciError::with_source(
+                        HbciErrorKind::Protocol,
+                        format!("failed to parse HBCI {} protocol spec", self.version),
+                        err,
+                    ));
+                }
+            }
+        }
+        Ok(count)
+    }
 }
 
 pub fn load_protocol_spec(version: &str) -> HbciResult<ProtocolSpec> {
