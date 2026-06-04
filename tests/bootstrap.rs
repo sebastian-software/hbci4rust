@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use hbci4rust::{
     CallbackEvent, CallbackResponse, CommResponse, HbciCallback, HbciHandler, HbciJobResultData,
-    HbciResult, PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, init,
+    HbciResult, Konto, PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, init,
 };
 
 #[derive(Debug)]
@@ -31,6 +31,19 @@ fn custom_msg_response(body_segments: &[&str]) -> CommResponse {
 
 fn custom_msg_ok_response() -> CommResponse {
     custom_msg_response(&["HIRMG:2:2+0010::OK"])
+}
+
+fn giro_account() -> Konto {
+    Konto {
+        country: Some("DE".to_owned()),
+        blz: Some("12345678".to_owned()),
+        number: Some("0001234567".to_owned()),
+        subnumber: None,
+        bic: Some("MARKDEF1100".to_owned()),
+        iban: Some("DE02123456780000000000".to_owned()),
+        account_type: Some("Girokonto".to_owned()),
+        curr: Some("EUR".to_owned()),
+    }
 }
 
 #[test]
@@ -64,6 +77,7 @@ fn rust_native_passport_storage_roundtrips() {
         filter: Some("Base64".to_owned()),
         tan_method: Some("921".to_owned()),
         tan_media: Some("phone".to_owned()),
+        accounts: vec![giro_account()],
     };
 
     let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
@@ -150,7 +164,7 @@ async fn handler_uses_replay_comm_client() {
 }
 
 #[tokio::test]
-async fn handler_rejects_saldo_request_without_iban() {
+async fn handler_rejects_saldo_request_without_account_fallback() {
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
@@ -167,6 +181,40 @@ async fn handler_rejects_saldo_request_without_iban() {
 
     assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
     assert_eq!(replay.requests().expect("requests").len(), 0);
+}
+
+#[tokio::test]
+async fn handler_uses_passport_account_for_saldo_request() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        accounts: vec![giro_account()],
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("SaldoReq").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let Some(HbciJobResultData::SaldoReq(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected SaldoReq result data");
+    };
+    let entry = &result.entries[0];
+    assert_eq!(entry.konto.number.as_deref(), Some("0001234567"));
+    assert_eq!(entry.konto.blz.as_deref(), Some("12345678"));
+    assert_eq!(entry.konto.country.as_deref(), Some("DE"));
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains("HKSAL:2:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N'")
+    );
 }
 
 #[tokio::test]

@@ -112,7 +112,7 @@ where
                     success: http_success && response_status.job_is_ok(segment_sequence),
                     raw_response: raw_response.clone(),
                     return_values: response_status.return_values_for_segment(segment_sequence),
-                    result: response_status.result_for_job(&job, index),
+                    result: response_status.result_for_job(&job, index, &self.passport),
                 }
             })
             .collect::<Vec<_>>();
@@ -137,7 +137,7 @@ where
         message.set_value("CustomMsg.MsgTail.msgnum", "1")?;
 
         for (index, job) in self.queue.iter().enumerate() {
-            render_job_into_custom_message(&mut message, job, index)?;
+            render_job_into_custom_message(&mut message, job, index, &self.passport)?;
         }
 
         message.prepare_outgoing()?;
@@ -149,10 +149,11 @@ fn render_job_into_custom_message(
     message: &mut HbciMessage,
     job: &HbciJob,
     index: usize,
+    passport: &PinTanPassport,
 ) -> HbciResult<()> {
     match job.name() {
-        "SaldoReq" => render_saldo_request(message, job, index),
-        "SaldoReqAll" => render_saldo_request_all(message, job, index),
+        "SaldoReq" => render_saldo_request(message, job, index, passport),
+        "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
@@ -160,24 +161,31 @@ fn render_job_into_custom_message(
     }
 }
 
-fn render_saldo_request(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
-    render_saldo_job(message, job, index, "N", true)
+fn render_saldo_request(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_saldo_job(message, job, index, passport, "N", true)
 }
 
 fn render_saldo_request_all(
     message: &mut HbciMessage,
     job: &HbciJob,
     index: usize,
+    passport: &PinTanPassport,
 ) -> HbciResult<()> {
-    render_saldo_job(message, job, index, "J", false)
+    render_saldo_job(message, job, index, passport, "J", false)
 }
 
 fn render_saldo_job(
     message: &mut HbciMessage,
     job: &HbciJob,
     index: usize,
+    passport: &PinTanPassport,
     default_allaccounts: &str,
-    require_iban: bool,
+    require_account: bool,
 ) -> HbciResult<()> {
     let root = if index == 0 {
         "CustomMsg.GV".to_owned()
@@ -185,20 +193,15 @@ fn render_saldo_job(
         format!("CustomMsg.GV_{}", index + 1)
     };
     let segment = format!("{root}.Saldo7");
-    let iban = job.param("my.iban");
-    if require_iban && iban.is_none() {
+    let account = effective_saldo_account(job, passport);
+    if require_account && !has_account_identity(&account) {
         return Err(HbciError::new(
             HbciErrorKind::InvalidArgument,
-            "SaldoReq requires my.iban for the current Saldo7 tracer renderer",
+            "SaldoReq requires my.iban, my.number, or a passport account for the current Saldo7 tracer renderer",
         ));
     }
 
-    if let Some(iban) = iban {
-        message.set_value(&format!("{segment}.KTV.iban"), iban)?;
-    }
-    if let Some(bic) = job.param("my.bic") {
-        message.set_value(&format!("{segment}.KTV.bic"), bic)?;
-    }
+    set_saldo_account_values(message, &segment, &account)?;
     message.set_value(
         &format!("{segment}.allaccounts"),
         job.param("dummyall").unwrap_or(default_allaccounts),
@@ -207,6 +210,85 @@ fn render_saldo_job(
         message.set_value(&format!("{segment}.maxentries"), maxentries)?;
     }
 
+    Ok(())
+}
+
+fn effective_saldo_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
+    let mut account = passport.first_account().cloned().unwrap_or_default();
+
+    overlay_account_param(&mut account.iban, job.param("my.iban"));
+    overlay_account_param(&mut account.bic, job.param("my.bic"));
+    overlay_account_param(&mut account.country, job.param("my.country"));
+    overlay_account_param(&mut account.blz, job.param("my.blz"));
+    overlay_account_param(&mut account.number, job.param("my.number"));
+    overlay_account_param(&mut account.subnumber, job.param("my.subnumber"));
+
+    account
+}
+
+fn overlay_account_param(target: &mut Option<String>, value: Option<&str>) {
+    if let Some(value) = value.filter(|value| !value.is_empty()) {
+        *target = Some(value.to_owned());
+    }
+}
+
+fn has_account_identity(account: &Konto) -> bool {
+    account
+        .iban
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
+        || account
+            .number
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+}
+
+fn set_saldo_account_values(
+    message: &mut HbciMessage,
+    segment: &str,
+    account: &Konto,
+) -> HbciResult<()> {
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.iban"),
+        account.iban.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.bic"),
+        account.bic.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.KIK.country"),
+        account.country.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.KIK.blz"),
+        account.blz.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.number"),
+        account.number.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.subnumber"),
+        account.subnumber.as_deref(),
+    )?;
+    Ok(())
+}
+
+fn set_optional_message_value(
+    message: &mut HbciMessage,
+    path: &str,
+    value: Option<&str>,
+) -> HbciResult<()> {
+    if let Some(value) = value.filter(|value| !value.is_empty()) {
+        message.set_value(path, value)?;
+    }
     Ok(())
 }
 
@@ -271,36 +353,45 @@ impl ParsedResponseStatus {
             .collect()
     }
 
-    fn result_for_job(&self, job: &HbciJob, index: usize) -> Option<HbciJobResultData> {
+    fn result_for_job(
+        &self,
+        job: &HbciJob,
+        index: usize,
+        passport: &PinTanPassport,
+    ) -> Option<HbciJobResultData> {
         match job.name() {
             "SaldoReq" => self
-                .saldo_result_for_index(index)
+                .saldo_result_for_index(index, passport)
                 .map(HbciJobResultData::SaldoReq),
             "SaldoReqAll" => {
-                let result = self.saldo_result_all();
+                let result = self.saldo_result_all(passport);
                 (!result.entries.is_empty()).then_some(HbciJobResultData::SaldoReq(result))
             }
             _ => None,
         }
     }
 
-    fn saldo_result_for_index(&self, index: usize) -> Option<GvrSaldoReq> {
+    fn saldo_result_for_index(
+        &self,
+        index: usize,
+        passport: &PinTanPassport,
+    ) -> Option<GvrSaldoReq> {
         let root = if index == 0 {
             "CustomMsgRes.GVRes.SaldoRes7".to_owned()
         } else {
             format!("CustomMsgRes.GVRes_{}.SaldoRes7", index + 1)
         };
 
-        saldo_info_from_values(&self.values, &root).map(|info| GvrSaldoReq {
+        saldo_info_from_values(&self.values, &root, passport).map(|info| GvrSaldoReq {
             entries: vec![info],
         })
     }
 
-    fn saldo_result_all(&self) -> GvrSaldoReq {
+    fn saldo_result_all(&self, passport: &PinTanPassport) -> GvrSaldoReq {
         let entries = counted_prefixes(&self.values, "CustomMsgRes.GVRes")
             .into_iter()
             .filter_map(|prefix| {
-                saldo_info_from_values(&self.values, &format!("{prefix}.SaldoRes7"))
+                saldo_info_from_values(&self.values, &format!("{prefix}.SaldoRes7"), passport)
             })
             .collect();
 
@@ -336,10 +427,11 @@ fn parse_custom_message_response(
 fn saldo_info_from_values(
     values: &BTreeMap<String, String>,
     prefix: &str,
+    passport: &PinTanPassport,
 ) -> Option<GvrSaldoReqInfo> {
     values.get(&format!("{prefix}.SegHead.code"))?;
 
-    let konto = Konto {
+    let mut konto = Konto {
         country: optional_value(values, &format!("{prefix}.KTV.KIK.country")),
         blz: optional_value(values, &format!("{prefix}.KTV.KIK.blz")),
         number: optional_value(values, &format!("{prefix}.KTV.number")),
@@ -349,6 +441,7 @@ fn saldo_info_from_values(
         account_type: optional_value(values, &format!("{prefix}.kontobez")),
         curr: optional_value(values, &format!("{prefix}.curr")),
     };
+    passport.fill_account_info(&mut konto);
     let ready = saldo_from_values(values, &format!("{prefix}.booked"))?;
 
     Some(GvrSaldoReqInfo {

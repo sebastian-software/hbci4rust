@@ -95,7 +95,7 @@ pub struct GvrSaldoReqInfo {
     pub used: Option<Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Konto {
     pub country: Option<String>,
     pub blz: Option<String>,
