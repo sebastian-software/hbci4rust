@@ -256,6 +256,10 @@ impl SyntaxElement {
         self.set_value_with_origin(path, value, ValueOrigin::Default)
     }
 
+    fn set_generated_value(&mut self, path: &str, value: String) -> HbciResult<()> {
+        self.set_value_with_origin(path, value, ValueOrigin::Generated)
+    }
+
     fn set_value_with_origin(
         &mut self,
         path: &str,
@@ -425,12 +429,12 @@ impl SyntaxElement {
                     format!("message size path {path} is not defined"),
                 )
             })?;
-        self.set_value(path, format!("{value:0width$}"))
+        self.set_generated_value(path, format!("{value:0width$}"))
     }
 
     fn set_segment_sequence(&mut self, segment_path: &str, value: usize) -> HbciResult<()> {
         let sequence_path = format!("{segment_path}.SegHead.seq");
-        self.set_value(&sequence_path, value.to_string())
+        self.set_generated_value(&sequence_path, value.to_string())
     }
 
     fn add_valid_values(&mut self, path: &str, values: &[String]) -> HbciResult<bool> {
@@ -479,7 +483,7 @@ impl SyntaxElement {
     }
 
     fn collect_rendered_segment_paths(&self, paths: &mut Vec<String>) -> HbciResult<()> {
-        if self.kind == SyntaxElementKind::Seg && self.render(None, self.min_num > 0)?.is_some() {
+        if self.kind == SyntaxElementKind::Seg && self.render_optional_aware(None)?.is_some() {
             paths.push(self.path.clone());
         }
 
@@ -490,8 +494,10 @@ impl SyntaxElement {
         Ok(())
     }
 
-    fn has_any_value(&self) -> bool {
-        self.value.is_some() || self.requested || self.children.iter().any(Self::has_any_value)
+    fn has_explicit_value(&self) -> bool {
+        self.value_origin == Some(ValueOrigin::Explicit)
+            || self.requested
+            || self.children.iter().any(Self::has_explicit_value)
     }
 
     fn render(
@@ -632,9 +638,13 @@ impl SyntaxElement {
         parent_kind: Option<SyntaxElementKind>,
     ) -> HbciResult<Option<String>> {
         let required = self.min_num > 0;
+        if !required && !self.has_explicit_value() {
+            return Ok(None);
+        }
+
         match self.render(parent_kind, required) {
             Ok(rendered) => Ok(rendered),
-            Err(_) if !required && !self.has_any_value() => Ok(None),
+            Err(_) if !required && !self.has_explicit_value() => Ok(None),
             Err(err) => Err(err),
         }
     }
@@ -652,6 +662,7 @@ pub enum SyntaxElementKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ValueOrigin {
     Default,
+    Generated,
     Explicit,
 }
 
