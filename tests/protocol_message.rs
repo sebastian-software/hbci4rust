@@ -198,6 +198,86 @@ fn renders_binary_data_elements_as_length_prefixed_blocks() {
 }
 
 #[test]
+fn creates_repeated_message_elements_on_set() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message =
+        HbciMessage::from_syntax(&syntax, "DialogEndRes").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("DialogEndRes.RetGlob.SegHead.seq", "1"),
+            ("DialogEndRes.RetGlob.RetVal.code", "0010"),
+            ("DialogEndRes.RetGlob.RetVal.text", "OK"),
+            ("DialogEndRes.RetGlob.RetVal_2.code", "0020"),
+            ("DialogEndRes.RetGlob.RetVal_2.text", "Zweite Meldung"),
+        ],
+    );
+
+    assert_eq!(
+        message.value("DialogEndRes.RetGlob.RetVal_2.text"),
+        Some("Zweite Meldung")
+    );
+
+    let rendered = message
+        .element("DialogEndRes.RetGlob")
+        .expect("global return segment exists")
+        .to_fints_string()
+        .expect("return segment renders");
+
+    assert_eq!(rendered, "HIRMG:1:2+0010::OK+0020::Zweite Meldung'");
+}
+
+#[test]
+fn rejects_repeated_message_elements_beyond_maxnum() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message =
+        HbciMessage::from_syntax(&syntax, "DialogEndRes").expect("message tree builds");
+
+    assert!(
+        message
+            .set_value("DialogEndRes.RetGlob.RetVal_100.code", "9999")
+            .is_err()
+    );
+}
+
+#[test]
+fn preserves_defaults_for_repeated_message_segments_created_on_set() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message =
+        HbciMessage::from_syntax(&syntax, "DialogEndRes").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("DialogEndRes.RetSeg_2.SegHead.seq", "3"),
+            ("DialogEndRes.RetSeg_2.RetVal.code", "0020"),
+            ("DialogEndRes.RetSeg_2.RetVal.text", "Zweite Segmentmeldung"),
+        ],
+    );
+
+    let rendered = message
+        .element("DialogEndRes.RetSeg_2")
+        .expect("second segment return segment exists")
+        .to_fints_string()
+        .expect("second segment return segment renders");
+
+    assert_eq!(rendered, "HIRMS:3:2+0020::Zweite Segmentmeldung'");
+}
+
+#[test]
 fn renders_core_datatypes_like_hbci4java() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

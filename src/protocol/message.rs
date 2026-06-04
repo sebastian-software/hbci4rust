@@ -130,6 +130,7 @@ pub struct SyntaxElement {
     needs_request_tag: bool,
     requested: bool,
     value: Option<String>,
+    value_origin: Option<ValueOrigin>,
     valid_values: Vec<String>,
     children: Vec<SyntaxElement>,
 }
@@ -156,6 +157,7 @@ impl SyntaxElement {
             needs_request_tag: false,
             requested: false,
             value: None,
+            value_origin: None,
             valid_values: Vec::new(),
             children: Vec::new(),
         }
@@ -247,6 +249,22 @@ impl SyntaxElement {
     }
 
     fn set_value(&mut self, path: &str, value: String) -> HbciResult<()> {
+        self.set_value_with_origin(path, value, ValueOrigin::Explicit)
+    }
+
+    fn set_default_value(&mut self, path: &str, value: String) -> HbciResult<()> {
+        self.set_value_with_origin(path, value, ValueOrigin::Default)
+    }
+
+    fn set_value_with_origin(
+        &mut self,
+        path: &str,
+        value: String,
+        origin: ValueOrigin,
+    ) -> HbciResult<()> {
+        if self.element(path).is_none() {
+            self.ensure_path(path)?;
+        }
         let element = self.element_mut(path).ok_or_else(|| {
             HbciError::new(
                 HbciErrorKind::Protocol,
@@ -257,6 +275,7 @@ impl SyntaxElement {
         match element.kind {
             SyntaxElementKind::De => {
                 element.value = Some(value);
+                element.value_origin = Some(origin);
                 Ok(())
             }
             _ if value == "requested" => {
@@ -267,6 +286,132 @@ impl SyntaxElement {
                 HbciErrorKind::InvalidArgument,
                 format!("message element path {path} does not refer to a data element"),
             )),
+        }
+    }
+
+    fn ensure_path(&mut self, path: &str) -> HbciResult<()> {
+        if self.element(path).is_some() {
+            return Ok(());
+        }
+
+        let (child_name, occurrence_index) =
+            self.target_child_occurrence(path).ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("message element path {path} is not defined"),
+                )
+            })?;
+        self.ensure_child_occurrence(&child_name, occurrence_index)?;
+
+        let child_path = path_with_counter(Some(&self.path), &child_name, occurrence_index);
+        let child_index = self
+            .children
+            .iter()
+            .position(|child| child.path == child_path)
+            .ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("message element path {path} is not defined"),
+                )
+            })?;
+        self.children[child_index].ensure_path(path)
+    }
+
+    fn target_child_occurrence(&self, path: &str) -> Option<(String, usize)> {
+        let relative_path = path.strip_prefix(&format!("{}.", self.path))?;
+        let mut best_match = None::<(&str, usize)>;
+
+        for child in &self.children {
+            let Some(occurrence_index) = relative_child_occurrence(relative_path, &child.name)
+            else {
+                continue;
+            };
+            if best_match.is_none_or(|(name, _)| child.name.len() > name.len()) {
+                best_match = Some((&child.name, occurrence_index));
+            }
+        }
+
+        best_match.map(|(name, occurrence_index)| (name.to_owned(), occurrence_index))
+    }
+
+    fn ensure_child_occurrence(
+        &mut self,
+        child_name: &str,
+        occurrence_index: usize,
+    ) -> HbciResult<()> {
+        let template_index = self
+            .children
+            .iter()
+            .position(|child| child.name == child_name)
+            .ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!(
+                        "message element child {child_name} is not defined at {}",
+                        self.path
+                    ),
+                )
+            })?;
+        let max_num = self.children[template_index].max_num;
+        if max_num != 0 && occurrence_index >= max_num {
+            return Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "message element child {child_name} occurrence {} exceeds maxnum {max_num}",
+                    occurrence_index + 1
+                ),
+            ));
+        }
+
+        let existing_count = self
+            .children
+            .iter()
+            .filter(|child| child.name == child_name)
+            .count();
+        if occurrence_index < existing_count {
+            return Ok(());
+        }
+
+        let template = self.children[template_index].clone();
+        let insert_index = self
+            .children
+            .iter()
+            .rposition(|child| child.name == child_name)
+            .map(|index| index + 1)
+            .unwrap_or(self.children.len());
+        let new_children = (existing_count..=occurrence_index)
+            .map(|index| template.clone_for_occurrence(&self.path, index));
+        self.children
+            .splice(insert_index..insert_index, new_children);
+
+        Ok(())
+    }
+
+    fn clone_for_occurrence(&self, parent_path: &str, occurrence_index: usize) -> Self {
+        let mut clone = self.clone();
+        clone.rebase_path(parent_path, occurrence_index);
+        clone.clear_non_default_state();
+        clone
+    }
+
+    fn rebase_path(&mut self, parent_path: &str, occurrence_index: usize) {
+        self.occurrence_index = occurrence_index;
+        self.path = path_with_counter(Some(parent_path), &self.name, occurrence_index);
+
+        for child in &mut self.children {
+            child.rebase_path(&self.path, child.occurrence_index);
+        }
+    }
+
+    fn clear_non_default_state(&mut self) {
+        self.requested = false;
+        if self.value_origin != Some(ValueOrigin::Default) {
+            self.value = None;
+            self.value_origin = None;
+        }
+
+        for child in &mut self.children {
+            child.clear_non_default_state();
         }
     }
 
@@ -510,6 +655,12 @@ pub enum SyntaxElementKind {
     Sf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueOrigin {
+    Default,
+    Explicit,
+}
+
 impl TryFrom<DefinitionKind> for SyntaxElementKind {
     type Error = HbciError;
 
@@ -698,7 +849,7 @@ impl<'a> MessageBuilder<'a> {
     fn apply_values(&self, element: &mut SyntaxElement, values: &[SyntaxValue]) -> HbciResult<()> {
         for value in values {
             let path = format!("{}.{}", element.path(), value.path);
-            element.set_value(&path, value.value.clone())?;
+            element.set_default_value(&path, value.value.clone())?;
         }
         Ok(())
     }
@@ -767,4 +918,20 @@ fn with_counter(name: &str, index: usize) -> String {
     } else {
         format!("{name}_{}", index + 1)
     }
+}
+
+fn relative_child_occurrence(relative_path: &str, child_name: &str) -> Option<usize> {
+    if relative_path == child_name || relative_path.starts_with(&format!("{child_name}.")) {
+        return Some(0);
+    }
+
+    let suffix = relative_path.strip_prefix(&format!("{child_name}_"))?;
+    let counter_end = suffix.find('.').unwrap_or(suffix.len());
+    let counter = suffix.get(..counter_end)?;
+    if counter.is_empty() || !counter.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+
+    let counter = counter.parse::<usize>().ok()?;
+    counter.checked_sub(1)
 }
