@@ -68,12 +68,68 @@ async fn handler_uses_replay_comm_client() {
     });
     let replay = ReplayCommClient::new([Ok(CommResponse::ok("HIRMG:ok"))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
-    let job = handler.new_job("SaldoReq").expect("job is in registry");
+    let mut job = handler.new_job("SaldoReq").expect("job is in registry");
+    job.set_param("my.iban", "DE02123456780000000000");
 
     handler.add_to_queue(job);
     let status = handler.execute().await.expect("replay response");
 
     assert!(status.success);
     assert_eq!(status.job_results[0].job_name, "SaldoReq");
-    assert_eq!(replay.requests().expect("requests").len(), 1);
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert!(body.starts_with("HNHBK:1:3+"));
+    assert!(body.contains("HKSAL:2:7+DE02123456780000000000+N'"));
+    assert!(body.ends_with("HNHBS:3:1+1'"));
+    assert!(!body.contains("SaldoReq"));
+
+    let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
+    assert_eq!(size, format!("{:012}", body.len()));
+}
+
+#[tokio::test]
+async fn handler_rejects_saldo_request_without_iban() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(CommResponse::ok("HIRMG:ok"))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("SaldoReq").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let err = handler
+        .execute()
+        .await
+        .expect_err("missing SaldoReq account is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(replay.requests().expect("requests").len(), 0);
+}
+
+#[tokio::test]
+async fn handler_renders_repeated_saldo_requests() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(CommResponse::ok("HIRMG:ok"))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut first = handler.new_job("SaldoReq").expect("job is in registry");
+    first.set_param("my.iban", "DE02123456780000000000");
+    let mut second = handler.new_job("SaldoReq").expect("job is in registry");
+    second.set_param("my.iban", "DE02123456780000000001");
+
+    handler.add_to_queue(first);
+    handler.add_to_queue(second);
+    handler.execute().await.expect("replay response");
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKSAL:2:7+DE02123456780000000000+N'"));
+    assert!(body.contains("HKSAL:3:7+DE02123456780000000001+N'"));
+    assert!(body.ends_with("HNHBS:4:1+1'"));
 }

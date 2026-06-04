@@ -3,6 +3,7 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{HbciExecStatus, HbciJobResult};
 use crate::passport::PinTanPassport;
+use crate::protocol::{HbciMessage, load_protocol_spec};
 
 #[derive(Clone)]
 pub struct HbciHandler<C = DefaultCommClient> {
@@ -83,17 +84,9 @@ where
             )
         })?;
 
-        let body = self
-            .queue
-            .iter()
-            .map(HbciJob::name)
-            .collect::<Vec<_>>()
-            .join(",");
+        let body = self.render_queued_jobs()?;
 
-        let response = self
-            .comm
-            .send(CommRequest::new(host, body.into_bytes()))
-            .await?;
+        let response = self.comm.send(CommRequest::new(host, body)).await?;
 
         let results = self
             .queue
@@ -111,4 +104,63 @@ where
             messages: Vec::new(),
         })
     }
+
+    fn render_queued_jobs(&self) -> HbciResult<Vec<u8>> {
+        let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
+        let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg")?;
+
+        message.set_value("CustomMsg.MsgHead.dialogid", "0")?;
+        message.set_value("CustomMsg.MsgHead.msgnum", "1")?;
+        message.set_value("CustomMsg.MsgTail.msgnum", "1")?;
+
+        for (index, job) in self.queue.iter().enumerate() {
+            render_job_into_custom_message(&mut message, job, index)?;
+        }
+
+        message.prepare_outgoing()?;
+        Ok(message.to_fints_string()?.into_bytes())
+    }
+}
+
+fn render_job_into_custom_message(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+) -> HbciResult<()> {
+    match job.name() {
+        "SaldoReq" => render_saldo_request(message, job, index),
+        name => Err(HbciError::new(
+            HbciErrorKind::Unsupported,
+            format!("queued job rendering is not ported yet for {name}"),
+        )),
+    }
+}
+
+fn render_saldo_request(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.Saldo7");
+    let iban = job.param("my.iban").ok_or_else(|| {
+        HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "SaldoReq requires my.iban for the current Saldo7 tracer renderer",
+        )
+    })?;
+
+    message.set_value(&format!("{segment}.KTV.iban"), iban)?;
+    if let Some(bic) = job.param("my.bic") {
+        message.set_value(&format!("{segment}.KTV.bic"), bic)?;
+    }
+    message.set_value(
+        &format!("{segment}.allaccounts"),
+        job.param("dummyall").unwrap_or("N"),
+    )?;
+    if let Some(maxentries) = job.param("maxentries") {
+        message.set_value(&format!("{segment}.maxentries"), maxentries)?;
+    }
+
+    Ok(())
 }
