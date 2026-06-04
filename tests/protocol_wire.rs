@@ -472,6 +472,62 @@ fn extracts_values_for_direct_segment_message_definitions() {
 }
 
 #[test]
+fn rejects_message_mapping_with_invalid_segment_sequence_by_default() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:3:2+0010::Dialog beendet'HNHBS:4:1+1'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let err = resolved
+        .values_for_message(&syntax, "DialogEndRes")
+        .expect_err("message mapping checks segment sequence");
+    assert_eq!(err.kind(), HbciErrorKind::Protocol);
+}
+
+#[test]
+fn can_map_message_values_with_segment_sequence_check_disabled() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:3:2+0010::Dialog beendet'HNHBS:4:1+1'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved
+        .values_for_message_with_validation(
+            &syntax,
+            "DialogEndRes",
+            IncomingValidation::strict().with_segment_sequence_check(false),
+        )
+        .expect("message values extract without sequence checks");
+
+    assert_eq!(
+        values
+            .get("DialogEndRes.RetGlob.RetVal.text")
+            .map(String::as_str),
+        Some("Dialog beendet")
+    );
+    assert_eq!(
+        values
+            .get("DialogEndRes.MsgTail.SegHead.seq")
+            .map(String::as_str),
+        Some("4")
+    );
+}
+
+#[test]
 fn rejects_wire_messages_that_do_not_match_the_message_definition() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

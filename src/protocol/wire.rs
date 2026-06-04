@@ -7,21 +7,37 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IncomingValidation {
     check_valids: bool,
+    check_segment_sequence: bool,
 }
 
 impl IncomingValidation {
     pub const fn strict() -> Self {
-        Self { check_valids: true }
+        Self {
+            check_valids: true,
+            check_segment_sequence: true,
+        }
     }
 
     pub const fn unchecked_valids() -> Self {
         Self {
             check_valids: false,
+            check_segment_sequence: true,
         }
     }
 
     pub const fn check_valids(&self) -> bool {
         self.check_valids
+    }
+
+    pub const fn check_segment_sequence(&self) -> bool {
+        self.check_segment_sequence
+    }
+
+    pub const fn with_segment_sequence_check(self, check_segment_sequence: bool) -> Self {
+        Self {
+            check_segment_sequence,
+            ..self
+        }
     }
 }
 
@@ -178,6 +194,10 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
         message_name: &str,
         validation: IncomingValidation,
     ) -> HbciResult<BTreeMap<String, String>> {
+        if validation.check_segment_sequence() {
+            self.validate_segment_sequence()?;
+        }
+
         let message_definition = syntax.definition(message_name).ok_or_else(|| {
             HbciError::new(
                 HbciErrorKind::Protocol,
