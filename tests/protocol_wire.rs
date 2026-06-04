@@ -233,6 +233,61 @@ fn extracts_datatype_parsed_values_from_resolved_segments() {
 }
 
 #[test]
+fn validates_resolved_segment_sequence_numbers() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1'HIRMG:2:2+0010::Nachricht erhalten'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    resolved
+        .validate_segment_sequence()
+        .expect("segment sequence validates");
+    assert_eq!(
+        resolved
+            .check_segment_sequence(1)
+            .expect("segment sequence validates"),
+        3
+    );
+}
+
+#[test]
+fn rejects_wrong_or_invalid_segment_sequence_numbers() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let skipped_message =
+        parse_wire_message("HNHBK:1:3+000000000123+300+DIALOG1+1'HIRMG:3:2+0010::ok'")
+            .expect("wire message parses");
+    let skipped = skipped_message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+    let skipped_err = skipped
+        .validate_segment_sequence()
+        .expect_err("skipped sequence is rejected");
+    assert_eq!(skipped_err.kind(), HbciErrorKind::Protocol);
+
+    let non_numeric_message =
+        parse_wire_message("HNHBK:1:3+000000000123+300+DIALOG1+1'HIRMG:x:2+0010::ok'")
+            .expect("wire message parses");
+    let non_numeric = non_numeric_message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+    let non_numeric_err = non_numeric
+        .validate_segment_sequence()
+        .expect_err("non-numeric sequence is rejected");
+    assert_eq!(non_numeric_err.kind(), HbciErrorKind::Protocol);
+}
+
+#[test]
 fn rejects_unknown_or_incomplete_segment_headers_during_resolution() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

@@ -75,6 +75,30 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
+
+    pub fn validate_segment_sequence(&self) -> HbciResult<()> {
+        self.check_segment_sequence(1).map(|_| ())
+    }
+
+    pub fn check_segment_sequence(&self, start_value: usize) -> HbciResult<usize> {
+        let mut expected = start_value;
+
+        for segment in &self.segments {
+            let actual = segment.sequence_number()?;
+            if actual != expected {
+                return Err(HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!(
+                        "invalid FinTS segment sequence for {}: expected {expected}, got {actual}",
+                        segment.definition.id,
+                    ),
+                ));
+            }
+            expected += 1;
+        }
+
+        Ok(expected)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +126,37 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
 
     pub fn version(&self) -> Option<&str> {
         self.wire_segment.version()
+    }
+
+    pub fn sequence_number(&self) -> HbciResult<usize> {
+        let sequence = self.sequence().ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "FinTS segment {} has no sequence number",
+                    self.definition.id
+                ),
+            )
+        })?;
+        if sequence.is_empty() {
+            return Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "FinTS segment {} has an empty sequence number",
+                    self.definition.id
+                ),
+            ));
+        }
+        sequence.parse::<usize>().map_err(|err| {
+            HbciError::with_source(
+                HbciErrorKind::Protocol,
+                format!(
+                    "invalid FinTS segment sequence for {}: {sequence}",
+                    self.definition.id
+                ),
+                err,
+            )
+        })
     }
 
     pub fn values(&self, syntax: &ProtocolSyntax) -> HbciResult<BTreeMap<String, String>> {
