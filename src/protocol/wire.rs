@@ -253,6 +253,7 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
             &mut cursor,
             &mut values,
         )?;
+        validate_definition_defaults(definition, root, &values)?;
         Ok(values)
     }
 }
@@ -404,6 +405,30 @@ fn segment_matches_definition(
     definition: &SyntaxDefinition,
 ) -> bool {
     segment.code() == definition.segment_code() && segment.version() == definition.segment_version()
+}
+
+fn validate_definition_defaults(
+    definition: &SyntaxDefinition,
+    root: &str,
+    values: &BTreeMap<String, String>,
+) -> HbciResult<()> {
+    for default_value in &definition.values {
+        let path = format!("{root}.{}", default_value.path);
+        let Some(actual_value) = values.get(&path) else {
+            continue;
+        };
+        if actual_value != &default_value.value {
+            return Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!(
+                    "FinTS value {path} does not match protocol default: expected {}, got {}",
+                    default_value.value, actual_value,
+                ),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn collect_fields(

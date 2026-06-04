@@ -133,6 +133,24 @@ fn extracts_flat_values_from_resolved_message_head_segment() {
 }
 
 #[test]
+fn rejects_incoming_values_that_conflict_with_protocol_defaults() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message("HNHBK:1:3+000000000123+220+DIALOG1+1+DIALOG0:1'")
+        .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let err = resolved.segments()[0]
+        .values(&syntax)
+        .expect_err("conflicting hbciversion default is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Protocol);
+}
+
+#[test]
 fn extracts_flat_values_from_repeated_data_element_groups() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
