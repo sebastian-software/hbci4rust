@@ -223,6 +223,51 @@ fn renders_custom_message_with_single_saldo_gv() {
 }
 
 #[test]
+fn renders_custom_message_with_repeated_saldo_gv() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("CustomMsg.MsgHead.dialogid", "DIALOG1"),
+            ("CustomMsg.MsgHead.msgnum", "1"),
+            ("CustomMsg.GV.Saldo7.KTV.iban", "DE02123456780000000000"),
+            ("CustomMsg.GV.Saldo7.allaccounts", "N"),
+            ("CustomMsg.GV_2.Saldo7.KTV.iban", "DE02123456780000000001"),
+            ("CustomMsg.GV_2.Saldo7.allaccounts", "N"),
+            ("CustomMsg.MsgTail.msgnum", "1"),
+        ],
+    );
+
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+    let rendered = message.to_fints_string().expect("message renders");
+    let msg_size = message
+        .value("CustomMsg.MsgHead.msgsize")
+        .expect("message size is set");
+
+    assert_eq!(msg_size, format!("{:012}", rendered.len()));
+    assert_eq!(
+        rendered,
+        format!(
+            concat!(
+                "HNHBK:1:3+{}+300+DIALOG1+1'",
+                "HKSAL:2:7+DE02123456780000000000+N'",
+                "HKSAL:3:7+DE02123456780000000001+N'",
+                "HNHBS:4:1+1'",
+            ),
+            msg_size,
+        )
+    );
+}
+
+#[test]
 fn renders_hbci_quoted_data_element_values() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
