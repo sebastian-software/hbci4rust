@@ -152,6 +152,7 @@ fn render_job_into_custom_message(
 ) -> HbciResult<()> {
     match job.name() {
         "SaldoReq" => render_saldo_request(message, job, index),
+        "SaldoReqAll" => render_saldo_request_all(message, job, index),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
@@ -160,26 +161,47 @@ fn render_job_into_custom_message(
 }
 
 fn render_saldo_request(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    render_saldo_job(message, job, index, "N", true)
+}
+
+fn render_saldo_request_all(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+) -> HbciResult<()> {
+    render_saldo_job(message, job, index, "J", false)
+}
+
+fn render_saldo_job(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    default_allaccounts: &str,
+    require_iban: bool,
+) -> HbciResult<()> {
     let root = if index == 0 {
         "CustomMsg.GV".to_owned()
     } else {
         format!("CustomMsg.GV_{}", index + 1)
     };
     let segment = format!("{root}.Saldo7");
-    let iban = job.param("my.iban").ok_or_else(|| {
-        HbciError::new(
+    let iban = job.param("my.iban");
+    if require_iban && iban.is_none() {
+        return Err(HbciError::new(
             HbciErrorKind::InvalidArgument,
             "SaldoReq requires my.iban for the current Saldo7 tracer renderer",
-        )
-    })?;
+        ));
+    }
 
-    message.set_value(&format!("{segment}.KTV.iban"), iban)?;
+    if let Some(iban) = iban {
+        message.set_value(&format!("{segment}.KTV.iban"), iban)?;
+    }
     if let Some(bic) = job.param("my.bic") {
         message.set_value(&format!("{segment}.KTV.bic"), bic)?;
     }
     message.set_value(
         &format!("{segment}.allaccounts"),
-        job.param("dummyall").unwrap_or("N"),
+        job.param("dummyall").unwrap_or(default_allaccounts),
     )?;
     if let Some(maxentries) = job.param("maxentries") {
         message.set_value(&format!("{segment}.maxentries"), maxentries)?;
@@ -254,6 +276,10 @@ impl ParsedResponseStatus {
             "SaldoReq" => self
                 .saldo_result_for_index(index)
                 .map(HbciJobResultData::SaldoReq),
+            "SaldoReqAll" => {
+                let result = self.saldo_result_all();
+                (!result.entries.is_empty()).then_some(HbciJobResultData::SaldoReq(result))
+            }
             _ => None,
         }
     }
@@ -268,6 +294,17 @@ impl ParsedResponseStatus {
         saldo_info_from_values(&self.values, &root).map(|info| GvrSaldoReq {
             entries: vec![info],
         })
+    }
+
+    fn saldo_result_all(&self) -> GvrSaldoReq {
+        let entries = counted_prefixes(&self.values, "CustomMsgRes.GVRes")
+            .into_iter()
+            .filter_map(|prefix| {
+                saldo_info_from_values(&self.values, &format!("{prefix}.SaldoRes7"))
+            })
+            .collect();
+
+        GvrSaldoReq { entries }
     }
 }
 

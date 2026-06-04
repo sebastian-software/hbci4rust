@@ -218,6 +218,44 @@ async fn handler_renders_repeated_saldo_requests() {
 }
 
 #[tokio::test]
+async fn handler_renders_saldo_request_all_without_account() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+        "HISAL:4:7+DE02123456780000000001:MARKDEF1100+Sparkonto+EUR+C:987,65:EUR:20260605",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("SaldoReqAll").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "SaldoReqAll");
+    let Some(HbciJobResultData::SaldoReq(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected SaldoReqAll to reuse SaldoReq result data");
+    };
+    assert_eq!(result.entries.len(), 2);
+    assert_eq!(
+        result.entries[0].konto.iban.as_deref(),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        result.entries[1].konto.iban.as_deref(),
+        Some("DE02123456780000000001")
+    );
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKSAL:2:7++J'"));
+}
+
+#[tokio::test]
 async fn handler_marks_segment_return_errors_as_failed_jobs() {
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
