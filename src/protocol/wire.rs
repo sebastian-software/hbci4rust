@@ -221,6 +221,7 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
             &mut values,
             validation,
         )?;
+        validate_definition_metadata(message_definition, message_name, &values, validation)?;
 
         if cursor.remaining() != 0 {
             return Err(HbciError::new(
@@ -1176,5 +1177,76 @@ impl<'a> WireParser<'a> {
 
     fn remaining(&self) -> &str {
         &self.input[self.position..]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{SyntaxValidSet, SyntaxValue};
+    use super::*;
+
+    #[test]
+    fn validates_message_level_defaults() {
+        let definition = SyntaxDefinition {
+            id: "TestMsg".to_owned(),
+            kind: DefinitionKind::Msg,
+            needs_request_tag: false,
+            dont_sign: false,
+            dont_crypt: false,
+            children: Vec::new(),
+            values: vec![SyntaxValue {
+                path: "MsgHead.msgnum".to_owned(),
+                value: "1".to_owned(),
+            }],
+            valids: Vec::new(),
+        };
+        let mut values = BTreeMap::new();
+        values.insert("TestMsg.MsgHead.msgnum".to_owned(), "2".to_owned());
+
+        let err = validate_definition_metadata(
+            &definition,
+            "TestMsg",
+            &values,
+            IncomingValidation::strict(),
+        )
+        .expect_err("conflicting MSGdef default is rejected");
+
+        assert_eq!(err.kind(), HbciErrorKind::Protocol);
+    }
+
+    #[test]
+    fn validates_message_level_valids() {
+        let definition = SyntaxDefinition {
+            id: "TestMsg".to_owned(),
+            kind: DefinitionKind::Msg,
+            needs_request_tag: false,
+            dont_sign: false,
+            dont_crypt: false,
+            children: Vec::new(),
+            values: Vec::new(),
+            valids: vec![SyntaxValidSet {
+                path: "MsgHead.msgnum".to_owned(),
+                values: vec!["1".to_owned()],
+            }],
+        };
+        let mut values = BTreeMap::new();
+        values.insert("TestMsg.MsgHead.msgnum".to_owned(), "2".to_owned());
+
+        let strict = validate_definition_metadata(
+            &definition,
+            "TestMsg",
+            &values,
+            IncomingValidation::strict(),
+        )
+        .expect_err("conflicting MSGdef valid is rejected");
+        assert_eq!(strict.kind(), HbciErrorKind::Protocol);
+
+        validate_definition_metadata(
+            &definition,
+            "TestMsg",
+            &values,
+            IncomingValidation::unchecked_valids(),
+        )
+        .expect("MSGdef valids can be skipped");
     }
 }
