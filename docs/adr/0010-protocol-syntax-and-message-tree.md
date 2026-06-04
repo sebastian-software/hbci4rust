@@ -36,7 +36,8 @@ Build an original-near message tree from the expanded syntax definitions:
   tree during construction.
 
 The first implementation provides tree construction, path lookup, value setting,
-Java-style data extraction, and original-near delimiter rendering.
+Java-style data extraction, original-near delimiter rendering, segment
+enumeration, and message-size preparation.
 
 Rendering follows hbci4java's `toString(0)` structure:
 
@@ -51,8 +52,15 @@ Rendering follows hbci4java's `toString(0)` structure:
   supports the hbci4java `B...` input form and leaves numeric `N...` conversion
   for a later datatype-port slice.
 
+Outgoing message preparation follows hbci4java's order closely:
+
+- First set all instantiated segment sequence numbers to `0`.
+- Set `MsgHead.msgsize` to zero, padded to the syntax-defined minimum size.
+- Renderable segments are then enumerated from `1`.
+- The final `MsgHead.msgsize` is set from the rendered message length.
+
 Full incoming-message parsing, complete datatype validation/conversion, segment
-enumeration, message-size auto-updates, and rewrite hooks remain follow-up work.
+validation, and rewrite hooks remain follow-up work.
 
 ## Consequences
 
