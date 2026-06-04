@@ -200,6 +200,32 @@ fn renders_core_datatypes_like_hbci4java() {
 }
 
 #[test]
+fn renders_date_and_time_datatypes_through_message_tree() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("DialogEnd.SigHead.SecTimestamp.date", "2024-02-29"),
+            ("DialogEnd.SigHead.SecTimestamp.time", "07:08:09"),
+        ],
+    );
+
+    let rendered = message
+        .element("DialogEnd.SigHead.SecTimestamp")
+        .expect("security timestamp exists")
+        .to_fints_string()
+        .expect("timestamp renders");
+
+    assert_eq!(rendered, "1:20240229:070809");
+}
+
+#[test]
 fn rejects_unknown_country_datatype_values() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

@@ -33,6 +33,16 @@ pub(crate) fn render_data_element(
         "Dig" => render_dig(value, constraints),
         "Ctr" => render_country(value),
         "Cur" => render_currency(value),
+        "Date" => render_date(value),
+        "Time" => render_time(value),
+        "Float" => render_float(value, constraints),
+        "Wrt" => render_float(
+            value,
+            DataTypeConstraints {
+                max_size: Some(15),
+                ..constraints
+            },
+        ),
         "Bin" => render_binary_data_element(value, constraints),
         _ => {
             check_size(type_name, value, constraints)?;
@@ -134,6 +144,80 @@ fn render_currency(value: &str) -> HbciResult<String> {
     Ok(value.to_owned())
 }
 
+fn render_date(value: &str) -> HbciResult<String> {
+    let value = value.trim();
+    let Some((year, month_day)) = value.split_once('-') else {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Date data element value must use YYYY-MM-DD: {value}"),
+        ));
+    };
+    let Some((month, day)) = month_day.split_once('-') else {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Date data element value must use YYYY-MM-DD: {value}"),
+        ));
+    };
+    require_ascii_digits("Date", year)?;
+    require_ascii_digits("Date", month)?;
+    require_ascii_digits("Date", day)?;
+
+    if year.len() != 4 || month.len() != 2 || day.len() != 2 {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Date data element value must use YYYY-MM-DD: {value}"),
+        ));
+    }
+
+    let month_num = parse_bounded_usize("Date month", month, 1, 12)?;
+    let day_num = parse_bounded_usize("Date day", day, 1, days_in_month(year, month_num)?)?;
+    Ok(format!("{year}{month_num:02}{day_num:02}"))
+}
+
+fn render_time(value: &str) -> HbciResult<String> {
+    let value = value.trim();
+    let parts: Vec<_> = value.split(':').collect();
+    if parts.len() != 3 {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Time data element value must use HH:MM:SS: {value}"),
+        ));
+    }
+
+    let hour = parse_bounded_usize("Time hour", parts[0], 0, 23)?;
+    let minute = parse_bounded_usize("Time minute", parts[1], 0, 59)?;
+    let second = parse_bounded_usize("Time second", parts[2], 0, 59)?;
+    Ok(format!("{hour:02}{minute:02}{second:02}"))
+}
+
+fn render_float(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
+    let value = value.trim().replace(',', ".");
+    let parsed = value.parse::<f64>().map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid Float data element value: {value}"),
+            err,
+        )
+    })?;
+
+    if !parsed.is_finite() {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid Float data element value: {value}"),
+        ));
+    }
+
+    let rounded = (parsed * 100.0).round() / 100.0;
+    let mut rendered = format!("{rounded:.2}");
+    while rendered.ends_with('0') {
+        rendered.pop();
+    }
+    let rendered = rendered.replace('.', ",");
+
+    check_size("Float", &rendered, constraints)?;
+    Ok(rendered)
+}
+
 fn render_binary_data_element(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
     let Some(payload) = value.strip_prefix('B') else {
         return Err(HbciError::new(
@@ -155,6 +239,56 @@ fn require_ascii_digits(type_name: &str, value: &str) -> HbciResult<()> {
             format!("{type_name} data element value must contain only digits: {value}"),
         ))
     }
+}
+
+fn parse_bounded_usize(
+    type_name: &str,
+    value: &str,
+    min_value: usize,
+    max_value: usize,
+) -> HbciResult<usize> {
+    require_ascii_digits(type_name, value)?;
+    let parsed = value.parse::<usize>().map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            format!("{type_name} data element value is invalid: {value}"),
+            err,
+        )
+    })?;
+    if parsed < min_value || parsed > max_value {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("{type_name} data element value is out of range: {value}"),
+        ));
+    }
+    Ok(parsed)
+}
+
+fn days_in_month(year: &str, month: usize) -> HbciResult<usize> {
+    let year = year.parse::<usize>().map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            format!("Date year data element value is invalid: {year}"),
+            err,
+        )
+    })?;
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("Date month data element value is out of range: {month}"),
+            ));
+        }
+    };
+    Ok(days)
+}
+
+fn is_leap_year(year: usize) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 fn check_size(type_name: &str, value: &str, constraints: DataTypeConstraints) -> HbciResult<()> {
@@ -190,4 +324,50 @@ fn quote_data_element(value: &str) -> String {
         quoted.push(character);
     }
     quoted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_date_and_time_values() {
+        assert_eq!(
+            render_data_element("Date", "2024-02-29", DataTypeConstraints::default())
+                .expect("date renders"),
+            "20240229"
+        );
+        assert_eq!(
+            render_data_element("Time", "07:08:09", DataTypeConstraints::default())
+                .expect("time renders"),
+            "070809"
+        );
+
+        assert!(render_data_element("Date", "2023-02-29", DataTypeConstraints::default()).is_err());
+        assert!(render_data_element("Time", "24:00:00", DataTypeConstraints::default()).is_err());
+    }
+
+    #[test]
+    fn renders_float_and_wrt_values() {
+        assert_eq!(
+            render_data_element("Float", "1", DataTypeConstraints::default())
+                .expect("float renders"),
+            "1,"
+        );
+        assert_eq!(
+            render_data_element("Float", "12.30", DataTypeConstraints::default())
+                .expect("float renders"),
+            "12,3"
+        );
+        assert_eq!(
+            render_data_element("Wrt", "12,30", DataTypeConstraints::default())
+                .expect("amount renders"),
+            "12,3"
+        );
+
+        assert!(
+            render_data_element("Wrt", "123456789012345.6", DataTypeConstraints::default())
+                .is_err()
+        );
+    }
 }
