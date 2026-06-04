@@ -21,6 +21,6 @@ pub use callback::{
 pub use comm::{CommClient, CommRequest, CommResponse, DefaultCommClient, ReplayCommClient};
 pub use error::{HbciError, HbciErrorKind, HbciResult};
 pub use gv::{HbciJob, JobRegistry, PINTAN_JOB_NAMES};
-pub use gv_result::{HbciExecStatus, HbciJobResult};
+pub use gv_result::{HbciExecStatus, HbciJobResult, HbciReturnValue};
 pub use manager::{HbciHandler, done, get_param, init, set_param};
 pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};

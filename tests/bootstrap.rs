@@ -17,6 +17,22 @@ impl HbciCallback for TestCallback {
     }
 }
 
+fn custom_msg_response(body_segments: &[&str]) -> CommResponse {
+    let mut body = "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'".to_owned();
+    for segment in body_segments {
+        body.push_str(segment);
+        body.push('\'');
+    }
+    body.push_str("HNHBS:");
+    body.push_str(&(body_segments.len() + 2).to_string());
+    body.push_str(":1+1'");
+    CommResponse::ok(body)
+}
+
+fn custom_msg_ok_response() -> CommResponse {
+    custom_msg_response(&["HIRMG:2:2+0010::OK"])
+}
+
 #[test]
 fn creates_java_named_job_with_string_params() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
@@ -66,7 +82,10 @@ async fn handler_uses_replay_comm_client() {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
     });
-    let replay = ReplayCommClient::new([Ok(CommResponse::ok("HIRMG:ok"))]);
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIRMS:3:2+0020:2:Saldo bereitgestellt",
+    ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut job = handler.new_job("SaldoReq").expect("job is in registry");
     job.set_param("my.iban", "DE02123456780000000000");
@@ -76,6 +95,16 @@ async fn handler_uses_replay_comm_client() {
 
     assert!(status.success);
     assert_eq!(status.job_results[0].job_name, "SaldoReq");
+    assert!(status.job_results[0].success);
+    assert_eq!(status.global_return_values[0].code, "0010");
+    assert_eq!(status.job_results[0].return_values[0].code, "0020");
+    assert_eq!(
+        status.messages,
+        vec![
+            "0010:OK".to_owned(),
+            "0020:Saldo bereitgestellt (2)".to_owned()
+        ]
+    );
     let requests = replay.requests().expect("requests");
     assert_eq!(requests.len(), 1);
 
@@ -95,7 +124,7 @@ async fn handler_rejects_saldo_request_without_iban() {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
     });
-    let replay = ReplayCommClient::new([Ok(CommResponse::ok("HIRMG:ok"))]);
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let job = handler.new_job("SaldoReq").expect("job is in registry");
 
@@ -115,7 +144,7 @@ async fn handler_renders_repeated_saldo_requests() {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
     });
-    let replay = ReplayCommClient::new([Ok(CommResponse::ok("HIRMG:ok"))]);
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut first = handler.new_job("SaldoReq").expect("job is in registry");
     first.set_param("my.iban", "DE02123456780000000000");
@@ -132,4 +161,31 @@ async fn handler_renders_repeated_saldo_requests() {
     assert!(body.contains("HKSAL:2:7+DE02123456780000000000+N'"));
     assert!(body.contains("HKSAL:3:7+DE02123456780000000001+N'"));
     assert!(body.ends_with("HNHBS:4:1+1'"));
+}
+
+#[tokio::test]
+async fn handler_marks_segment_return_errors_as_failed_jobs() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIRMS:3:2+9010:2:Saldo abgelehnt",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("SaldoReq").expect("job is in registry");
+    job.set_param("my.iban", "DE02123456780000000000");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(!status.success);
+    assert!(!status.job_results[0].success);
+    assert_eq!(status.segment_return_values[0].code, "9010");
+    assert!(status.segment_return_values[0].is_error());
+    assert_eq!(
+        status.messages,
+        vec!["0010:OK".to_owned(), "9010:Saldo abgelehnt (2)".to_owned()]
+    );
 }
