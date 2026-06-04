@@ -4,6 +4,33 @@ use super::datatype::{DataTypeConstraints, parse_data_element};
 use super::{DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IncomingValidation {
+    check_valids: bool,
+}
+
+impl IncomingValidation {
+    pub const fn strict() -> Self {
+        Self { check_valids: true }
+    }
+
+    pub const fn unchecked_valids() -> Self {
+        Self {
+            check_valids: false,
+        }
+    }
+
+    pub const fn check_valids(&self) -> bool {
+        self.check_valids
+    }
+}
+
+impl Default for IncomingValidation {
+    fn default() -> Self {
+        Self::strict()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WireMessage {
     segments: Vec<WireSegment>,
@@ -101,6 +128,14 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
     }
 
     pub fn values(&self, syntax: &ProtocolSyntax) -> HbciResult<BTreeMap<String, String>> {
+        self.values_with_validation(syntax, IncomingValidation::default())
+    }
+
+    pub fn values_with_validation(
+        &self,
+        syntax: &ProtocolSyntax,
+        validation: IncomingValidation,
+    ) -> HbciResult<BTreeMap<String, String>> {
         let mut values = BTreeMap::new();
         let mut root_counts = BTreeMap::<String, usize>::new();
 
@@ -116,7 +151,7 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
                 format!("{definition_id}_{count}")
             };
 
-            for (path, value) in segment.values_with_root(syntax, &root)? {
+            for (path, value) in segment.values_with_root(syntax, &root, validation)? {
                 if values.insert(path.clone(), value).is_some() {
                     return Err(HbciError::new(
                         HbciErrorKind::Protocol,
@@ -133,6 +168,15 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
         &self,
         syntax: &ProtocolSyntax,
         message_name: &str,
+    ) -> HbciResult<BTreeMap<String, String>> {
+        self.values_for_message_with_validation(syntax, message_name, IncomingValidation::default())
+    }
+
+    pub fn values_for_message_with_validation(
+        &self,
+        syntax: &ProtocolSyntax,
+        message_name: &str,
+        validation: IncomingValidation,
     ) -> HbciResult<BTreeMap<String, String>> {
         let message_definition = syntax.definition(message_name).ok_or_else(|| {
             HbciError::new(
@@ -155,6 +199,7 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
             message_name,
             &mut cursor,
             &mut values,
+            validation,
         )?;
 
         if cursor.remaining() != 0 {
@@ -227,15 +272,24 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
     }
 
     pub fn values(&self, syntax: &ProtocolSyntax) -> HbciResult<BTreeMap<String, String>> {
-        self.values_with_root(syntax, &self.definition.id)
+        self.values_with_validation(syntax, IncomingValidation::default())
+    }
+
+    pub fn values_with_validation(
+        &self,
+        syntax: &ProtocolSyntax,
+        validation: IncomingValidation,
+    ) -> HbciResult<BTreeMap<String, String>> {
+        self.values_with_root(syntax, &self.definition.id, validation)
     }
 
     fn values_with_root(
         &self,
         syntax: &ProtocolSyntax,
         root: &str,
+        validation: IncomingValidation,
     ) -> HbciResult<BTreeMap<String, String>> {
-        self.values_with_definition_and_root(syntax, self.definition, root)
+        self.values_with_definition_and_root(syntax, self.definition, root, validation)
     }
 
     fn values_with_definition_and_root(
@@ -243,6 +297,7 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
         syntax: &ProtocolSyntax,
         definition: &SyntaxDefinition,
         root: &str,
+        validation: IncomingValidation,
     ) -> HbciResult<BTreeMap<String, String>> {
         let mut values = BTreeMap::new();
         let mut cursor = FieldCursor::new(self.wire_segment.fields());
@@ -252,8 +307,9 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
             root,
             &mut cursor,
             &mut values,
+            validation,
         )?;
-        validate_definition_metadata(definition, root, &values)?;
+        validate_definition_metadata(definition, root, &values, validation)?;
         Ok(values)
     }
 }
@@ -321,11 +377,19 @@ fn collect_message_segments<'syntax, 'wire>(
     parent_path: &str,
     cursor: &mut SegmentCursor<'syntax, 'wire>,
     values: &mut BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
     for child in children {
         match child.kind {
             SyntaxChildKind::Seg => {
-                collect_message_segment_child(syntax, child, parent_path, cursor, values)?;
+                collect_message_segment_child(
+                    syntax,
+                    child,
+                    parent_path,
+                    cursor,
+                    values,
+                    validation,
+                )?;
             }
             SyntaxChildKind::Sf => {
                 if occurrence_min(child)? == 0 {
@@ -360,6 +424,7 @@ fn collect_message_segment_child<'syntax, 'wire>(
     parent_path: &str,
     cursor: &mut SegmentCursor<'syntax, 'wire>,
     values: &mut BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
     let definition = referenced_definition(syntax, child, DefinitionKind::Seg)?;
     let min_num = occurrence_min(child)?;
@@ -376,7 +441,9 @@ fn collect_message_segment_child<'syntax, 'wire>(
 
         let segment = cursor.next().expect("peeked segment exists");
         let root = child_path(parent_path, child, occurrence_index);
-        for (path, value) in segment.values_with_definition_and_root(syntax, definition, &root)? {
+        for (path, value) in
+            segment.values_with_definition_and_root(syntax, definition, &root, validation)?
+        {
             if values.insert(path.clone(), value).is_some() {
                 return Err(HbciError::new(
                     HbciErrorKind::Protocol,
@@ -411,9 +478,13 @@ fn validate_definition_metadata(
     definition: &SyntaxDefinition,
     root: &str,
     values: &BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
     validate_definition_defaults(definition, root, values)?;
-    validate_definition_valids(definition, root, values)
+    if validation.check_valids() {
+        validate_definition_valids(definition, root, values)?;
+    }
+    Ok(())
 }
 
 fn validate_definition_defaults(
@@ -467,6 +538,7 @@ fn collect_fields(
     parent_path: &str,
     cursor: &mut FieldCursor<'_>,
     values: &mut BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
     for (child_index, child) in children.iter().enumerate() {
         let min_num = occurrence_min(child)?;
@@ -480,7 +552,7 @@ fn collect_fields(
         {
             let path = child_path(parent_path, child, occurrence_index);
             let field = cursor.next().expect("remaining field exists");
-            collect_field_child(syntax, child, &path, field, values)?;
+            collect_field_child(syntax, child, &path, field, values, validation)?;
             occurrence_index += 1;
         }
 
@@ -511,6 +583,7 @@ fn collect_field_child(
     path: &str,
     field: &WireField,
     values: &mut BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
     match child.kind {
         SyntaxChildKind::De => {
@@ -531,6 +604,7 @@ fn collect_field_child(
                 path,
                 &mut cursor,
                 values,
+                validation,
             )?;
             if cursor.remaining() != 0 {
                 return Err(HbciError::new(
@@ -538,7 +612,7 @@ fn collect_field_child(
                     format!("{path} has trailing FinTS data-element components"),
                 ));
             }
-            validate_definition_metadata(definition, path, values)
+            validate_definition_metadata(definition, path, values, validation)
         }
         SyntaxChildKind::Seg | SyntaxChildKind::Sf | SyntaxChildKind::EntityRef => {
             Err(HbciError::new(
@@ -558,6 +632,7 @@ fn collect_components(
     parent_path: &str,
     cursor: &mut ComponentCursor<'_>,
     values: &mut BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
     for (child_index, child) in children.iter().enumerate() {
         let min_num = occurrence_min(child)?;
@@ -570,7 +645,7 @@ fn collect_components(
             && (occurrence_index < min_num || cursor.remaining() > min_rest)
         {
             let path = child_path(parent_path, child, occurrence_index);
-            collect_component_child(syntax, child, &path, cursor, values)?;
+            collect_component_child(syntax, child, &path, cursor, values, validation)?;
             occurrence_index += 1;
         }
 
@@ -594,6 +669,7 @@ fn collect_component_child(
     path: &str,
     cursor: &mut ComponentCursor<'_>,
     values: &mut BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
     match child.kind {
         SyntaxChildKind::De => {
@@ -607,8 +683,15 @@ fn collect_component_child(
         }
         SyntaxChildKind::Deg => {
             let definition = referenced_definition(syntax, child, DefinitionKind::Deg)?;
-            collect_components(syntax, definition.children.as_slice(), path, cursor, values)?;
-            validate_definition_metadata(definition, path, values)
+            collect_components(
+                syntax,
+                definition.children.as_slice(),
+                path,
+                cursor,
+                values,
+                validation,
+            )?;
+            validate_definition_metadata(definition, path, values, validation)
         }
         SyntaxChildKind::Seg | SyntaxChildKind::Sf | SyntaxChildKind::EntityRef => {
             Err(HbciError::new(

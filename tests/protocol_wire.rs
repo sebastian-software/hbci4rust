@@ -1,5 +1,5 @@
 use hbci4rust::HbciErrorKind;
-use hbci4rust::protocol::{load_protocol_spec, parse_wire_message};
+use hbci4rust::protocol::{IncomingValidation, load_protocol_spec, parse_wire_message};
 
 #[test]
 fn parses_segments_fields_and_components() {
@@ -185,6 +185,43 @@ fn rejects_incoming_values_not_allowed_by_protocol_valids() {
     let err = resolved.segments()[0]
         .values(&syntax)
         .expect_err("invalid language valid is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Protocol);
+}
+
+#[test]
+fn can_parse_incoming_values_with_valid_checks_disabled() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message =
+        parse_wire_message("HKVVB:1:3+0+0+9+hbci4rust+0.1'").expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved.segments()[0]
+        .values_with_validation(&syntax, IncomingValidation::unchecked_valids())
+        .expect("segment values extract without valid checks");
+
+    assert_eq!(values.get("ProcPrep.lang").map(String::as_str), Some("9"));
+}
+
+#[test]
+fn still_rejects_protocol_defaults_with_valid_checks_disabled() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message("HNHBK:1:3+000000000123+220+DIALOG1+1+DIALOG0:1'")
+        .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let err = resolved.segments()[0]
+        .values_with_validation(&syntax, IncomingValidation::unchecked_valids())
+        .expect_err("conflicting hbciversion default is still rejected");
     assert_eq!(err.kind(), HbciErrorKind::Protocol);
 }
 

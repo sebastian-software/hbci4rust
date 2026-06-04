@@ -9,8 +9,8 @@ pub use model::{
     SyntaxValidSet, SyntaxValue,
 };
 pub use wire::{
-    ResolvedWireMessage, ResolvedWireSegment, WireField, WireMessage, WireSegment,
-    parse_wire_message,
+    IncomingValidation, ResolvedWireMessage, ResolvedWireSegment, WireField, WireMessage,
+    WireSegment, parse_wire_message,
 };
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
