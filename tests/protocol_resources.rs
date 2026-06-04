@@ -55,9 +55,10 @@ fn parses_protocol_syntax_definitions_by_id() {
         .definition("DialogInit")
         .expect("DialogInit MSGdef exists");
     assert_eq!(dialog_init.kind, DefinitionKind::Msg);
-    assert!(dialog_init.children.iter().any(
-        |child| child.kind == SyntaxChildKind::EntityRef && child.type_name == "MsgSigHeadUser"
-    ));
+    assert_eq!(dialog_init.children[0].kind, SyntaxChildKind::Seg);
+    assert_eq!(dialog_init.children[0].type_name, "MsgHeadUser");
+    assert_eq!(dialog_init.children[1].kind, SyntaxChildKind::Seg);
+    assert_eq!(dialog_init.children[1].type_name, "SigHeadUser");
     assert!(
         dialog_init
             .children
@@ -93,4 +94,40 @@ fn parses_child_refs_and_default_values() {
             .iter()
             .any(|value| { value.path == "hbciversion" && value.value == "300" })
     );
+}
+
+#[test]
+fn parses_and_expands_dtd_entities() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let msg_sig_head_user = syntax
+        .entity("MsgSigHeadUser")
+        .expect("MsgSigHeadUser entity exists");
+    assert_eq!(msg_sig_head_user.children.len(), 2);
+    assert_eq!(msg_sig_head_user.children[0].kind, SyntaxChildKind::Seg);
+    assert_eq!(msg_sig_head_user.children[0].type_name, "MsgHeadUser");
+    assert_eq!(
+        msg_sig_head_user.children[0].name.as_deref(),
+        Some("MsgHead")
+    );
+    assert_eq!(msg_sig_head_user.children[1].kind, SyntaxChildKind::Seg);
+    assert_eq!(msg_sig_head_user.children[1].type_name, "SigHeadUser");
+    assert_eq!(msg_sig_head_user.children[1].max_num.as_deref(), Some("3"));
+
+    let sec_class_valids = syntax
+        .entity("SecClassValids")
+        .expect("SecClassValids entity exists");
+    assert_eq!(sec_class_valids.valids.len(), 1);
+    assert_eq!(sec_class_valids.valids[0].path, "secclass");
+    assert_eq!(sec_class_valids.valids[0].values, ["0", "1", "2", "3", "4"]);
+
+    assert!(syntax.definitions().all(|definition| {
+        definition
+            .children
+            .iter()
+            .all(|child| child.kind != SyntaxChildKind::EntityRef)
+    }));
 }
