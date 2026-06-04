@@ -1,3 +1,4 @@
+use super::{ProtocolSyntax, SyntaxDefinition};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +17,88 @@ impl WireMessage {
 
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
+    }
+
+    pub fn resolve_segments<'syntax, 'wire>(
+        &'wire self,
+        syntax: &'syntax ProtocolSyntax,
+    ) -> HbciResult<ResolvedWireMessage<'syntax, 'wire>> {
+        let mut segments = Vec::new();
+
+        for segment in &self.segments {
+            let code = segment.code().ok_or_else(|| {
+                HbciError::new(HbciErrorKind::Protocol, "FinTS segment header has no code")
+            })?;
+            let version = segment.version().ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("FinTS segment {code} header has no version"),
+                )
+            })?;
+            let definition = syntax.segment_definition(code, version).ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!(
+                        "FinTS segment {code}:{version} is not defined in HBCI {} syntax",
+                        syntax.version()
+                    ),
+                )
+            })?;
+
+            segments.push(ResolvedWireSegment {
+                wire_segment: segment,
+                definition,
+            });
+        }
+
+        Ok(ResolvedWireMessage { segments })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedWireMessage<'syntax, 'wire> {
+    segments: Vec<ResolvedWireSegment<'syntax, 'wire>>,
+}
+
+impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
+    pub fn segments(&self) -> &[ResolvedWireSegment<'syntax, 'wire>] {
+        &self.segments
+    }
+
+    pub fn len(&self) -> usize {
+        self.segments.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.segments.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedWireSegment<'syntax, 'wire> {
+    wire_segment: &'wire WireSegment,
+    definition: &'syntax SyntaxDefinition,
+}
+
+impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
+    pub fn wire_segment(&self) -> &'wire WireSegment {
+        self.wire_segment
+    }
+
+    pub fn definition(&self) -> &'syntax SyntaxDefinition {
+        self.definition
+    }
+
+    pub fn code(&self) -> Option<&str> {
+        self.wire_segment.code()
+    }
+
+    pub fn sequence(&self) -> Option<&str> {
+        self.wire_segment.sequence()
+    }
+
+    pub fn version(&self) -> Option<&str> {
+        self.wire_segment.version()
     }
 }
 

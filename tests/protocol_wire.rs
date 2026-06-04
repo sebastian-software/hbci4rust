@@ -1,4 +1,5 @@
-use hbci4rust::protocol::parse_wire_message;
+use hbci4rust::HbciErrorKind;
+use hbci4rust::protocol::{load_protocol_spec, parse_wire_message};
 
 #[test]
 fn parses_segments_fields_and_components() {
@@ -54,6 +55,47 @@ fn rejects_malformed_wire_messages() {
     assert!(parse_wire_message("HIRMG:1:2+foo?'").is_err());
     assert!(parse_wire_message("HNVSD:1:1+@5@ab'").is_err());
     assert!(parse_wire_message("HNVSD:1:1+@x@ab'").is_err());
+}
+
+#[test]
+fn resolves_wire_segments_to_protocol_definitions() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message("HNHBK:1:3+000000000123+300+DIALOG1+1'HIRMG:2:2+0010::ok'")
+        .expect("wire message parses");
+
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    assert_eq!(resolved.len(), 2);
+    assert_eq!(resolved.segments()[0].definition().id, "MsgHeadInst");
+    assert_eq!(resolved.segments()[0].code(), Some("HNHBK"));
+    assert_eq!(resolved.segments()[0].sequence(), Some("1"));
+    assert_eq!(resolved.segments()[0].version(), Some("3"));
+    assert_eq!(resolved.segments()[1].definition().id, "RetGlob");
+}
+
+#[test]
+fn rejects_unknown_or_incomplete_segment_headers_during_resolution() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let unknown = parse_wire_message("ZZZZZ:1:1+foo'").expect("wire message parses");
+    let unknown_err = unknown
+        .resolve_segments(&syntax)
+        .expect_err("unknown segment is rejected");
+    assert_eq!(unknown_err.kind(), HbciErrorKind::Protocol);
+
+    let incomplete = parse_wire_message("HIRMG:1+foo'").expect("wire message parses");
+    let incomplete_err = incomplete
+        .resolve_segments(&syntax)
+        .expect_err("missing version is rejected");
+    assert_eq!(incomplete_err.kind(), HbciErrorKind::Protocol);
 }
 
 fn assert_components(field: &hbci4rust::protocol::WireField, expected: &[&str]) {
