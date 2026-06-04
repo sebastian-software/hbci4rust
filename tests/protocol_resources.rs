@@ -97,6 +97,43 @@ fn parses_child_refs_and_default_values() {
 }
 
 #[test]
+fn resolves_segment_definitions_by_code_and_version() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let ret_glob = syntax
+        .segment_definition("HIRMG", "2")
+        .expect("HIRMG version 2 segment exists");
+    assert_eq!(ret_glob.id, "RetGlob");
+    assert_eq!(ret_glob.segment_code(), Some("HIRMG"));
+    assert_eq!(ret_glob.segment_version(), Some("2"));
+
+    let upd_ids = syntax
+        .segment_definitions_by_code("HIUPD")
+        .map(|definition| definition.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(upd_ids.contains(&"KInfo5"));
+    assert!(upd_ids.contains(&"KInfo6"));
+    assert_eq!(
+        syntax
+            .segment_definition("HIUPD", "5")
+            .expect("HIUPD version 5 segment exists")
+            .id,
+        "KInfo5"
+    );
+    assert!(syntax.segment_definition("HIUPD", "9").is_none());
+
+    let dialog_init = syntax
+        .definition("DialogInit")
+        .expect("DialogInit MSGdef exists");
+    assert_eq!(dialog_init.kind, DefinitionKind::Msg);
+    assert_eq!(dialog_init.segment_code(), None);
+    assert_eq!(dialog_init.segment_version(), None);
+}
+
+#[test]
 fn parses_and_expands_dtd_entities() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

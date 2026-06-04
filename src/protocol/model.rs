@@ -31,6 +31,25 @@ impl ProtocolSyntax {
         self.definitions.values()
     }
 
+    pub fn segment_definition(&self, code: &str, version: &str) -> Option<&SyntaxDefinition> {
+        self.definitions.values().find(|definition| {
+            definition.kind == DefinitionKind::Seg
+                && definition.segment_code() == Some(code)
+                && definition.segment_version() == Some(version)
+        })
+    }
+
+    pub fn segment_definitions_by_code<'a>(
+        &'a self,
+        code: &str,
+    ) -> impl Iterator<Item = &'a SyntaxDefinition> + 'a {
+        let code = code.to_owned();
+        self.definitions.values().filter(move |definition| {
+            definition.kind == DefinitionKind::Seg
+                && definition.segment_code() == Some(code.as_str())
+        })
+    }
+
     pub fn entity(&self, name: &str) -> Option<&SyntaxEntity> {
         self.entities.get(name)
     }
@@ -77,6 +96,29 @@ impl SyntaxDefinition {
         self.children.extend(entity.children.iter().cloned());
         self.values.extend(entity.values.iter().cloned());
         self.valids.extend(entity.valids.iter().cloned());
+    }
+
+    pub fn default_value(&self, path: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .find(|value| value.path == path)
+            .map(|value| value.value.as_str())
+    }
+
+    pub fn segment_code(&self) -> Option<&str> {
+        if self.kind == DefinitionKind::Seg {
+            self.default_value("SegHead.code")
+        } else {
+            None
+        }
+    }
+
+    pub fn segment_version(&self) -> Option<&str> {
+        if self.kind == DefinitionKind::Seg {
+            self.default_value("SegHead.version")
+        } else {
+            None
+        }
     }
 }
 
