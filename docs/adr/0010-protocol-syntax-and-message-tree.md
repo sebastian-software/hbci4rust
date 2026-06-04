@@ -48,9 +48,12 @@ Rendering follows hbci4java's `toString(0)` structure:
   is nested inside another `DEG`.
 - Incomplete optional complex children may be omitted, matching hbci4java's
   handling of optional `MultipleSyntaxElements`.
-- Data element values quote FinTS delimiter characters with `?`; `Bin` currently
-  supports the hbci4java `B...` input form and leaves numeric `N...` conversion
-  for a later datatype-port slice.
+- Data element values are rendered through a separate protocol datatype module,
+  mirroring hbci4java's `org.kapott.hbci.datatypes.Syntax*` split.
+- The first datatype slice ports render-time behavior for `AN`, `Code`, `ID`,
+  `Num`, `Dig`, `Ctr`, `Cur`, and `Bin` in its hbci4java `B...` input form.
+  Numeric `Bin` input (`N...`) and richer date/time/amount conversions remain
+  later datatype-port slices.
 
 Outgoing message preparation follows hbci4java's order closely:
 
@@ -74,6 +77,7 @@ only after original-near parity tests are green.
 ## Links
 
 - `src/protocol/model.rs`
+- `src/protocol/datatype.rs`
 - `src/protocol/message.rs`
 - `tests/protocol_resources.rs`
 - `tests/protocol_message.rs`
@@ -84,3 +88,7 @@ only after original-near parity tests are green.
 - Upstream: `org.kapott.hbci.protocol.DEG`
 - Upstream: `org.kapott.hbci.datatypes.SyntaxAN`
 - Upstream: `org.kapott.hbci.datatypes.SyntaxBin`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxCtr`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxDig`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxID`
+- Upstream: `org.kapott.hbci.datatypes.SyntaxNum`
