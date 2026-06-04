@@ -1,12 +1,14 @@
 mod datatype;
 mod message;
 mod model;
+mod wire;
 
 pub use message::{HbciMessage, SyntaxElement, SyntaxElementKind};
 pub use model::{
     DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition, SyntaxEntity,
     SyntaxValidSet, SyntaxValue,
 };
+pub use wire::{WireField, WireMessage, WireSegment, parse_wire_message};
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
