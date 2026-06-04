@@ -472,6 +472,62 @@ fn extracts_values_for_direct_segment_message_definitions() {
 }
 
 #[test]
+fn extracts_values_from_gvres_syntax_function() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+2+DIALOG0:1'HIRMG:2:2+0010::OK'HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605'HNHBS:4:1+2'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved
+        .values_for_message(&syntax, "CustomMsgRes")
+        .expect("message values extract");
+
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.SegHead.code")
+            .map(String::as_str),
+        Some("HISAL")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.KTV.iban")
+            .map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.kontobez")
+            .map(String::as_str),
+        Some("Girokonto")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.booked.CreditDebit")
+            .map(String::as_str),
+        Some("C")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.booked.BTG.value")
+            .map(String::as_str),
+        Some("123.45")
+    );
+    assert_eq!(
+        values
+            .get("CustomMsgRes.GVRes.SaldoRes7.booked.date")
+            .map(String::as_str),
+        Some("2026-06-05")
+    );
+}
+
+#[test]
 fn rejects_message_mapping_with_invalid_segment_sequence_by_default() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
