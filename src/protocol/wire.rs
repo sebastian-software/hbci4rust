@@ -392,17 +392,14 @@ fn collect_message_segments<'syntax, 'wire>(
                 )?;
             }
             SyntaxChildKind::Sf => {
-                if occurrence_min(child)? == 0 {
-                    collect_absent_optional_syntax_function(syntax, child, cursor)?;
-                    continue;
-                }
-                return Err(HbciError::new(
-                    HbciErrorKind::Unsupported,
-                    format!(
-                        "message parsing for nested syntax function {} is not ported yet",
-                        child_display_name(child),
-                    ),
-                ));
+                collect_message_syntax_function_child(
+                    syntax,
+                    child,
+                    parent_path,
+                    cursor,
+                    values,
+                    validation,
+                )?;
             }
             SyntaxChildKind::De | SyntaxChildKind::Deg | SyntaxChildKind::EntityRef => {
                 return Err(HbciError::new(
@@ -419,20 +416,44 @@ fn collect_message_segments<'syntax, 'wire>(
     Ok(())
 }
 
-fn collect_absent_optional_syntax_function(
-    syntax: &ProtocolSyntax,
+fn collect_message_syntax_function_child<'syntax, 'wire>(
+    syntax: &'syntax ProtocolSyntax,
     child: &SyntaxChild,
-    cursor: &mut SegmentCursor<'_, '_>,
+    parent_path: &str,
+    cursor: &mut SegmentCursor<'syntax, 'wire>,
+    values: &mut BTreeMap<String, String>,
+    validation: IncomingValidation,
 ) -> HbciResult<()> {
-    let Some(segment) = cursor.peek() else {
-        return Ok(());
-    };
     let definition = referenced_definition(syntax, child, DefinitionKind::Sf)?;
-    if syntax_function_matches_next_segment(syntax, definition, segment)? {
+    let min_num = occurrence_min(child)?;
+    let max_num = occurrence_max(child)?;
+    let mut occurrence_index = 0;
+
+    while occurrence_index < max_num {
+        let Some(segment) = cursor.peek() else {
+            break;
+        };
+        if !syntax_function_matches_next_segment(syntax, definition, segment)? {
+            break;
+        }
+
+        let root = child_path(parent_path, child, occurrence_index);
+        collect_message_segments(
+            syntax,
+            definition.children.as_slice(),
+            &root,
+            cursor,
+            values,
+            validation,
+        )?;
+        occurrence_index += 1;
+    }
+
+    if occurrence_index < min_num {
         return Err(HbciError::new(
-            HbciErrorKind::Unsupported,
+            HbciErrorKind::Protocol,
             format!(
-                "message parsing for present optional syntax function {} is not ported yet",
+                "FinTS message syntax function {} is missing required value at {parent_path}",
                 child_display_name(child),
             ),
         ));

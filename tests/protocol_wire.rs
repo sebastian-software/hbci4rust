@@ -530,7 +530,7 @@ fn skips_absent_optional_syntax_functions_in_message_mapping() {
 }
 
 #[test]
-fn rejects_present_optional_syntax_functions_until_sf_mapping_is_ported() {
+fn extracts_values_from_present_optional_syntax_functions() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
         .parse_syntax()
@@ -543,10 +543,40 @@ fn rejects_present_optional_syntax_functions_until_sf_mapping_is_ported() {
         .resolve_segments(&syntax)
         .expect("wire segments resolve");
 
-    let err = resolved
+    let values = resolved
         .values_for_message(&syntax, "DialogInitRes")
-        .expect_err("present optional BPD syntax function is not mapped yet");
-    assert_eq!(err.kind(), HbciErrorKind::Unsupported);
+        .expect("message values extract");
+
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.BPA.SegHead.code")
+            .map(String::as_str),
+        Some("HIBPA")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.BPA.KIK.country")
+            .map(String::as_str),
+        Some("DE")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.BPA.KIK.blz")
+            .map(String::as_str),
+        Some("12345678")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.BPD.BPA.SuppVersions.version")
+            .map(String::as_str),
+        Some("300")
+    );
+    assert_eq!(
+        values
+            .get("DialogInitRes.MsgTail.msgnum")
+            .map(String::as_str),
+        Some("1")
+    );
 }
 
 #[test]
