@@ -386,15 +386,71 @@ fn parse_float(value: &str, constraints: DataTypeConstraints) -> HbciResult<Stri
 }
 
 fn render_binary_data_element(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
-    let Some(payload) = value.strip_prefix('B') else {
+    let Some((format, data)) = value.split_at_checked(1) else {
         return Err(HbciError::new(
-            HbciErrorKind::Unsupported,
-            "numeric binary data element rendering is not ported yet",
+            HbciErrorKind::InvalidArgument,
+            "Bin data element value must start with B or N",
         ));
     };
 
-    check_size("Bin", payload, constraints)?;
+    let payload = match format {
+        "B" => data.to_owned(),
+        "N" => render_numeric_binary_payload(data)?,
+        _ => {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("Bin data element value has unsupported format: {format}"),
+            ));
+        }
+    };
+
+    check_size("Bin", &payload, constraints)?;
     Ok(format!("@{}@{}", payload.len(), payload))
+}
+
+fn render_numeric_binary_payload(value: &str) -> HbciResult<String> {
+    let bytes = positive_decimal_to_java_big_integer_bytes(value)?;
+    String::from_utf8(bytes).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Unsupported,
+            "numeric Bin data element payload is not UTF-8 representable in the string-backed wire renderer",
+            err,
+        )
+    })
+}
+
+fn positive_decimal_to_java_big_integer_bytes(value: &str) -> HbciResult<Vec<u8>> {
+    require_ascii_digits("Bin", value)?;
+    let mut digits: Vec<u8> = value.bytes().map(|byte| byte - b'0').collect();
+    while digits.len() > 1 && digits.first() == Some(&0) {
+        digits.remove(0);
+    }
+
+    if digits == [0] {
+        return Ok(vec![0]);
+    }
+
+    let mut bytes = Vec::new();
+    while !digits.is_empty() {
+        let mut quotient = Vec::new();
+        let mut carry = 0u16;
+        for digit in digits {
+            let value = carry * 10 + u16::from(digit);
+            let quotient_digit = value / 256;
+            carry = value % 256;
+            if !quotient.is_empty() || quotient_digit != 0 {
+                quotient.push(quotient_digit as u8);
+            }
+        }
+        bytes.push(carry as u8);
+        digits = quotient;
+    }
+
+    bytes.reverse();
+    if bytes.first().is_some_and(|byte| byte & 0x80 != 0) {
+        bytes.insert(0, 0);
+    }
+    Ok(bytes)
 }
 
 fn parse_binary_data_element(value: &str, constraints: DataTypeConstraints) -> HbciResult<String> {
@@ -570,6 +626,26 @@ mod tests {
         assert!(
             render_data_element("Wrt", "123456789012345.6", DataTypeConstraints::default())
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn renders_binary_values_like_hbci4java() {
+        assert_eq!(
+            render_data_element("Bin", "BA+B:C", DataTypeConstraints::default())
+                .expect("binary renders"),
+            "@5@A+B:C"
+        );
+        assert_eq!(
+            render_data_element("Bin", "N258", DataTypeConstraints::default())
+                .expect("numeric binary renders"),
+            "@2@\u{1}\u{2}"
+        );
+        assert!(
+            render_data_element("Bin", "N128", DataTypeConstraints::default())
+                .expect_err("non-UTF-8 numeric binary is rejected")
+                .message()
+                .contains("not UTF-8 representable")
         );
     }
 

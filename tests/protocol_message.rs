@@ -172,6 +172,32 @@ fn renders_hbci_quoted_data_element_values() {
 }
 
 #[test]
+fn renders_binary_data_elements_as_length_prefixed_blocks() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "Crypted").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("Crypted.CryptData.SegHead.seq", "1"),
+            ("Crypted.CryptData.data", "Bpayload+with:delimiters"),
+        ],
+    );
+
+    let rendered = message
+        .element("Crypted.CryptData")
+        .expect("crypt data segment exists")
+        .to_fints_string()
+        .expect("crypt data renders");
+
+    assert_eq!(rendered, "HNVSD:1:1+@23@payload+with:delimiters'");
+}
+
+#[test]
 fn renders_core_datatypes_like_hbci4java() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
