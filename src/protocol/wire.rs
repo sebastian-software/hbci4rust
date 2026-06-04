@@ -253,8 +253,7 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
             &mut cursor,
             &mut values,
         )?;
-        validate_definition_defaults(definition, root, &values)?;
-        validate_definition_valids(definition, root, &values)?;
+        validate_definition_metadata(definition, root, &values)?;
         Ok(values)
     }
 }
@@ -408,6 +407,15 @@ fn segment_matches_definition(
     segment.code() == definition.segment_code() && segment.version() == definition.segment_version()
 }
 
+fn validate_definition_metadata(
+    definition: &SyntaxDefinition,
+    root: &str,
+    values: &BTreeMap<String, String>,
+) -> HbciResult<()> {
+    validate_definition_defaults(definition, root, values)?;
+    validate_definition_valids(definition, root, values)
+}
+
 fn validate_definition_defaults(
     definition: &SyntaxDefinition,
     root: &str,
@@ -530,7 +538,7 @@ fn collect_field_child(
                     format!("{path} has trailing FinTS data-element components"),
                 ));
             }
-            Ok(())
+            validate_definition_metadata(definition, path, values)
         }
         SyntaxChildKind::Seg | SyntaxChildKind::Sf | SyntaxChildKind::EntityRef => {
             Err(HbciError::new(
@@ -599,7 +607,8 @@ fn collect_component_child(
         }
         SyntaxChildKind::Deg => {
             let definition = referenced_definition(syntax, child, DefinitionKind::Deg)?;
-            collect_components(syntax, definition.children.as_slice(), path, cursor, values)
+            collect_components(syntax, definition.children.as_slice(), path, cursor, values)?;
+            validate_definition_metadata(definition, path, values)
         }
         SyntaxChildKind::Seg | SyntaxChildKind::Sf | SyntaxChildKind::EntityRef => {
             Err(HbciError::new(
