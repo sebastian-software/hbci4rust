@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use hbci4rust::{
-    CallbackEvent, CallbackResponse, CommResponse, HbciCallback, HbciHandler, HbciResult,
-    PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, init,
+    CallbackEvent, CallbackResponse, CommResponse, HbciCallback, HbciHandler, HbciJobResultData,
+    HbciResult, PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, init,
 };
 
 #[derive(Debug)]
@@ -85,6 +85,7 @@ async fn handler_uses_replay_comm_client() {
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
         "HIRMS:3:2+0020:2:Saldo bereitgestellt",
+        "HISAL:4:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605+D:1,23:EUR:20260605+1000,00:EUR+900,00:EUR+100,00:EUR",
     ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut job = handler.new_job("SaldoReq").expect("job is in registry");
@@ -104,6 +105,36 @@ async fn handler_uses_replay_comm_client() {
             "0010:OK".to_owned(),
             "0020:Saldo bereitgestellt (2)".to_owned()
         ]
+    );
+    let Some(HbciJobResultData::SaldoReq(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected SaldoReq result data");
+    };
+    let entry = &result.entries[0];
+    assert_eq!(entry.konto.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(entry.konto.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(entry.konto.account_type.as_deref(), Some("Girokonto"));
+    assert_eq!(entry.konto.curr.as_deref(), Some("EUR"));
+    assert_eq!(entry.ready.value.value, "123.45");
+    assert_eq!(entry.ready.value.curr.as_deref(), Some("EUR"));
+    assert_eq!(entry.ready.date.as_deref(), Some("2026-06-05"));
+    assert_eq!(
+        entry
+            .unready
+            .as_ref()
+            .map(|saldo| saldo.value.value.as_str()),
+        Some("-1.23")
+    );
+    assert_eq!(
+        entry.kredit.as_ref().map(|value| value.value.as_str()),
+        Some("1000.00")
+    );
+    assert_eq!(
+        entry.available.as_ref().map(|value| value.value.as_str()),
+        Some("900.00")
+    );
+    assert_eq!(
+        entry.used.as_ref().map(|value| value.value.as_str()),
+        Some("100.00")
     );
     let requests = replay.requests().expect("requests");
     assert_eq!(requests.len(), 1);
@@ -144,7 +175,11 @@ async fn handler_renders_repeated_saldo_requests() {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
     });
-    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+        "HISAL:4:7+DE02123456780000000001:MARKDEF1100+Sparkonto+EUR+C:987,65:EUR:20260605",
+    ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut first = handler.new_job("SaldoReq").expect("job is in registry");
     first.set_param("my.iban", "DE02123456780000000000");
@@ -153,7 +188,26 @@ async fn handler_renders_repeated_saldo_requests() {
 
     handler.add_to_queue(first);
     handler.add_to_queue(second);
-    handler.execute().await.expect("replay response");
+    let status = handler.execute().await.expect("replay response");
+
+    let Some(HbciJobResultData::SaldoReq(first_result)) = status.job_results[0].result.as_ref()
+    else {
+        panic!("expected first SaldoReq result data");
+    };
+    let Some(HbciJobResultData::SaldoReq(second_result)) = status.job_results[1].result.as_ref()
+    else {
+        panic!("expected second SaldoReq result data");
+    };
+    assert_eq!(
+        first_result.entries[0].konto.iban.as_deref(),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        second_result.entries[0].konto.iban.as_deref(),
+        Some("DE02123456780000000001")
+    );
+    assert_eq!(first_result.entries[0].ready.value.value, "123.45");
+    assert_eq!(second_result.entries[0].ready.value.value, "987.65");
 
     let requests = replay.requests().expect("requests");
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
@@ -182,6 +236,7 @@ async fn handler_marks_segment_return_errors_as_failed_jobs() {
 
     assert!(!status.success);
     assert!(!status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
     assert_eq!(status.segment_return_values[0].code, "9010");
     assert!(status.segment_return_values[0].is_error());
     assert_eq!(

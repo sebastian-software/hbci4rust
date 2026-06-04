@@ -4,7 +4,10 @@ use std::str;
 use crate::comm::{CommClient, CommRequest, CommResponse, DefaultCommClient};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
-use crate::gv_result::{HbciExecStatus, HbciJobResult, HbciReturnValue};
+use crate::gv_result::{
+    GvrSaldoReq, GvrSaldoReqInfo, HbciExecStatus, HbciJobResult, HbciJobResultData,
+    HbciReturnValue, Konto, Saldo, Value,
+};
 use crate::passport::PinTanPassport;
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
 
@@ -109,6 +112,7 @@ where
                     success: http_success && response_status.job_is_ok(segment_sequence),
                     raw_response: raw_response.clone(),
                     return_values: response_status.return_values_for_segment(segment_sequence),
+                    result: response_status.result_for_job(&job, index),
                 }
             })
             .collect::<Vec<_>>();
@@ -188,17 +192,18 @@ fn render_saldo_request(message: &mut HbciMessage, job: &HbciJob, index: usize) 
 struct ParsedResponseStatus {
     global_return_values: Vec<HbciReturnValue>,
     segment_return_values: Vec<HbciReturnValue>,
+    values: BTreeMap<String, String>,
 }
 
 impl ParsedResponseStatus {
-    fn from_values(values: &BTreeMap<String, String>) -> Self {
+    fn from_values(values: BTreeMap<String, String>) -> Self {
         let global_return_values =
-            collect_return_values(values, "CustomMsgRes.RetGlob", ReturnValueScope::Global);
+            collect_return_values(&values, "CustomMsgRes.RetGlob", ReturnValueScope::Global);
 
         let mut segment_return_values = Vec::new();
-        for prefix in counted_prefixes(values, "CustomMsgRes.RetSeg") {
+        for prefix in counted_prefixes(&values, "CustomMsgRes.RetSeg") {
             segment_return_values.extend(collect_return_values(
-                values,
+                &values,
                 &prefix,
                 ReturnValueScope::Segment,
             ));
@@ -207,6 +212,7 @@ impl ParsedResponseStatus {
         Self {
             global_return_values,
             segment_return_values,
+            values,
         }
     }
 
@@ -242,6 +248,27 @@ impl ParsedResponseStatus {
             .cloned()
             .collect()
     }
+
+    fn result_for_job(&self, job: &HbciJob, index: usize) -> Option<HbciJobResultData> {
+        match job.name() {
+            "SaldoReq" => self
+                .saldo_result_for_index(index)
+                .map(HbciJobResultData::SaldoReq),
+            _ => None,
+        }
+    }
+
+    fn saldo_result_for_index(&self, index: usize) -> Option<GvrSaldoReq> {
+        let root = if index == 0 {
+            "CustomMsgRes.GVRes.SaldoRes7".to_owned()
+        } else {
+            format!("CustomMsgRes.GVRes_{}.SaldoRes7", index + 1)
+        };
+
+        saldo_info_from_values(&self.values, &root).map(|info| GvrSaldoReq {
+            entries: vec![info],
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -266,7 +293,68 @@ fn parse_custom_message_response(
     let resolved = wire_message.resolve_segments(&syntax)?;
     let values = resolved.values_for_message(&syntax, "CustomMsgRes")?;
 
-    Ok(ParsedResponseStatus::from_values(&values))
+    Ok(ParsedResponseStatus::from_values(values))
+}
+
+fn saldo_info_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrSaldoReqInfo> {
+    values.get(&format!("{prefix}.SegHead.code"))?;
+
+    let konto = Konto {
+        country: optional_value(values, &format!("{prefix}.KTV.KIK.country")),
+        blz: optional_value(values, &format!("{prefix}.KTV.KIK.blz")),
+        number: optional_value(values, &format!("{prefix}.KTV.number")),
+        subnumber: optional_value(values, &format!("{prefix}.KTV.subnumber")),
+        bic: optional_value(values, &format!("{prefix}.KTV.bic")),
+        iban: optional_value(values, &format!("{prefix}.KTV.iban")),
+        account_type: optional_value(values, &format!("{prefix}.kontobez")),
+        curr: optional_value(values, &format!("{prefix}.curr")),
+    };
+    let ready = saldo_from_values(values, &format!("{prefix}.booked"))?;
+
+    Some(GvrSaldoReqInfo {
+        konto,
+        ready,
+        unready: saldo_from_values(values, &format!("{prefix}.pending")),
+        kredit: value_from_values(values, &format!("{prefix}.kredit")),
+        available: value_from_values(values, &format!("{prefix}.available")),
+        used: value_from_values(values, &format!("{prefix}.used")),
+    })
+}
+
+fn saldo_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Option<Saldo> {
+    let credit_debit = values.get(&format!("{prefix}.CreditDebit"))?;
+    let amount = values
+        .get(&format!("{prefix}.BTG.value"))
+        .cloned()
+        .unwrap_or_else(|| "0".to_owned());
+    let value = Value {
+        value: signed_amount(credit_debit, amount),
+        curr: optional_value(values, &format!("{prefix}.BTG.curr")),
+    };
+
+    Some(Saldo {
+        value,
+        date: optional_value(values, &format!("{prefix}.date")),
+        time: optional_value(values, &format!("{prefix}.time")),
+    })
+}
+
+fn value_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Option<Value> {
+    values.get(&format!("{prefix}.value")).map(|value| Value {
+        value: value.to_owned(),
+        curr: optional_value(values, &format!("{prefix}.curr")),
+    })
+}
+
+fn signed_amount(credit_debit: &str, amount: String) -> String {
+    if credit_debit == "D" {
+        format!("-{amount}")
+    } else {
+        amount
+    }
 }
 
 fn collect_return_values(
@@ -366,6 +454,10 @@ fn non_empty_string(value: &str) -> Option<String> {
     } else {
         Some(value.to_owned())
     }
+}
+
+fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String> {
+    values.get(key).and_then(|value| non_empty_string(value))
 }
 
 fn queued_job_segment_sequence(index: usize) -> usize {

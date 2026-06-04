@@ -15,6 +15,12 @@ pub struct HbciJobResult {
     pub success: bool,
     pub raw_response: Option<String>,
     pub return_values: Vec<HbciReturnValue>,
+    pub result: Option<HbciJobResultData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HbciJobResultData {
+    SaldoReq(GvrSaldoReq),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,4 +78,45 @@ impl HbciReturnValue {
 
         message
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrSaldoReq {
+    pub entries: Vec<GvrSaldoReqInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrSaldoReqInfo {
+    pub konto: Konto,
+    pub ready: Saldo,
+    pub unready: Option<Saldo>,
+    pub kredit: Option<Value>,
+    pub available: Option<Value>,
+    pub used: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Konto {
+    pub country: Option<String>,
+    pub blz: Option<String>,
+    pub number: Option<String>,
+    pub subnumber: Option<String>,
+    pub bic: Option<String>,
+    pub iban: Option<String>,
+    #[serde(rename = "type")]
+    pub account_type: Option<String>,
+    pub curr: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Saldo {
+    pub value: Value,
+    pub date: Option<String>,
+    pub time: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Value {
+    pub value: String,
+    pub curr: Option<String>,
 }
