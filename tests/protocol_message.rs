@@ -47,6 +47,43 @@ fn builds_message_tree_with_original_paths_and_defaults() {
 }
 
 #[test]
+fn builds_custom_message_response_despite_unresolved_valid_metadata() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let message = HbciMessage::from_syntax(&syntax, "CustomMsgRes").expect("message tree builds");
+
+    assert_eq!(message.name(), "CustomMsgRes");
+    assert!(
+        message
+            .element("CustomMsgRes.GVRes.TANListListRes1")
+            .is_some()
+    );
+    assert!(
+        message
+            .element("CustomMsgRes.GVRes.TANListListRes1.zustand")
+            .is_none()
+    );
+}
+
+#[test]
+fn keeps_resolved_valid_metadata_on_message_elements() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let message = HbciMessage::from_syntax(&syntax, "DialogInit").expect("message tree builds");
+    let lang = message
+        .element("DialogInit.ProcPrep.lang")
+        .expect("language data element exists");
+
+    assert_eq!(lang.valid_values(), ["0", "1", "2", "3"]);
+}
+
+#[test]
 fn sets_data_element_values_and_exports_java_style_data() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

@@ -433,23 +433,17 @@ impl SyntaxElement {
         self.set_value(&sequence_path, value.to_string())
     }
 
-    fn add_valid_values(&mut self, path: &str, values: &[String]) -> HbciResult<()> {
-        let element = self.element_mut(path).ok_or_else(|| {
-            HbciError::new(
-                HbciErrorKind::Protocol,
-                format!("message valid-values path {path} is not defined"),
-            )
-        })?;
+    fn add_valid_values(&mut self, path: &str, values: &[String]) -> HbciResult<bool> {
+        let Some(element) = self.element_mut(path) else {
+            return Ok(false);
+        };
 
         if element.kind != SyntaxElementKind::De {
-            return Err(HbciError::new(
-                HbciErrorKind::Protocol,
-                format!("message valid-values path {path} does not refer to a data element"),
-            ));
+            return Ok(false);
         }
 
         element.valid_values.extend(values.iter().cloned());
-        Ok(())
+        Ok(true)
     }
 
     fn collect_values(&self, values: &mut BTreeMap<String, String>) {
