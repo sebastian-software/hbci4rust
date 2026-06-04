@@ -38,6 +38,12 @@ fn builds_message_tree_with_original_paths_and_defaults() {
         .expect("optional TAN2Step6 segment is still built");
     assert_eq!(tan_segment.min_num(), 0);
     assert_eq!(tan_segment.max_num(), 1);
+
+    let msg_size = message
+        .element("DialogInit.MsgHead.msgsize")
+        .expect("message size data element exists");
+    assert_eq!(msg_size.min_size(), Some(12));
+    assert_eq!(msg_size.max_size(), Some(12));
 }
 
 #[test]
@@ -91,11 +97,8 @@ fn renders_dialog_end_with_original_delimiters() {
     set_all(
         &mut message,
         [
-            ("DialogEnd.MsgHead.SegHead.seq", "1"),
-            ("DialogEnd.MsgHead.msgsize", "000000000000"),
             ("DialogEnd.MsgHead.dialogid", "DIALOG1"),
             ("DialogEnd.MsgHead.msgnum", "1"),
-            ("DialogEnd.SigHead.SegHead.seq", "2"),
             ("DialogEnd.SigHead.SecProfile.method", "PIN"),
             ("DialogEnd.SigHead.SecProfile.version", "1"),
             ("DialogEnd.SigHead.secfunc", "999"),
@@ -110,23 +113,32 @@ fn renders_dialog_end_with_original_delimiters() {
             ("DialogEnd.SigHead.KeyName.userid", "user"),
             ("DialogEnd.SigHead.KeyName.keynum", "1"),
             ("DialogEnd.SigHead.KeyName.keyversion", "1"),
-            ("DialogEnd.DialogEndS.SegHead.seq", "3"),
             ("DialogEnd.DialogEndS.dialogid", "DIALOG1"),
-            ("DialogEnd.SigTail.SegHead.seq", "4"),
             ("DialogEnd.SigTail.seccheckref", "REF1"),
-            ("DialogEnd.MsgTail.SegHead.seq", "5"),
             ("DialogEnd.MsgTail.msgnum", "1"),
         ],
     );
 
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+    let rendered = message.to_fints_string().expect("message renders");
+    let msg_size = message
+        .value("DialogEnd.MsgHead.msgsize")
+        .expect("message size is set");
+    assert_eq!(msg_size, format!("{:012}", rendered.len()));
+
     assert_eq!(
-        message.to_fints_string().expect("message renders"),
-        concat!(
-            "HNHBK:1:3+000000000000+300+DIALOG1+1'",
-            "HNSHK:2:4+PIN:1+999+REF1+1+1+1+1+1+1:999:1+6:10:16+280::user:S:1:1'",
-            "HKEND:3:1+DIALOG1'",
-            "HNSHA:4:2+REF1'",
-            "HNHBS:5:1+1'",
+        rendered,
+        format!(
+            concat!(
+                "HNHBK:1:3+{}+300+DIALOG1+1'",
+                "HNSHK:2:4+PIN:1+999+REF1+1+1+1+1+1+1:999:1+6:10:16+280::user:S:1:1'",
+                "HKEND:3:1+DIALOG1'",
+                "HNSHA:4:2+REF1'",
+                "HNHBS:5:1+1'",
+            ),
+            msg_size,
         )
     );
 }

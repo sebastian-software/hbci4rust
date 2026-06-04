@@ -56,6 +56,41 @@ impl HbciMessage {
         self.root.set_value(path, value.into())
     }
 
+    pub fn prepare_outgoing(&mut self) -> HbciResult<()> {
+        self.enumerate_segments(0)?;
+        self.set_message_size(0)?;
+        self.enumerate_segments(1)?;
+        self.auto_set_message_size()
+    }
+
+    pub fn enumerate_segments(&mut self, start_value: usize) -> HbciResult<usize> {
+        let mut next_value = start_value;
+        let segment_paths = if start_value == 0 {
+            self.root.segment_paths()
+        } else {
+            self.root.rendered_segment_paths()?
+        };
+
+        for path in segment_paths {
+            self.root.set_segment_sequence(&path, next_value)?;
+            if start_value != 0 {
+                next_value += 1;
+            }
+        }
+
+        Ok(next_value)
+    }
+
+    pub fn set_message_size(&mut self, value: usize) -> HbciResult<()> {
+        let msg_size_path = format!("{}.MsgHead.msgsize", self.path());
+        self.root.set_padded_numeric_value(&msg_size_path, value)
+    }
+
+    pub fn auto_set_message_size(&mut self) -> HbciResult<()> {
+        let message_size = self.to_fints_string()?.len();
+        self.set_message_size(message_size)
+    }
+
     pub fn values(&self) -> BTreeMap<String, String> {
         let mut values = BTreeMap::new();
         self.root.collect_values(&mut values);
@@ -89,6 +124,8 @@ pub struct SyntaxElement {
     occurrence_index: usize,
     min_num: usize,
     max_num: usize,
+    min_size: Option<usize>,
+    max_size: Option<usize>,
     needs_request_tag: bool,
     requested: bool,
     value: Option<String>,
@@ -113,12 +150,20 @@ impl SyntaxElement {
             occurrence_index: occurrence.index,
             min_num: occurrence.min_num,
             max_num: occurrence.max_num,
+            min_size: None,
+            max_size: None,
             needs_request_tag: false,
             requested: false,
             value: None,
             valid_values: Vec::new(),
             children: Vec::new(),
         }
+    }
+
+    fn with_sizes(mut self, child: &SyntaxChild) -> HbciResult<Self> {
+        self.min_size = parse_optional_usize_attr(&child.min_size, "minsize")?;
+        self.max_size = parse_optional_usize_attr(&child.max_size, "maxsize")?;
+        Ok(self)
     }
 
     pub fn kind(&self) -> SyntaxElementKind {
@@ -147,6 +192,14 @@ impl SyntaxElement {
 
     pub fn max_num(&self) -> usize {
         self.max_num
+    }
+
+    pub fn min_size(&self) -> Option<usize> {
+        self.min_size
+    }
+
+    pub fn max_size(&self) -> Option<usize> {
+        self.max_size
     }
 
     pub fn needs_request_tag(&self) -> bool {
@@ -216,6 +269,24 @@ impl SyntaxElement {
         }
     }
 
+    fn set_padded_numeric_value(&mut self, path: &str, value: usize) -> HbciResult<()> {
+        let width = self
+            .element(path)
+            .and_then(SyntaxElement::min_size)
+            .ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("message size path {path} is not defined"),
+                )
+            })?;
+        self.set_value(path, format!("{value:0width$}"))
+    }
+
+    fn set_segment_sequence(&mut self, segment_path: &str, value: usize) -> HbciResult<()> {
+        let sequence_path = format!("{segment_path}.SegHead.seq");
+        self.set_value(&sequence_path, value.to_string())
+    }
+
     fn add_valid_values(&mut self, path: &str, values: &[String]) -> HbciResult<()> {
         let element = self.element_mut(path).ok_or_else(|| {
             HbciError::new(
@@ -243,6 +314,40 @@ impl SyntaxElement {
         for child in &self.children {
             child.collect_values(values);
         }
+    }
+
+    fn segment_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        self.collect_segment_paths(&mut paths);
+        paths
+    }
+
+    fn collect_segment_paths(&self, paths: &mut Vec<String>) {
+        if self.kind == SyntaxElementKind::Seg {
+            paths.push(self.path.clone());
+        }
+
+        for child in &self.children {
+            child.collect_segment_paths(paths);
+        }
+    }
+
+    fn rendered_segment_paths(&self) -> HbciResult<Vec<String>> {
+        let mut paths = Vec::new();
+        self.collect_rendered_segment_paths(&mut paths)?;
+        Ok(paths)
+    }
+
+    fn collect_rendered_segment_paths(&self, paths: &mut Vec<String>) -> HbciResult<()> {
+        if self.kind == SyntaxElementKind::Seg && self.render(None, self.min_num > 0)?.is_some() {
+            paths.push(self.path.clone());
+        }
+
+        for child in &self.children {
+            child.collect_rendered_segment_paths(paths)?;
+        }
+
+        Ok(())
     }
 
     fn has_any_value(&self) -> bool {
@@ -516,7 +621,8 @@ impl<'a> MessageBuilder<'a> {
                 child_name.to_owned(),
                 Some(parent_path),
                 occurrence,
-            )),
+            )
+            .with_sizes(child)?),
             SyntaxChildKind::Deg => self.build_referenced_definition(
                 child,
                 child_name,
@@ -618,6 +724,24 @@ fn parse_occurrence_attr(
             err,
         )
     })
+}
+
+fn parse_optional_usize_attr(
+    value: &Option<String>,
+    attribute_name: &str,
+) -> HbciResult<Option<usize>> {
+    value
+        .as_deref()
+        .map(|value| {
+            value.parse().map_err(|err| {
+                HbciError::with_source(
+                    HbciErrorKind::Protocol,
+                    format!("invalid protocol {attribute_name} value: {value}"),
+                    err,
+                )
+            })
+        })
+        .transpose()
 }
 
 fn path_with_counter(parent_path: Option<&str>, name: &str, index: usize) -> String {
