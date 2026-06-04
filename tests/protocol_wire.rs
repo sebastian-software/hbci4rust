@@ -233,6 +233,67 @@ fn extracts_datatype_parsed_values_from_resolved_segments() {
 }
 
 #[test]
+fn extracts_flat_values_from_resolved_wire_messages() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Nachricht erhalten'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved.values(&syntax).expect("message values extract");
+
+    assert_eq!(
+        values.get("MsgHeadInst.SegHead.code").map(String::as_str),
+        Some("HNHBK")
+    );
+    assert_eq!(
+        values
+            .get("MsgHeadInst.MsgRef.dialogid")
+            .map(String::as_str),
+        Some("DIALOG0")
+    );
+    assert_eq!(
+        values.get("RetGlob.RetVal.text").map(String::as_str),
+        Some("Nachricht erhalten")
+    );
+}
+
+#[test]
+fn suffixes_repeated_segment_roots_in_resolved_wire_message_values() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message =
+        parse_wire_message("HIRMG:1:2+0010::Erste Meldung'HIRMG:2:2+0020::Zweite Meldung'")
+            .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved.values(&syntax).expect("message values extract");
+
+    assert_eq!(
+        values.get("RetGlob.RetVal.text").map(String::as_str),
+        Some("Erste Meldung")
+    );
+    assert_eq!(
+        values.get("RetGlob_2.RetVal.text").map(String::as_str),
+        Some("Zweite Meldung")
+    );
+    assert_eq!(
+        values.get("RetGlob_2.SegHead.seq").map(String::as_str),
+        Some("2")
+    );
+}
+
+#[test]
 fn validates_resolved_segment_sequence_numbers() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

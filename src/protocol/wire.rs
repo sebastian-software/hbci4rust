@@ -99,6 +99,35 @@ impl<'syntax, 'wire> ResolvedWireMessage<'syntax, 'wire> {
 
         Ok(expected)
     }
+
+    pub fn values(&self, syntax: &ProtocolSyntax) -> HbciResult<BTreeMap<String, String>> {
+        let mut values = BTreeMap::new();
+        let mut root_counts = BTreeMap::<String, usize>::new();
+
+        for segment in &self.segments {
+            let definition_id = segment.definition.id.as_str();
+            let count = root_counts
+                .entry(definition_id.to_owned())
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+            let root = if *count == 1 {
+                definition_id.to_owned()
+            } else {
+                format!("{definition_id}_{count}")
+            };
+
+            for (path, value) in segment.values_with_root(syntax, &root)? {
+                if values.insert(path.clone(), value).is_some() {
+                    return Err(HbciError::new(
+                        HbciErrorKind::Protocol,
+                        format!("FinTS message value path {path} was parsed more than once"),
+                    ));
+                }
+            }
+        }
+
+        Ok(values)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,12 +189,20 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
     }
 
     pub fn values(&self, syntax: &ProtocolSyntax) -> HbciResult<BTreeMap<String, String>> {
+        self.values_with_root(syntax, &self.definition.id)
+    }
+
+    fn values_with_root(
+        &self,
+        syntax: &ProtocolSyntax,
+        root: &str,
+    ) -> HbciResult<BTreeMap<String, String>> {
         let mut values = BTreeMap::new();
         let mut cursor = FieldCursor::new(self.wire_segment.fields());
         collect_fields(
             syntax,
             self.definition.children.as_slice(),
-            &self.definition.id,
+            root,
             &mut cursor,
             &mut values,
         )?;
