@@ -151,6 +151,44 @@ fn rejects_incoming_values_that_conflict_with_protocol_defaults() {
 }
 
 #[test]
+fn accepts_incoming_values_allowed_by_protocol_valids() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message =
+        parse_wire_message("HKVVB:1:3+0+0+0+hbci4rust+0.1'").expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let values = resolved.segments()[0]
+        .values(&syntax)
+        .expect("segment values extract");
+
+    assert_eq!(resolved.segments()[0].definition().id, "ProcPrep");
+    assert_eq!(values.get("ProcPrep.lang").map(String::as_str), Some("0"));
+}
+
+#[test]
+fn rejects_incoming_values_not_allowed_by_protocol_valids() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message =
+        parse_wire_message("HKVVB:1:3+0+0+9+hbci4rust+0.1'").expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let err = resolved.segments()[0]
+        .values(&syntax)
+        .expect_err("invalid language valid is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Protocol);
+}
+
+#[test]
 fn extracts_flat_values_from_repeated_data_element_groups() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

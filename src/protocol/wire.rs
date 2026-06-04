@@ -254,6 +254,7 @@ impl<'syntax, 'wire> ResolvedWireSegment<'syntax, 'wire> {
             &mut values,
         )?;
         validate_definition_defaults(definition, root, &values)?;
+        validate_definition_valids(definition, root, &values)?;
         Ok(values)
     }
 }
@@ -424,6 +425,27 @@ fn validate_definition_defaults(
                     "FinTS value {path} does not match protocol default: expected {}, got {}",
                     default_value.value, actual_value,
                 ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_definition_valids(
+    definition: &SyntaxDefinition,
+    root: &str,
+    values: &BTreeMap<String, String>,
+) -> HbciResult<()> {
+    for valid_set in &definition.valids {
+        let path = format!("{root}.{}", valid_set.path);
+        let Some(actual_value) = values.get(&path) else {
+            continue;
+        };
+        if !valid_set.values.iter().any(|valid| valid == actual_value) {
+            return Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!("FinTS value {path} is not allowed by protocol valids: {actual_value}"),
             ));
         }
     }
