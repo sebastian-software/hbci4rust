@@ -1,0 +1,10 @@
+hbci4rust is based on design and behavior from HBCI4Java / hbci4j-core.
+
+Upstream:
+  Repository: https://github.com/hbci4j/hbci4java
+  Baseline tag: hbci4j-core-4.1.11
+  Baseline commit: 3b7ce667c73724daa1c836ed7333ed090c21a831
+
+HBCI4Java is licensed under LGPL 2.1 according to its repository README and
+LICENSE file. See docs/adr/0002-license-and-attribution.md for the porting
+license assumption and handling of inconsistent file headers.

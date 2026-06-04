@@ -1,0 +1,10 @@
+LGPL-2.1-or-later
+
+This project is intended as a direct Rust port of hbci4java and is licensed
+under the GNU Lesser General Public License, version 2.1 or later.
+
+The full license text is available from the Free Software Foundation:
+https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+Ported code must preserve upstream attribution and file-level notices where
+source material is copied or closely translated.
