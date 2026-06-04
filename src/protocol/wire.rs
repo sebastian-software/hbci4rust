@@ -393,6 +393,7 @@ fn collect_message_segments<'syntax, 'wire>(
             }
             SyntaxChildKind::Sf => {
                 if occurrence_min(child)? == 0 {
+                    collect_absent_optional_syntax_function(syntax, child, cursor)?;
                     continue;
                 }
                 return Err(HbciError::new(
@@ -416,6 +417,54 @@ fn collect_message_segments<'syntax, 'wire>(
     }
 
     Ok(())
+}
+
+fn collect_absent_optional_syntax_function(
+    syntax: &ProtocolSyntax,
+    child: &SyntaxChild,
+    cursor: &mut SegmentCursor<'_, '_>,
+) -> HbciResult<()> {
+    let Some(segment) = cursor.peek() else {
+        return Ok(());
+    };
+    let definition = referenced_definition(syntax, child, DefinitionKind::Sf)?;
+    if syntax_function_matches_next_segment(syntax, definition, segment)? {
+        return Err(HbciError::new(
+            HbciErrorKind::Unsupported,
+            format!(
+                "message parsing for present optional syntax function {} is not ported yet",
+                child_display_name(child),
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn syntax_function_matches_next_segment(
+    syntax: &ProtocolSyntax,
+    definition: &SyntaxDefinition,
+    segment: &ResolvedWireSegment<'_, '_>,
+) -> HbciResult<bool> {
+    for child in &definition.children {
+        match child.kind {
+            SyntaxChildKind::Seg => {
+                let definition = referenced_definition(syntax, child, DefinitionKind::Seg)?;
+                if segment_matches_definition(segment, definition) {
+                    return Ok(true);
+                }
+            }
+            SyntaxChildKind::Sf => {
+                let definition = referenced_definition(syntax, child, DefinitionKind::Sf)?;
+                if syntax_function_matches_next_segment(syntax, definition, segment)? {
+                    return Ok(true);
+                }
+            }
+            SyntaxChildKind::De | SyntaxChildKind::Deg | SyntaxChildKind::EntityRef => {}
+        }
+    }
+
+    Ok(false)
 }
 
 fn collect_message_segment_child<'syntax, 'wire>(

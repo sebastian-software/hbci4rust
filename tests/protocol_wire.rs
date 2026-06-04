@@ -530,6 +530,26 @@ fn skips_absent_optional_syntax_functions_in_message_mapping() {
 }
 
 #[test]
+fn rejects_present_optional_syntax_functions_until_sf_mapping_is_ported() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Initialisiert'HIBPA:3:3+3+280:12345678+Bank+1+1+300'HNHBS:4:1+1'",
+    )
+    .expect("wire message parses");
+    let resolved = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve");
+
+    let err = resolved
+        .values_for_message(&syntax, "DialogInitRes")
+        .expect_err("present optional BPD syntax function is not mapped yet");
+    assert_eq!(err.kind(), HbciErrorKind::Unsupported);
+}
+
+#[test]
 fn validates_resolved_segment_sequence_numbers() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
