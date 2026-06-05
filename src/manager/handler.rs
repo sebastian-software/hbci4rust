@@ -60,21 +60,51 @@ where
         &self.queue
     }
 
-    pub async fn init(&self) -> HbciResult<()> {
-        let Some(callback) = super::callback() else {
-            return Ok(());
-        };
+    pub async fn init(&mut self) -> HbciResult<()> {
+        let host = self
+            .passport
+            .host()
+            .ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::InvalidArgument,
+                    "PinTAN passport has no FinTS endpoint",
+                )
+            })?
+            .to_owned();
+        let body = self.render_dialog_init()?;
+        let callback = super::callback();
 
-        callback
-            .handle(crate::callback::CallbackEvent::new(
-                crate::callback::CallbackReason::NeedConnection,
-            ))
-            .await?;
-        callback
-            .handle(crate::callback::CallbackEvent::new(
-                crate::callback::CallbackReason::CloseConnection,
-            ))
-            .await?;
+        if let Some(callback) = callback.as_ref() {
+            callback
+                .handle(crate::callback::CallbackEvent::new(
+                    crate::callback::CallbackReason::NeedConnection,
+                ))
+                .await?;
+        }
+
+        let response = self.comm.send(CommRequest::new(host, body)).await?;
+
+        if let Some(callback) = callback.as_ref() {
+            callback
+                .handle(crate::callback::CallbackEvent::new(
+                    crate::callback::CallbackReason::CloseConnection,
+                ))
+                .await?;
+        }
+
+        if response.status >= 400 {
+            return Err(HbciError::new(
+                HbciErrorKind::Network,
+                format!(
+                    "FinTS dialog init failed with HTTP status {}",
+                    response.status
+                ),
+            ));
+        }
+
+        let values = parse_dialog_init_response(&self.hbci_version, &response)?;
+        self.passport
+            .update_accounts_from_values(&values, "DialogInitRes.UPD");
         Ok(())
     }
 
@@ -143,6 +173,57 @@ where
         message.prepare_outgoing()?;
         Ok(message.to_fints_string()?.into_bytes())
     }
+
+    fn render_dialog_init(&self) -> HbciResult<Vec<u8>> {
+        let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
+        let mut message = HbciMessage::from_syntax(&syntax, "DialogInit")?;
+        let passport = self.passport.data();
+        let country = if passport.country.is_empty() {
+            "DE"
+        } else {
+            passport.country.as_str()
+        };
+        let blz = required_passport_value(&passport.blz, "PinTAN passport has no bank code")?;
+        let customer_id = passport
+            .customer_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&passport.user_id);
+        let customer_id =
+            required_passport_value(customer_id, "PinTAN passport has no user id or customer id")?;
+
+        message.set_value("DialogInit.MsgHead.dialogid", "0")?;
+        message.set_value("DialogInit.MsgHead.msgnum", "1")?;
+        message.set_value("DialogInit.MsgTail.msgnum", "1")?;
+        message.set_value("DialogInit.Idn.KIK.country", country)?;
+        message.set_value("DialogInit.Idn.KIK.blz", blz)?;
+        message.set_value("DialogInit.Idn.customerid", customer_id)?;
+        message.set_value("DialogInit.Idn.sysid", "0")?;
+        message.set_value("DialogInit.Idn.sysStatus", "0")?;
+        message.set_value("DialogInit.ProcPrep.BPD", "0")?;
+        message.set_value("DialogInit.ProcPrep.UPD", "0")?;
+        message.set_value("DialogInit.ProcPrep.lang", "0")?;
+        message.set_value("DialogInit.ProcPrep.prodName", "hbci4rust")?;
+        message.set_value(
+            "DialogInit.ProcPrep.prodVersion",
+            product_version_for_proc_prep(),
+        )?;
+
+        message.prepare_outgoing()?;
+        Ok(message.to_fints_string()?.into_bytes())
+    }
+}
+
+fn required_passport_value<'a>(value: &'a str, message: &str) -> HbciResult<&'a str> {
+    if value.is_empty() {
+        Err(HbciError::new(HbciErrorKind::InvalidArgument, message))
+    } else {
+        Ok(value)
+    }
+}
+
+fn product_version_for_proc_prep() -> String {
+    env!("CARGO_PKG_VERSION").chars().take(5).collect()
 }
 
 fn render_job_into_custom_message(
@@ -422,6 +503,24 @@ fn parse_custom_message_response(
     let values = resolved.values_for_message(&syntax, "CustomMsgRes")?;
 
     Ok(ParsedResponseStatus::from_values(values))
+}
+
+fn parse_dialog_init_response(
+    hbci_version: &str,
+    response: &CommResponse,
+) -> HbciResult<BTreeMap<String, String>> {
+    let body = str::from_utf8(&response.body).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            "FinTS response body is not UTF-8 text",
+            err,
+        )
+    })?;
+    let syntax = load_protocol_spec(hbci_version)?.parse_syntax()?;
+    let wire_message = parse_wire_message(body)?;
+    let resolved = wire_message.resolve_segments(&syntax)?;
+
+    resolved.values_for_message(&syntax, "DialogInitRes")
 }
 
 fn saldo_info_from_values(

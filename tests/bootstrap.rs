@@ -131,6 +131,46 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
 }
 
 #[tokio::test]
+async fn handler_init_imports_upd_accounts_from_replay_response() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::Initialisiert",
+        "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+
+    handler.init().await.expect("dialog init replay response");
+
+    assert_eq!(handler.passport().accounts().len(), 1);
+    let account = &handler.passport().accounts()[0];
+    assert_eq!(account.number.as_deref(), Some("0001234567"));
+    assert_eq!(account.country.as_deref(), Some("DE"));
+    assert_eq!(account.blz.as_deref(), Some("12345678"));
+    assert_eq!(account.customer_id.as_deref(), Some("customer"));
+    assert_eq!(account.name.as_deref(), Some("Max Mustermann"));
+    assert_eq!(account.iban.as_deref(), Some("DE02123456780000000000"));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert!(body.starts_with("HNHBK:1:3+"));
+    assert!(body.contains("HKIDN:2:2+280:12345678+customer+0+0'"));
+    assert!(body.contains("HKVVB:3:3+0+0+0+hbci4rust+0.1.0'"));
+    assert!(body.ends_with("HNHBS:4:1+1'"));
+
+    let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
+    assert_eq!(size, format!("{:012}", body.len()));
+}
+
+#[tokio::test]
 async fn handler_uses_replay_comm_client() {
     init(BTreeMap::<String, String>::new(), Arc::new(TestCallback)).expect("runtime init");
 
