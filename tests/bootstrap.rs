@@ -148,6 +148,11 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
 
     handler.init().await.expect("dialog init replay response");
 
+    assert_eq!(
+        handler.dialog_context().dialog_id.as_deref(),
+        Some("DIALOG1")
+    );
+    assert_eq!(handler.dialog_context().message_number, 2);
     assert_eq!(handler.passport().accounts().len(), 1);
     let account = &handler.passport().accounts()[0];
     assert_eq!(account.number.as_deref(), Some("0001234567"));
@@ -168,6 +173,48 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
 
     let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
     assert_eq!(size, format!("{:012}", body.len()));
+}
+
+#[tokio::test]
+async fn handler_execute_uses_dialog_context_from_init_response() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::Initialisiert",
+            "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto",
+        ])),
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+        ])),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+
+    handler.init().await.expect("dialog init replay response");
+    let job = handler.new_job("SaldoReq").expect("job is in registry");
+    handler.add_to_queue(job);
+
+    let status = handler.execute().await.expect("custom message response");
+
+    assert!(status.success);
+    assert_eq!(handler.dialog_context().message_number, 3);
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 2);
+
+    let init_body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert!(init_body.contains("+300+0+1'"));
+
+    let execute_body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
+    assert!(execute_body.contains("+300+DIALOG1+2'"));
+    assert!(execute_body.contains("HKSAL:2:7+DE02123456780000000000::0001234567::280:12345678+N'"));
+    assert!(execute_body.ends_with("HNHBS:3:1+2'"));
 }
 
 #[tokio::test]

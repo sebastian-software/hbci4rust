@@ -19,6 +19,7 @@ pub use callback::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, HbciCallback,
 };
 pub use comm::{CommClient, CommRequest, CommResponse, DefaultCommClient, ReplayCommClient};
+pub use dialog::DialogContext;
 pub use error::{HbciError, HbciErrorKind, HbciResult};
 pub use gv::{HbciJob, JobRegistry, PINTAN_JOB_NAMES};
 pub use gv_result::{

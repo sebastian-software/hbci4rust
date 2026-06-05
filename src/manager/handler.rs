@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::str;
 
 use crate::comm::{CommClient, CommRequest, CommResponse, DefaultCommClient};
+use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
@@ -18,6 +19,7 @@ pub struct HbciHandler<C = DefaultCommClient> {
     comm: C,
     registry: JobRegistry,
     queue: Vec<HbciJob>,
+    dialog: DialogContext,
 }
 
 impl HbciHandler<DefaultCommClient> {
@@ -37,6 +39,7 @@ where
             comm,
             registry: JobRegistry::pintan(),
             queue: Vec::new(),
+            dialog: DialogContext::default(),
         }
     }
 
@@ -46,6 +49,10 @@ where
 
     pub fn passport(&self) -> &PinTanPassport {
         &self.passport
+    }
+
+    pub fn dialog_context(&self) -> &DialogContext {
+        &self.dialog
     }
 
     pub fn new_job(&self, name: &str) -> HbciResult<HbciJob> {
@@ -103,6 +110,7 @@ where
         }
 
         let values = parse_dialog_init_response(&self.hbci_version, &response)?;
+        self.dialog = dialog_context_from_init_values(&values)?;
         self.passport
             .update_accounts_from_values(&values, "DialogInitRes.UPD");
         Ok(())
@@ -123,6 +131,7 @@ where
         let body = self.render_queued_jobs()?;
 
         let response = self.comm.send(CommRequest::new(host, body)).await?;
+        self.dialog.advance_message_number();
         let http_success = response.status < 400;
         let response_status = if http_success {
             parse_custom_message_response(&self.hbci_version, &response)?
@@ -162,9 +171,13 @@ where
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg")?;
 
-        message.set_value("CustomMsg.MsgHead.dialogid", "0")?;
-        message.set_value("CustomMsg.MsgHead.msgnum", "1")?;
-        message.set_value("CustomMsg.MsgTail.msgnum", "1")?;
+        let message_number = self.dialog.current_message_number().to_string();
+        message.set_value(
+            "CustomMsg.MsgHead.dialogid",
+            self.dialog.current_dialog_id(),
+        )?;
+        message.set_value("CustomMsg.MsgHead.msgnum", &message_number)?;
+        message.set_value("CustomMsg.MsgTail.msgnum", &message_number)?;
 
         for (index, job) in self.queue.iter().enumerate() {
             render_job_into_custom_message(&mut message, job, index, &self.passport)?;
@@ -523,6 +536,16 @@ fn parse_dialog_init_response(
     resolved.values_for_message(&syntax, "DialogInitRes")
 }
 
+fn dialog_context_from_init_values(values: &BTreeMap<String, String>) -> HbciResult<DialogContext> {
+    let dialog_id = required_message_value(
+        values,
+        "DialogInitRes.MsgHead.dialogid",
+        "DialogInitRes did not contain a dialog id",
+    )?;
+
+    Ok(DialogContext::from_dialog_id(dialog_id))
+}
+
 fn saldo_info_from_values(
     values: &BTreeMap<String, String>,
     prefix: &str,
@@ -691,6 +714,18 @@ fn non_empty_string(value: &str) -> Option<String> {
 
 fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String> {
     values.get(key).and_then(|value| non_empty_string(value))
+}
+
+fn required_message_value<'a>(
+    values: &'a BTreeMap<String, String>,
+    key: &str,
+    message: &str,
+) -> HbciResult<&'a str> {
+    values
+        .get(key)
+        .map(String::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| HbciError::new(HbciErrorKind::Protocol, message))
 }
 
 fn queued_job_segment_sequence(index: usize) -> usize {
