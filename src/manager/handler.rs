@@ -744,6 +744,7 @@ fn saldo_info_from_values(
         acctype: None,
         account_type: optional_value(values, &format!("{prefix}.kontobez")),
         curr: optional_value(values, &format!("{prefix}.curr")),
+        limit: None,
         allowed_gvs: Vec::new(),
     };
     passport.fill_account_info(&mut konto);

@@ -111,7 +111,25 @@ pub struct Konto {
     pub account_type: Option<String>,
     pub curr: Option<String>,
     #[serde(default)]
+    pub limit: Option<Limit>,
+    #[serde(default)]
     pub allowed_gvs: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Limit {
+    #[serde(rename = "type")]
+    pub limit_type: String,
+    pub value: Option<Value>,
+    pub days: Option<u32>,
+}
+
+impl Limit {
+    pub const TYPE_SINGLE: &'static str = "E";
+    pub const TYPE_DAILY: &'static str = "T";
+    pub const TYPE_WEEKLY: &'static str = "W";
+    pub const TYPE_MONTHLY: &'static str = "M";
+    pub const TYPE_TIME: &'static str = "Z";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -4,7 +4,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use hbci4rust::{
     CallbackEvent, CallbackResponse, CommResponse, HbciCallback, HbciHandler, HbciJobResultData,
-    HbciResult, Konto, PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, init,
+    HbciResult, Konto, Limit, PassportStorage, PinTanPassport, PinTanPassportData,
+    ReplayCommClient, Value, init,
     protocol::{load_protocol_spec, parse_wire_message},
 };
 
@@ -69,6 +70,14 @@ fn giro_account() -> Konto {
         acctype: Some("1".to_owned()),
         account_type: Some("Girokonto".to_owned()),
         curr: Some("EUR".to_owned()),
+        limit: Some(Limit {
+            limit_type: Limit::TYPE_DAILY.to_owned(),
+            value: Some(Value {
+                value: "1000.00".to_owned(),
+                curr: Some("EUR".to_owned()),
+            }),
+            days: None,
+        }),
         allowed_gvs: vec!["HKSAL".to_owned(), "HKWPD".to_owned()],
     }
 }
@@ -131,7 +140,7 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
         .parse_syntax()
         .expect("syntax parses");
     let message = parse_wire_message(
-        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIUPD:3:6+0001234567::280:12345678++customer+1+EUR+Max Mustermann++Girokonto+E+HKSAL:1+HKWPD:1'HNHBS:4:1+1'",
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIUPD:3:6+0001234567::280:12345678++customer+1+EUR+Max Mustermann++Girokonto+T:1000.00:EUR+HKSAL:1+HKWPD:1'HNHBS:4:1+1'",
     )
     .expect("wire message parses");
     let values = message
@@ -159,6 +168,16 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
     assert_eq!(account.curr.as_deref(), Some("EUR"));
     assert_eq!(account.iban.as_deref(), Some("DE02123456780000000000"));
     assert_eq!(account.bic.as_deref(), Some("MARKDEF1100"));
+    let limit = account.limit.as_ref().expect("account limit imports");
+    assert_eq!(limit.limit_type, Limit::TYPE_DAILY);
+    assert_eq!(
+        limit.value.as_ref().expect("limit value imports"),
+        &Value {
+            value: "1000.00".to_owned(),
+            curr: Some("EUR".to_owned()),
+        }
+    );
+    assert_eq!(limit.days, None);
     assert_eq!(account.allowed_gvs, ["HKSAL", "HKWPD"]);
 }
 
@@ -206,7 +225,7 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
     });
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::Initialisiert",
-        "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto+E+HKSAL:1+HKWPD:1",
+        "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto+T:1000.00:EUR+HKSAL:1+HKWPD:1",
     ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
 
@@ -225,6 +244,15 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
     assert_eq!(account.customer_id.as_deref(), Some("customer"));
     assert_eq!(account.name.as_deref(), Some("Max Mustermann"));
     assert_eq!(account.iban.as_deref(), Some("DE02123456780000000000"));
+    let limit = account.limit.as_ref().expect("account limit imports");
+    assert_eq!(limit.limit_type, Limit::TYPE_DAILY);
+    assert_eq!(
+        limit.value.as_ref().expect("limit value imports"),
+        &Value {
+            value: "1000.00".to_owned(),
+            curr: Some("EUR".to_owned()),
+        }
+    );
     assert_eq!(account.allowed_gvs, ["HKSAL", "HKWPD"]);
 
     let requests = replay.requests().expect("requests");

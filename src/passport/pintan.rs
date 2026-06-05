@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::gv_result::Konto;
+use crate::gv_result::{Konto, Limit, Value};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PinTanPassport {
@@ -239,6 +239,9 @@ fn fill_from_account(account: &mut Konto, source: &Konto) {
     copy_non_empty(&mut account.acctype, &source.acctype);
     copy_non_empty(&mut account.account_type, &source.account_type);
     copy_non_empty(&mut account.curr, &source.curr);
+    if account.limit.is_none() {
+        account.limit = source.limit.clone();
+    }
     if !source.allowed_gvs.is_empty() {
         account.allowed_gvs = source.allowed_gvs.clone();
     }
@@ -279,10 +282,26 @@ fn account_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Optio
         acctype: optional_value(values, &format!("{prefix}.acctype")),
         account_type: optional_value(values, &format!("{prefix}.konto")),
         curr: optional_value(values, &format!("{prefix}.cur")),
+        limit: limit_from_values(values, &format!("{prefix}.KLimit")),
         allowed_gvs: counted_prefixes(values, &format!("{prefix}.AllowedGV"))
             .into_iter()
             .filter_map(|prefix| optional_value(values, &format!("{prefix}.code")))
             .collect(),
+    })
+}
+
+fn limit_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Option<Limit> {
+    Some(Limit {
+        limit_type: optional_value(values, &format!("{prefix}.limittype"))?,
+        value: value_from_values(values, &format!("{prefix}.BTG")),
+        days: optional_u32(values, &format!("{prefix}.limitdays")),
+    })
+}
+
+fn value_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Option<Value> {
+    values.get(&format!("{prefix}.value")).map(|value| Value {
+        value: value.to_owned(),
+        curr: optional_value(values, &format!("{prefix}.curr")),
     })
 }
 
