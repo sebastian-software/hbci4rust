@@ -302,6 +302,49 @@ async fn handler_execute_rejects_mismatched_response_reference() {
 }
 
 #[tokio::test]
+async fn handler_execute_rejects_mismatched_response_dialog_id() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        accounts: vec![giro_account()],
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&["HIRMG:2:2+0010::Initialisiert"])),
+        Ok(fints_response(
+            "OTHERDIALOG",
+            1,
+            "DIALOG1",
+            2,
+            &[
+                "HIRMG:2:2+0010::OK",
+                "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+            ],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+    let job = handler.new_job("SaldoReq").expect("job is in registry");
+    handler.add_to_queue(job);
+
+    let err = handler
+        .execute()
+        .await
+        .expect_err("wrong custom message response dialog id is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Protocol);
+    assert_eq!(handler.queued_jobs().len(), 1);
+    assert_eq!(
+        handler.dialog_context().dialog_id.as_deref(),
+        Some("DIALOG1")
+    );
+}
+
+#[tokio::test]
 async fn handler_close_sends_dialog_end_and_resets_context() {
     let passport = PinTanPassport::new(PinTanPassportData {
         country: "DE".to_owned(),
@@ -392,6 +435,41 @@ async fn handler_close_preserves_context_on_dialog_end_error() {
     let close_body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
     assert!(close_body.contains("+300+DIALOG1+2'"));
     assert!(close_body.contains("HKEND:2:1+DIALOG1'"));
+}
+
+#[tokio::test]
+async fn handler_close_rejects_mismatched_response_dialog_id() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&["HIRMG:2:2+0010::Initialisiert"])),
+        Ok(fints_response(
+            "OTHERDIALOG",
+            1,
+            "DIALOG1",
+            2,
+            &["HIRMG:2:2+0010::Dialog beendet"],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+    let err = handler
+        .close()
+        .await
+        .expect_err("wrong dialog end response dialog id is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Protocol);
+    assert_eq!(
+        handler.dialog_context().dialog_id.as_deref(),
+        Some("DIALOG1")
+    );
 }
 
 #[tokio::test]

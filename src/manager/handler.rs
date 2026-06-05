@@ -576,6 +576,7 @@ fn parse_custom_message_response(
 ) -> HbciResult<ParsedResponseStatus> {
     let values = parse_response_values(hbci_version, response, "CustomMsgRes")?;
     validate_response_message_reference(&values, "CustomMsgRes", request_ref)?;
+    validate_open_dialog_response_id(&values, "CustomMsgRes", request_ref)?;
 
     Ok(ParsedResponseStatus::from_values(values))
 }
@@ -598,6 +599,7 @@ fn parse_dialog_end_response(
 ) -> HbciResult<Vec<HbciReturnValue>> {
     let values = parse_response_values(hbci_version, response, "DialogEndRes")?;
     validate_response_message_reference(&values, "DialogEndRes", request_ref)?;
+    validate_open_dialog_response_id(&values, "DialogEndRes", request_ref)?;
 
     let mut return_values =
         collect_return_values(&values, "DialogEndRes.RetGlob", ReturnValueScope::Global);
@@ -660,6 +662,34 @@ fn validate_response_message_reference(
         format!(
             "{message_name} references message {}:{}, expected {}:{}",
             actual.dialog_id, actual.msgnum, expected.dialog_id, expected.msgnum
+        ),
+    ))
+}
+
+fn validate_open_dialog_response_id(
+    values: &BTreeMap<String, String>,
+    message_name: &str,
+    expected: &MessageReference,
+) -> HbciResult<()> {
+    if expected.dialog_id == "0" {
+        return Ok(());
+    }
+
+    let actual = required_message_value(
+        values,
+        &format!("{message_name}.MsgHead.dialogid"),
+        "FinTS response did not contain a dialog id",
+    )?;
+
+    if actual == expected.dialog_id {
+        return Ok(());
+    }
+
+    Err(HbciError::new(
+        HbciErrorKind::Protocol,
+        format!(
+            "{message_name} has dialog id {actual}, expected {}",
+            expected.dialog_id
         ),
     ))
 }
