@@ -69,6 +69,7 @@ fn giro_account() -> Konto {
         acctype: Some("1".to_owned()),
         account_type: Some("Girokonto".to_owned()),
         curr: Some("EUR".to_owned()),
+        allowed_gvs: vec!["HKSAL".to_owned(), "HKWPD".to_owned()],
     }
 }
 
@@ -130,7 +131,7 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
         .parse_syntax()
         .expect("syntax parses");
     let message = parse_wire_message(
-        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIUPD:3:6+0001234567::280:12345678++customer+1+EUR+Max Mustermann++Girokonto'HNHBS:4:1+1'",
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIUPD:3:6+0001234567::280:12345678++customer+1+EUR+Max Mustermann++Girokonto+E+HKSAL:1+HKWPD:1'HNHBS:4:1+1'",
     )
     .expect("wire message parses");
     let values = message
@@ -158,6 +159,7 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
     assert_eq!(account.curr.as_deref(), Some("EUR"));
     assert_eq!(account.iban.as_deref(), Some("DE02123456780000000000"));
     assert_eq!(account.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(account.allowed_gvs, ["HKSAL", "HKWPD"]);
 }
 
 #[test]
@@ -204,7 +206,7 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
     });
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::Initialisiert",
-        "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto",
+        "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto+E+HKSAL:1+HKWPD:1",
     ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
 
@@ -223,6 +225,7 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
     assert_eq!(account.customer_id.as_deref(), Some("customer"));
     assert_eq!(account.name.as_deref(), Some("Max Mustermann"));
     assert_eq!(account.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(account.allowed_gvs, ["HKSAL", "HKWPD"]);
 
     let requests = replay.requests().expect("requests");
     assert_eq!(requests.len(), 1);

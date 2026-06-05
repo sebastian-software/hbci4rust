@@ -239,6 +239,9 @@ fn fill_from_account(account: &mut Konto, source: &Konto) {
     copy_non_empty(&mut account.acctype, &source.acctype);
     copy_non_empty(&mut account.account_type, &source.account_type);
     copy_non_empty(&mut account.curr, &source.curr);
+    if !source.allowed_gvs.is_empty() {
+        account.allowed_gvs = source.allowed_gvs.clone();
+    }
 }
 
 fn copy_non_empty(target: &mut Option<String>, source: &Option<String>) {
@@ -276,6 +279,10 @@ fn account_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Optio
         acctype: optional_value(values, &format!("{prefix}.acctype")),
         account_type: optional_value(values, &format!("{prefix}.konto")),
         curr: optional_value(values, &format!("{prefix}.cur")),
+        allowed_gvs: counted_prefixes(values, &format!("{prefix}.AllowedGV"))
+            .into_iter()
+            .filter_map(|prefix| optional_value(values, &format!("{prefix}.code")))
+            .collect(),
     })
 }
 

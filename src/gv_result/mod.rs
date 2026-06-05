@@ -110,6 +110,8 @@ pub struct Konto {
     #[serde(rename = "type")]
     pub account_type: Option<String>,
     pub curr: Option<String>,
+    #[serde(default)]
+    pub allowed_gvs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
