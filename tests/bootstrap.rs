@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use hbci4rust::{
     CallbackEvent, CallbackResponse, CommResponse, HbciCallback, HbciHandler, HbciJobResultData,
     HbciResult, Konto, PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, init,
+    protocol::{load_protocol_spec, parse_wire_message},
 };
 
 #[derive(Debug)]
@@ -41,6 +42,10 @@ fn giro_account() -> Konto {
         subnumber: None,
         bic: Some("MARKDEF1100".to_owned()),
         iban: Some("DE02123456780000000000".to_owned()),
+        customer_id: Some("customer".to_owned()),
+        name: Some("Max Mustermann".to_owned()),
+        name2: None,
+        acctype: Some("1".to_owned()),
         account_type: Some("Girokonto".to_owned()),
         curr: Some("EUR".to_owned()),
     }
@@ -86,6 +91,43 @@ fn rust_native_passport_storage_roundtrips() {
         .expect("passport loads");
 
     assert_eq!(restored, data);
+}
+
+#[test]
+fn passport_imports_accounts_from_dialog_init_upd_values() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Initialisiert'HIUPD:3:6+0001234567::280:12345678++customer+1+EUR+Max Mustermann++Girokonto'HNHBS:4:1+1'",
+    )
+    .expect("wire message parses");
+    let values = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve")
+        .values_for_message(&syntax, "DialogInitRes")
+        .expect("message values extract");
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        accounts: vec![giro_account()],
+        ..PinTanPassportData::default()
+    });
+
+    let count = passport.update_accounts_from_values(&values, "DialogInitRes.UPD");
+
+    assert_eq!(count, 1);
+    assert_eq!(passport.accounts().len(), 1);
+    let account = &passport.accounts()[0];
+    assert_eq!(account.number.as_deref(), Some("0001234567"));
+    assert_eq!(account.country.as_deref(), Some("DE"));
+    assert_eq!(account.blz.as_deref(), Some("12345678"));
+    assert_eq!(account.customer_id.as_deref(), Some("customer"));
+    assert_eq!(account.name.as_deref(), Some("Max Mustermann"));
+    assert_eq!(account.acctype.as_deref(), Some("1"));
+    assert_eq!(account.account_type.as_deref(), Some("Girokonto"));
+    assert_eq!(account.curr.as_deref(), Some("EUR"));
+    assert_eq!(account.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(account.bic.as_deref(), Some("MARKDEF1100"));
 }
 
 #[tokio::test]

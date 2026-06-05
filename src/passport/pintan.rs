@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::gv_result::Konto;
@@ -60,6 +62,22 @@ impl PinTanPassport {
             }
         }
     }
+
+    pub fn update_accounts_from_values(
+        &mut self,
+        values: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> usize {
+        let mut accounts = accounts_from_values(values, prefix);
+        if accounts.is_empty() {
+            return 0;
+        }
+
+        preserve_missing_sepa_fields(&mut accounts, &self.data.accounts);
+        let count = accounts.len();
+        self.data.accounts = accounts;
+        count
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +101,10 @@ fn fill_from_account(account: &mut Konto, source: &Konto) {
     copy_non_empty(&mut account.subnumber, &source.subnumber);
     copy_non_empty(&mut account.bic, &source.bic);
     copy_non_empty(&mut account.iban, &source.iban);
+    copy_non_empty(&mut account.customer_id, &source.customer_id);
+    copy_non_empty(&mut account.name, &source.name);
+    copy_non_empty(&mut account.name2, &source.name2);
+    copy_non_empty(&mut account.acctype, &source.acctype);
     copy_non_empty(&mut account.account_type, &source.account_type);
     copy_non_empty(&mut account.curr, &source.curr);
 }
@@ -95,4 +117,98 @@ fn copy_non_empty(target: &mut Option<String>, source: &Option<String>) {
 
 fn strip_leading_zeroes(value: &str) -> String {
     value.trim_start_matches('0').to_owned()
+}
+
+fn accounts_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Vec<Konto> {
+    counted_prefixes(values, &format!("{prefix}.KInfo"))
+        .into_iter()
+        .filter_map(|prefix| account_from_values(values, &prefix))
+        .collect()
+}
+
+fn account_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Option<Konto> {
+    let number = optional_value(values, &format!("{prefix}.KTV.number"))?;
+
+    Some(Konto {
+        country: optional_value(values, &format!("{prefix}.KTV.KIK.country")),
+        blz: optional_value(values, &format!("{prefix}.KTV.KIK.blz")),
+        number: Some(number),
+        subnumber: optional_value(values, &format!("{prefix}.KTV.subnumber")),
+        bic: optional_value(values, &format!("{prefix}.KTV.bic"))
+            .or_else(|| optional_value(values, &format!("{prefix}.bic"))),
+        iban: optional_value(values, &format!("{prefix}.KTV.iban"))
+            .or_else(|| optional_value(values, &format!("{prefix}.iban"))),
+        customer_id: optional_value(values, &format!("{prefix}.customerid")),
+        name: optional_value(values, &format!("{prefix}.name1")),
+        name2: optional_value(values, &format!("{prefix}.name2")),
+        acctype: optional_value(values, &format!("{prefix}.acctype")),
+        account_type: optional_value(values, &format!("{prefix}.konto")),
+        curr: optional_value(values, &format!("{prefix}.cur")),
+    })
+}
+
+fn preserve_missing_sepa_fields(accounts: &mut [Konto], previous_accounts: &[Konto]) {
+    for account in accounts {
+        if account
+            .iban
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            && account
+                .bic
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
+        {
+            continue;
+        }
+
+        if let Some(previous) = previous_accounts
+            .iter()
+            .find(|previous| accounts_match_by_number_and_bank(account, previous))
+        {
+            if account.iban.as_deref().is_none_or(str::is_empty) {
+                copy_non_empty(&mut account.iban, &previous.iban);
+            }
+            if account.bic.as_deref().is_none_or(str::is_empty) {
+                copy_non_empty(&mut account.bic, &previous.bic);
+            }
+        }
+    }
+}
+
+fn accounts_match_by_number_and_bank(account: &Konto, previous: &Konto) -> bool {
+    account.number == previous.number
+        && account.blz == previous.blz
+        && account.country == previous.country
+}
+
+fn counted_prefixes(values: &BTreeMap<String, String>, base: &str) -> Vec<String> {
+    let mut prefixes = Vec::new();
+    let mut index = 1;
+
+    loop {
+        let prefix = if index == 1 {
+            base.to_owned()
+        } else {
+            format!("{base}_{index}")
+        };
+        let child_prefix = format!("{prefix}.");
+        if !values.keys().any(|key| key.starts_with(&child_prefix)) {
+            break;
+        }
+
+        prefixes.push(prefix);
+        index += 1;
+    }
+
+    prefixes
+}
+
+fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String> {
+    values.get(key).and_then(|value| {
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_owned())
+        }
+    })
 }

@@ -103,6 +103,10 @@ pub struct Konto {
     pub subnumber: Option<String>,
     pub bic: Option<String>,
     pub iban: Option<String>,
+    pub customer_id: Option<String>,
+    pub name: Option<String>,
+    pub name2: Option<String>,
+    pub acctype: Option<String>,
     #[serde(rename = "type")]
     pub account_type: Option<String>,
     pub curr: Option<String>,

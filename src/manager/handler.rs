@@ -438,6 +438,10 @@ fn saldo_info_from_values(
         subnumber: optional_value(values, &format!("{prefix}.KTV.subnumber")),
         bic: optional_value(values, &format!("{prefix}.KTV.bic")),
         iban: optional_value(values, &format!("{prefix}.KTV.iban")),
+        customer_id: None,
+        name: None,
+        name2: None,
+        acctype: None,
         account_type: optional_value(values, &format!("{prefix}.kontobez")),
         curr: optional_value(values, &format!("{prefix}.curr")),
     };
