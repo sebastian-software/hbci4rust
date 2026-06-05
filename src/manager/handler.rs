@@ -78,7 +78,8 @@ where
                 )
             })?
             .to_owned();
-        let body = self.render_dialog_init()?;
+        let request_ref = MessageReference::new("0", 1);
+        let body = self.render_dialog_init(&request_ref)?;
         let callback = super::callback();
 
         if let Some(callback) = callback.as_ref() {
@@ -109,7 +110,7 @@ where
             ));
         }
 
-        let values = parse_dialog_init_response(&self.hbci_version, &response)?;
+        let values = parse_dialog_init_response(&self.hbci_version, &response, &request_ref)?;
         self.dialog = dialog_context_from_init_values(&values)?;
         self.passport
             .update_accounts_from_values(&values, "DialogInitRes.UPD");
@@ -128,13 +129,17 @@ where
             )
         })?;
 
-        let body = self.render_queued_jobs()?;
+        let request_ref = MessageReference::new(
+            self.dialog.current_dialog_id(),
+            self.dialog.current_message_number(),
+        );
+        let body = self.render_queued_jobs(&request_ref)?;
 
         let response = self.comm.send(CommRequest::new(host, body)).await?;
         self.dialog.advance_message_number();
         let http_success = response.status < 400;
         let response_status = if http_success {
-            parse_custom_message_response(&self.hbci_version, &response)?
+            parse_custom_message_response(&self.hbci_version, &response, &request_ref)?
         } else {
             ParsedResponseStatus::default()
         };
@@ -182,7 +187,14 @@ where
                 )
             })?
             .to_owned();
-        let body = self.render_dialog_end()?;
+        let dialog_id = self.dialog.open_dialog_id().ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "DialogEnd requires an open FinTS dialog",
+            )
+        })?;
+        let request_ref = MessageReference::new(dialog_id, self.dialog.current_message_number());
+        let body = self.render_dialog_end(&request_ref)?;
 
         let response = self.comm.send(CommRequest::new(host, body)).await?;
         if response.status >= 400 {
@@ -195,23 +207,19 @@ where
             ));
         }
 
-        let return_values = parse_dialog_end_response(&self.hbci_version, &response)?;
+        let return_values = parse_dialog_end_response(&self.hbci_version, &response, &request_ref)?;
         ensure_dialog_end_ok(&return_values)?;
         self.dialog.reset();
         Ok(())
     }
 
-    fn render_queued_jobs(&self) -> HbciResult<Vec<u8>> {
+    fn render_queued_jobs(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg")?;
 
-        let message_number = self.dialog.current_message_number().to_string();
-        message.set_value(
-            "CustomMsg.MsgHead.dialogid",
-            self.dialog.current_dialog_id(),
-        )?;
-        message.set_value("CustomMsg.MsgHead.msgnum", &message_number)?;
-        message.set_value("CustomMsg.MsgTail.msgnum", &message_number)?;
+        message.set_value("CustomMsg.MsgHead.dialogid", &request_ref.dialog_id)?;
+        message.set_value("CustomMsg.MsgHead.msgnum", &request_ref.msgnum)?;
+        message.set_value("CustomMsg.MsgTail.msgnum", &request_ref.msgnum)?;
 
         for (index, job) in self.queue.iter().enumerate() {
             render_job_into_custom_message(&mut message, job, index, &self.passport)?;
@@ -221,27 +229,20 @@ where
         Ok(message.to_fints_string()?.into_bytes())
     }
 
-    fn render_dialog_end(&self) -> HbciResult<Vec<u8>> {
-        let dialog_id = self.dialog.open_dialog_id().ok_or_else(|| {
-            HbciError::new(
-                HbciErrorKind::InvalidArgument,
-                "DialogEnd requires an open FinTS dialog",
-            )
-        })?;
+    fn render_dialog_end(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd")?;
-        let message_number = self.dialog.current_message_number().to_string();
 
-        message.set_value("DialogEnd.MsgHead.dialogid", dialog_id)?;
-        message.set_value("DialogEnd.MsgHead.msgnum", &message_number)?;
-        message.set_value("DialogEnd.DialogEndS.dialogid", dialog_id)?;
-        message.set_value("DialogEnd.MsgTail.msgnum", &message_number)?;
+        message.set_value("DialogEnd.MsgHead.dialogid", &request_ref.dialog_id)?;
+        message.set_value("DialogEnd.MsgHead.msgnum", &request_ref.msgnum)?;
+        message.set_value("DialogEnd.DialogEndS.dialogid", &request_ref.dialog_id)?;
+        message.set_value("DialogEnd.MsgTail.msgnum", &request_ref.msgnum)?;
 
         message.prepare_outgoing()?;
         Ok(message.to_fints_string()?.into_bytes())
     }
 
-    fn render_dialog_init(&self) -> HbciResult<Vec<u8>> {
+    fn render_dialog_init(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "DialogInit")?;
         let passport = self.passport.data();
@@ -259,9 +260,9 @@ where
         let customer_id =
             required_passport_value(customer_id, "PinTAN passport has no user id or customer id")?;
 
-        message.set_value("DialogInit.MsgHead.dialogid", "0")?;
-        message.set_value("DialogInit.MsgHead.msgnum", "1")?;
-        message.set_value("DialogInit.MsgTail.msgnum", "1")?;
+        message.set_value("DialogInit.MsgHead.dialogid", &request_ref.dialog_id)?;
+        message.set_value("DialogInit.MsgHead.msgnum", &request_ref.msgnum)?;
+        message.set_value("DialogInit.MsgTail.msgnum", &request_ref.msgnum)?;
         message.set_value("DialogInit.Idn.KIK.country", country)?;
         message.set_value("DialogInit.Idn.KIK.blz", blz)?;
         message.set_value("DialogInit.Idn.customerid", customer_id)?;
@@ -291,6 +292,21 @@ fn required_passport_value<'a>(value: &'a str, message: &str) -> HbciResult<&'a 
 
 fn product_version_for_proc_prep() -> String {
     env!("CARGO_PKG_VERSION").chars().take(5).collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MessageReference {
+    dialog_id: String,
+    msgnum: String,
+}
+
+impl MessageReference {
+    fn new(dialog_id: impl Into<String>, msgnum: impl ToString) -> Self {
+        Self {
+            dialog_id: dialog_id.into(),
+            msgnum: msgnum.to_string(),
+        }
+    }
 }
 
 fn render_job_into_custom_message(
@@ -556,18 +572,10 @@ enum ReturnValueScope {
 fn parse_custom_message_response(
     hbci_version: &str,
     response: &CommResponse,
+    request_ref: &MessageReference,
 ) -> HbciResult<ParsedResponseStatus> {
-    let body = str::from_utf8(&response.body).map_err(|err| {
-        HbciError::with_source(
-            HbciErrorKind::Protocol,
-            "FinTS response body is not UTF-8 text",
-            err,
-        )
-    })?;
-    let syntax = load_protocol_spec(hbci_version)?.parse_syntax()?;
-    let wire_message = parse_wire_message(body)?;
-    let resolved = wire_message.resolve_segments(&syntax)?;
-    let values = resolved.values_for_message(&syntax, "CustomMsgRes")?;
+    let values = parse_response_values(hbci_version, response, "CustomMsgRes")?;
+    validate_response_message_reference(&values, "CustomMsgRes", request_ref)?;
 
     Ok(ParsedResponseStatus::from_values(values))
 }
@@ -575,36 +583,21 @@ fn parse_custom_message_response(
 fn parse_dialog_init_response(
     hbci_version: &str,
     response: &CommResponse,
+    request_ref: &MessageReference,
 ) -> HbciResult<BTreeMap<String, String>> {
-    let body = str::from_utf8(&response.body).map_err(|err| {
-        HbciError::with_source(
-            HbciErrorKind::Protocol,
-            "FinTS response body is not UTF-8 text",
-            err,
-        )
-    })?;
-    let syntax = load_protocol_spec(hbci_version)?.parse_syntax()?;
-    let wire_message = parse_wire_message(body)?;
-    let resolved = wire_message.resolve_segments(&syntax)?;
+    let values = parse_response_values(hbci_version, response, "DialogInitRes")?;
+    validate_response_message_reference(&values, "DialogInitRes", request_ref)?;
 
-    resolved.values_for_message(&syntax, "DialogInitRes")
+    Ok(values)
 }
 
 fn parse_dialog_end_response(
     hbci_version: &str,
     response: &CommResponse,
+    request_ref: &MessageReference,
 ) -> HbciResult<Vec<HbciReturnValue>> {
-    let body = str::from_utf8(&response.body).map_err(|err| {
-        HbciError::with_source(
-            HbciErrorKind::Protocol,
-            "FinTS response body is not UTF-8 text",
-            err,
-        )
-    })?;
-    let syntax = load_protocol_spec(hbci_version)?.parse_syntax()?;
-    let wire_message = parse_wire_message(body)?;
-    let resolved = wire_message.resolve_segments(&syntax)?;
-    let values = resolved.values_for_message(&syntax, "DialogEndRes")?;
+    let values = parse_response_values(hbci_version, response, "DialogEndRes")?;
+    validate_response_message_reference(&values, "DialogEndRes", request_ref)?;
 
     let mut return_values =
         collect_return_values(&values, "DialogEndRes.RetGlob", ReturnValueScope::Global);
@@ -617,6 +610,58 @@ fn parse_dialog_end_response(
     }
 
     Ok(return_values)
+}
+
+fn parse_response_values(
+    hbci_version: &str,
+    response: &CommResponse,
+    message_name: &str,
+) -> HbciResult<BTreeMap<String, String>> {
+    let body = str::from_utf8(&response.body).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            "FinTS response body is not UTF-8 text",
+            err,
+        )
+    })?;
+    let syntax = load_protocol_spec(hbci_version)?.parse_syntax()?;
+    let wire_message = parse_wire_message(body)?;
+    let resolved = wire_message.resolve_segments(&syntax)?;
+
+    resolved.values_for_message(&syntax, message_name)
+}
+
+fn validate_response_message_reference(
+    values: &BTreeMap<String, String>,
+    message_name: &str,
+    expected: &MessageReference,
+) -> HbciResult<()> {
+    let actual = MessageReference {
+        dialog_id: required_message_value(
+            values,
+            &format!("{message_name}.MsgHead.MsgRef.dialogid"),
+            "FinTS response did not contain a message reference dialog id",
+        )?
+        .to_owned(),
+        msgnum: required_message_value(
+            values,
+            &format!("{message_name}.MsgHead.MsgRef.msgnum"),
+            "FinTS response did not contain a message reference number",
+        )?
+        .to_owned(),
+    };
+
+    if actual == *expected {
+        return Ok(());
+    }
+
+    Err(HbciError::new(
+        HbciErrorKind::Protocol,
+        format!(
+            "{message_name} references message {}:{}, expected {}:{}",
+            actual.dialog_id, actual.msgnum, expected.dialog_id, expected.msgnum
+        ),
+    ))
 }
 
 fn ensure_dialog_end_ok(return_values: &[HbciReturnValue]) -> HbciResult<()> {

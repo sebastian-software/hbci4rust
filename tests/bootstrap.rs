@@ -19,14 +19,35 @@ impl HbciCallback for TestCallback {
 }
 
 fn custom_msg_response(body_segments: &[&str]) -> CommResponse {
-    let mut body = "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'".to_owned();
+    custom_msg_response_for_request("0", 1, body_segments)
+}
+
+fn custom_msg_response_for_request(
+    ref_dialog_id: &str,
+    ref_msgnum: u32,
+    body_segments: &[&str],
+) -> CommResponse {
+    fints_response("DIALOG1", 1, ref_dialog_id, ref_msgnum, body_segments)
+}
+
+fn fints_response(
+    dialog_id: &str,
+    msgnum: u32,
+    ref_dialog_id: &str,
+    ref_msgnum: u32,
+    body_segments: &[&str],
+) -> CommResponse {
+    let mut body =
+        format!("HNHBK:1:3+000000000123+300+{dialog_id}+{msgnum}+{ref_dialog_id}:{ref_msgnum}'");
     for segment in body_segments {
         body.push_str(segment);
         body.push('\'');
     }
     body.push_str("HNHBS:");
     body.push_str(&(body_segments.len() + 2).to_string());
-    body.push_str(":1+1'");
+    body.push_str(":1+");
+    body.push_str(&msgnum.to_string());
+    body.push('\'');
     CommResponse::ok(body)
 }
 
@@ -100,7 +121,7 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
         .parse_syntax()
         .expect("syntax parses");
     let message = parse_wire_message(
-        "HNHBK:1:3+000000000123+300+DIALOG1+1+DIALOG0:1'HIRMG:2:2+0010::Initialisiert'HIUPD:3:6+0001234567::280:12345678++customer+1+EUR+Max Mustermann++Girokonto'HNHBS:4:1+1'",
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIUPD:3:6+0001234567::280:12345678++customer+1+EUR+Max Mustermann++Girokonto'HNHBS:4:1+1'",
     )
     .expect("wire message parses");
     let values = message
@@ -176,6 +197,32 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
 }
 
 #[tokio::test]
+async fn handler_init_rejects_mismatched_response_reference() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response_for_request(
+        "WRONG",
+        1,
+        &["HIRMG:2:2+0010::Initialisiert"],
+    ))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    let err = handler
+        .init()
+        .await
+        .expect_err("wrong response reference is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Protocol);
+    assert!(handler.dialog_context().dialog_id.is_none());
+}
+
+#[tokio::test]
 async fn handler_execute_uses_dialog_context_from_init_response() {
     let passport = PinTanPassport::new(PinTanPassportData {
         country: "DE".to_owned(),
@@ -190,10 +237,14 @@ async fn handler_execute_uses_dialog_context_from_init_response() {
             "HIRMG:2:2+0010::Initialisiert",
             "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto",
         ])),
-        Ok(custom_msg_response(&[
-            "HIRMG:2:2+0010::OK",
-            "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
-        ])),
+        Ok(custom_msg_response_for_request(
+            "DIALOG1",
+            2,
+            &[
+                "HIRMG:2:2+0010::OK",
+                "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+            ],
+        )),
     ]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
 
@@ -218,6 +269,39 @@ async fn handler_execute_uses_dialog_context_from_init_response() {
 }
 
 #[tokio::test]
+async fn handler_execute_rejects_mismatched_response_reference() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        accounts: vec![giro_account()],
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&["HIRMG:2:2+0010::Initialisiert"])),
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+        ])),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+    let job = handler.new_job("SaldoReq").expect("job is in registry");
+    handler.add_to_queue(job);
+
+    let err = handler
+        .execute()
+        .await
+        .expect_err("wrong custom message response reference is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Protocol);
+    assert_eq!(handler.queued_jobs().len(), 1);
+}
+
+#[tokio::test]
 async fn handler_close_sends_dialog_end_and_resets_context() {
     let passport = PinTanPassport::new(PinTanPassportData {
         country: "DE".to_owned(),
@@ -232,11 +316,19 @@ async fn handler_close_sends_dialog_end_and_resets_context() {
             "HIRMG:2:2+0010::Initialisiert",
             "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto",
         ])),
-        Ok(custom_msg_response(&[
-            "HIRMG:2:2+0010::OK",
-            "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
-        ])),
-        Ok(custom_msg_response(&["HIRMG:2:2+0010::Dialog beendet"])),
+        Ok(custom_msg_response_for_request(
+            "DIALOG1",
+            2,
+            &[
+                "HIRMG:2:2+0010::OK",
+                "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+            ],
+        )),
+        Ok(custom_msg_response_for_request(
+            "DIALOG1",
+            3,
+            &["HIRMG:2:2+0010::Dialog beendet"],
+        )),
     ]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
 
@@ -274,9 +366,11 @@ async fn handler_close_preserves_context_on_dialog_end_error() {
     });
     let replay = ReplayCommClient::new([
         Ok(custom_msg_response(&["HIRMG:2:2+0010::Initialisiert"])),
-        Ok(custom_msg_response(&[
-            "HIRMG:2:2+9010::Dialogende fehlgeschlagen",
-        ])),
+        Ok(custom_msg_response_for_request(
+            "DIALOG1",
+            2,
+            &["HIRMG:2:2+9010::Dialogende fehlgeschlagen"],
+        )),
     ]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
 
