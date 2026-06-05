@@ -103,6 +103,8 @@ fn rust_native_passport_storage_roundtrips() {
         filter: Some("Base64".to_owned()),
         tan_method: Some("921".to_owned()),
         tan_media: Some("phone".to_owned()),
+        bpd_version: Some("5".to_owned()),
+        upd_version: Some("7".to_owned()),
         accounts: vec![giro_account()],
     };
 
@@ -151,6 +153,30 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
     assert_eq!(account.bic.as_deref(), Some("MARKDEF1100"));
 }
 
+#[test]
+fn passport_imports_bpd_and_upd_versions_from_dialog_init_values() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let message = parse_wire_message(
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIBPA:3:3+5+280:12345678+Bank+1+1+300'HIUPA:4:4+user+7+1+Max Mustermann'HNHBS:5:1+1'",
+    )
+    .expect("wire message parses");
+    let values = message
+        .resolve_segments(&syntax)
+        .expect("wire segments resolve")
+        .values_for_message(&syntax, "DialogInitRes")
+        .expect("message values extract");
+    let mut passport = PinTanPassport::new(PinTanPassportData::default());
+
+    let count = passport.update_parameter_versions_from_values(&values, "DialogInitRes");
+
+    assert_eq!(count, 2);
+    assert_eq!(passport.bpd_version(), "5");
+    assert_eq!(passport.upd_version(), "7");
+}
+
 #[tokio::test]
 async fn handler_init_imports_upd_accounts_from_replay_response() {
     let passport = PinTanPassport::new(PinTanPassportData {
@@ -194,6 +220,35 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
 
     let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
     assert_eq!(size, format!("{:012}", body.len()));
+}
+
+#[tokio::test]
+async fn handler_init_uses_cached_bpd_and_upd_versions() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        bpd_version: Some("5".to_owned()),
+        upd_version: Some("7".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::Initialisiert",
+        "HIBPA:3:3+6+280:12345678+Bank+1+1+300",
+        "HIUPA:4:4+user+8+1+Max Mustermann",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+
+    handler.init().await.expect("dialog init replay response");
+
+    assert_eq!(handler.passport().bpd_version(), "6");
+    assert_eq!(handler.passport().upd_version(), "8");
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert!(body.contains("HKVVB:3:3+5+7+0+hbci4rust+0.1.0'"));
 }
 
 #[tokio::test]

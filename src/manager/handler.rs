@@ -113,6 +113,8 @@ where
         let values = parse_dialog_init_response(&self.hbci_version, &response, &request_ref)?;
         self.dialog = dialog_context_from_init_values(&values)?;
         self.passport
+            .update_parameter_versions_from_values(&values, "DialogInitRes");
+        self.passport
             .update_accounts_from_values(&values, "DialogInitRes.UPD");
         Ok(())
     }
@@ -268,8 +270,8 @@ where
         message.set_value("DialogInit.Idn.customerid", customer_id)?;
         message.set_value("DialogInit.Idn.sysid", "0")?;
         message.set_value("DialogInit.Idn.sysStatus", "0")?;
-        message.set_value("DialogInit.ProcPrep.BPD", "0")?;
-        message.set_value("DialogInit.ProcPrep.UPD", "0")?;
+        message.set_value("DialogInit.ProcPrep.BPD", self.passport.bpd_version())?;
+        message.set_value("DialogInit.ProcPrep.UPD", self.passport.upd_version())?;
         message.set_value("DialogInit.ProcPrep.lang", "0")?;
         message.set_value("DialogInit.ProcPrep.prodName", "hbci4rust")?;
         message.set_value(

@@ -26,6 +26,14 @@ impl PinTanPassport {
         self.data.host.as_deref()
     }
 
+    pub fn bpd_version(&self) -> &str {
+        self.data.bpd_version.as_deref().unwrap_or("0")
+    }
+
+    pub fn upd_version(&self) -> &str {
+        self.data.upd_version.as_deref().unwrap_or("0")
+    }
+
     pub fn accounts(&self) -> &[Konto] {
         &self.data.accounts
     }
@@ -78,6 +86,25 @@ impl PinTanPassport {
         self.data.accounts = accounts;
         count
     }
+
+    pub fn update_parameter_versions_from_values(
+        &mut self,
+        values: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> usize {
+        let mut updated = 0;
+
+        if let Some(version) = optional_value(values, &format!("{prefix}.BPD.BPA.version")) {
+            self.data.bpd_version = Some(version);
+            updated += 1;
+        }
+        if let Some(version) = optional_value(values, &format!("{prefix}.UPD.UPA.version")) {
+            self.data.upd_version = Some(version);
+            updated += 1;
+        }
+
+        updated
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,6 +117,10 @@ pub struct PinTanPassportData {
     pub filter: Option<String>,
     pub tan_method: Option<String>,
     pub tan_media: Option<String>,
+    #[serde(default)]
+    pub bpd_version: Option<String>,
+    #[serde(default)]
+    pub upd_version: Option<String>,
     #[serde(default)]
     pub accounts: Vec<Konto>,
 }
