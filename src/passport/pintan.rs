@@ -66,12 +66,45 @@ impl PinTanPassport {
         self.data.user_name.as_deref()
     }
 
+    pub fn customer_id(&self) -> &str {
+        self.data
+            .customer_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&self.data.user_id)
+    }
+
     pub fn accounts(&self) -> &[Konto] {
         &self.data.accounts
     }
 
     pub fn first_account(&self) -> Option<&Konto> {
         self.accounts().first()
+    }
+
+    pub fn account_by_number(&self, number: impl Into<String>) -> Konto {
+        let mut account = Konto {
+            number: Some(number.into()),
+            curr: Some("EUR".to_owned()),
+            ..Konto::default()
+        };
+        self.fill_account_info(&mut account);
+
+        if account.blz.as_deref().is_none_or(str::is_empty) {
+            if !self.data.blz.is_empty() {
+                account.blz = Some(self.data.blz.clone());
+            }
+            if !self.data.country.is_empty() {
+                account.country = Some(self.data.country.clone());
+            }
+            let customer_id = self.customer_id();
+            if !customer_id.is_empty() {
+                account.customer_id = Some(customer_id.to_owned());
+                account.name = Some(customer_id.to_owned());
+            }
+        }
+
+        account
     }
 
     pub fn fill_account_info(&self, account: &mut Konto) {

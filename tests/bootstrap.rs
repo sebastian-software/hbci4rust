@@ -103,6 +103,52 @@ fn rejects_out_of_scope_job() {
 }
 
 #[test]
+fn passport_account_by_number_returns_cached_account() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        accounts: vec![giro_account()],
+        ..PinTanPassportData::default()
+    });
+
+    let account = passport.account_by_number("1234567");
+
+    assert_eq!(account.number.as_deref(), Some("0001234567"));
+    assert_eq!(account.blz.as_deref(), Some("12345678"));
+    assert_eq!(account.country.as_deref(), Some("DE"));
+    assert_eq!(account.customer_id.as_deref(), Some("customer"));
+    assert_eq!(account.curr.as_deref(), Some("EUR"));
+    assert_eq!(account.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(account.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(account.allowed_gvs, ["HKSAL", "HKWPD"]);
+    assert_eq!(
+        account
+            .limit
+            .as_ref()
+            .map(|limit| limit.limit_type.as_str()),
+        Some(Limit::TYPE_DAILY)
+    );
+}
+
+#[test]
+fn passport_account_by_number_falls_back_to_passport_identity() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+
+    let account = passport.account_by_number("9999999999");
+
+    assert_eq!(account.number.as_deref(), Some("9999999999"));
+    assert_eq!(account.blz.as_deref(), Some("12345678"));
+    assert_eq!(account.country.as_deref(), Some("DE"));
+    assert_eq!(account.customer_id.as_deref(), Some("customer"));
+    assert_eq!(account.name.as_deref(), Some("customer"));
+    assert_eq!(account.curr.as_deref(), Some("EUR"));
+}
+
+#[test]
 fn rust_native_passport_storage_roundtrips() {
     let data = PinTanPassportData {
         country: "DE".to_owned(),
