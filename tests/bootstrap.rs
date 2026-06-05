@@ -105,6 +105,13 @@ fn rust_native_passport_storage_roundtrips() {
         tan_media: Some("phone".to_owned()),
         bpd_version: Some("5".to_owned()),
         upd_version: Some("7".to_owned()),
+        bank_name: Some("Test Bank".to_owned()),
+        max_gv_per_message: Some(4),
+        max_message_size_kb: Some(2048),
+        supported_languages: vec!["1".to_owned(), "2".to_owned()],
+        supported_hbci_versions: vec!["300".to_owned(), "220".to_owned()],
+        upd_usage: Some("1".to_owned()),
+        user_name: Some("Max Mustermann".to_owned()),
         accounts: vec![giro_account()],
     };
 
@@ -154,13 +161,13 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
 }
 
 #[test]
-fn passport_imports_bpd_and_upd_versions_from_dialog_init_values() {
+fn passport_imports_bpd_and_upd_parameter_data_from_dialog_init_values() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
         .parse_syntax()
         .expect("syntax parses");
     let message = parse_wire_message(
-        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIBPA:3:3+5+280:12345678+Bank+1+1+300'HIUPA:4:4+user+7+1+Max Mustermann'HNHBS:5:1+1'",
+        "HNHBK:1:3+000000000123+300+DIALOG1+1+0:1'HIRMG:2:2+0010::Initialisiert'HIBPA:3:3+5+280:12345678+Bank+4+1:2+300:220+2048'HIUPA:4:4+user+7+0+Max Mustermann'HNHBS:5:1+1'",
     )
     .expect("wire message parses");
     let values = message
@@ -170,11 +177,19 @@ fn passport_imports_bpd_and_upd_versions_from_dialog_init_values() {
         .expect("message values extract");
     let mut passport = PinTanPassport::new(PinTanPassportData::default());
 
-    let count = passport.update_parameter_versions_from_values(&values, "DialogInitRes");
+    let count = passport.update_parameter_data_from_values(&values, "DialogInitRes");
 
-    assert_eq!(count, 2);
+    assert_eq!(count, 9);
     assert_eq!(passport.bpd_version(), "5");
     assert_eq!(passport.upd_version(), "7");
+    assert_eq!(passport.bank_name(), Some("Bank"));
+    assert_eq!(passport.max_gv_per_message(), Some(4));
+    assert_eq!(passport.max_message_size_kb(), Some(2048));
+    assert_eq!(passport.supported_languages(), ["1", "2"]);
+    assert_eq!(passport.supported_hbci_versions(), ["300", "220"]);
+    assert_eq!(passport.upd_usage(), Some("0"));
+    assert!(passport.only_bpd_gvs());
+    assert_eq!(passport.user_name(), Some("Max Mustermann"));
 }
 
 #[tokio::test]
@@ -245,6 +260,13 @@ async fn handler_init_uses_cached_bpd_and_upd_versions() {
 
     assert_eq!(handler.passport().bpd_version(), "6");
     assert_eq!(handler.passport().upd_version(), "8");
+    assert_eq!(handler.passport().bank_name(), Some("Bank"));
+    assert_eq!(handler.passport().max_gv_per_message(), Some(1));
+    assert_eq!(handler.passport().supported_languages(), ["1"]);
+    assert_eq!(handler.passport().supported_hbci_versions(), ["300"]);
+    assert_eq!(handler.passport().upd_usage(), Some("1"));
+    assert!(!handler.passport().only_bpd_gvs());
+    assert_eq!(handler.passport().user_name(), Some("Max Mustermann"));
 
     let requests = replay.requests().expect("requests");
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
