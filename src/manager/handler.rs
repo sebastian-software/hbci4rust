@@ -167,6 +167,40 @@ where
         })
     }
 
+    pub async fn close(&mut self) -> HbciResult<()> {
+        if !self.dialog.is_open() {
+            return Ok(());
+        }
+
+        let host = self
+            .passport
+            .host()
+            .ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::InvalidArgument,
+                    "PinTAN passport has no FinTS endpoint",
+                )
+            })?
+            .to_owned();
+        let body = self.render_dialog_end()?;
+
+        let response = self.comm.send(CommRequest::new(host, body)).await?;
+        if response.status >= 400 {
+            return Err(HbciError::new(
+                HbciErrorKind::Network,
+                format!(
+                    "FinTS dialog end failed with HTTP status {}",
+                    response.status
+                ),
+            ));
+        }
+
+        let return_values = parse_dialog_end_response(&self.hbci_version, &response)?;
+        ensure_dialog_end_ok(&return_values)?;
+        self.dialog.reset();
+        Ok(())
+    }
+
     fn render_queued_jobs(&self) -> HbciResult<Vec<u8>> {
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg")?;
@@ -182,6 +216,26 @@ where
         for (index, job) in self.queue.iter().enumerate() {
             render_job_into_custom_message(&mut message, job, index, &self.passport)?;
         }
+
+        message.prepare_outgoing()?;
+        Ok(message.to_fints_string()?.into_bytes())
+    }
+
+    fn render_dialog_end(&self) -> HbciResult<Vec<u8>> {
+        let dialog_id = self.dialog.open_dialog_id().ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "DialogEnd requires an open FinTS dialog",
+            )
+        })?;
+        let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
+        let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd")?;
+        let message_number = self.dialog.current_message_number().to_string();
+
+        message.set_value("DialogEnd.MsgHead.dialogid", dialog_id)?;
+        message.set_value("DialogEnd.MsgHead.msgnum", &message_number)?;
+        message.set_value("DialogEnd.DialogEndS.dialogid", dialog_id)?;
+        message.set_value("DialogEnd.MsgTail.msgnum", &message_number)?;
 
         message.prepare_outgoing()?;
         Ok(message.to_fints_string()?.into_bytes())
@@ -534,6 +588,53 @@ fn parse_dialog_init_response(
     let resolved = wire_message.resolve_segments(&syntax)?;
 
     resolved.values_for_message(&syntax, "DialogInitRes")
+}
+
+fn parse_dialog_end_response(
+    hbci_version: &str,
+    response: &CommResponse,
+) -> HbciResult<Vec<HbciReturnValue>> {
+    let body = str::from_utf8(&response.body).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            "FinTS response body is not UTF-8 text",
+            err,
+        )
+    })?;
+    let syntax = load_protocol_spec(hbci_version)?.parse_syntax()?;
+    let wire_message = parse_wire_message(body)?;
+    let resolved = wire_message.resolve_segments(&syntax)?;
+    let values = resolved.values_for_message(&syntax, "DialogEndRes")?;
+
+    let mut return_values =
+        collect_return_values(&values, "DialogEndRes.RetGlob", ReturnValueScope::Global);
+    for prefix in counted_prefixes(&values, "DialogEndRes.RetSeg") {
+        return_values.extend(collect_return_values(
+            &values,
+            &prefix,
+            ReturnValueScope::Segment,
+        ));
+    }
+
+    Ok(return_values)
+}
+
+fn ensure_dialog_end_ok(return_values: &[HbciReturnValue]) -> HbciResult<()> {
+    if status_is_ok(return_values) {
+        return Ok(());
+    }
+
+    let message = return_values
+        .iter()
+        .map(HbciReturnValue::message)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let message = if message.is_empty() {
+        "FinTS dialog end failed without return values".to_owned()
+    } else {
+        format!("FinTS dialog end failed: {message}")
+    };
+    Err(HbciError::new(HbciErrorKind::Protocol, message))
 }
 
 fn dialog_context_from_init_values(values: &BTreeMap<String, String>) -> HbciResult<DialogContext> {

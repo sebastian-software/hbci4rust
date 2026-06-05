@@ -218,6 +218,89 @@ async fn handler_execute_uses_dialog_context_from_init_response() {
 }
 
 #[tokio::test]
+async fn handler_close_sends_dialog_end_and_resets_context() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::Initialisiert",
+            "HIUPD:3:6+0001234567::280:12345678+DE02123456780000000000+customer+1+EUR+Max Mustermann++Girokonto",
+        ])),
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+        ])),
+        Ok(custom_msg_response(&["HIRMG:2:2+0010::Dialog beendet"])),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+
+    handler.init().await.expect("dialog init replay response");
+    let job = handler.new_job("SaldoReq").expect("job is in registry");
+    handler.add_to_queue(job);
+    handler.execute().await.expect("custom message response");
+
+    handler.close().await.expect("dialog end response");
+
+    assert!(handler.dialog_context().dialog_id.is_none());
+    assert_eq!(handler.dialog_context().message_number, 1);
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 3);
+
+    let close_body = String::from_utf8(requests[2].body.clone()).expect("request body is text");
+    assert!(close_body.starts_with("HNHBK:1:3+"));
+    assert!(close_body.contains("+300+DIALOG1+3'"));
+    assert!(close_body.contains("HKEND:2:1+DIALOG1'"));
+    assert!(close_body.ends_with("HNHBS:3:1+3'"));
+
+    let size = &close_body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
+    assert_eq!(size, format!("{:012}", close_body.len()));
+}
+
+#[tokio::test]
+async fn handler_close_preserves_context_on_dialog_end_error() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&["HIRMG:2:2+0010::Initialisiert"])),
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+9010::Dialogende fehlgeschlagen",
+        ])),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+
+    handler.init().await.expect("dialog init replay response");
+    let err = handler
+        .close()
+        .await
+        .expect_err("dialog end error is returned");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Protocol);
+    assert_eq!(
+        handler.dialog_context().dialog_id.as_deref(),
+        Some("DIALOG1")
+    );
+    assert_eq!(handler.dialog_context().message_number, 2);
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 2);
+
+    let close_body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
+    assert!(close_body.contains("+300+DIALOG1+2'"));
+    assert!(close_body.contains("HKEND:2:1+DIALOG1'"));
+}
+
+#[tokio::test]
 async fn handler_uses_replay_comm_client() {
     init(BTreeMap::<String, String>::new(), Arc::new(TestCallback)).expect("runtime init");
 

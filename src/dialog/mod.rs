@@ -20,12 +20,24 @@ impl DialogContext {
         self.dialog_id.as_deref().unwrap_or("0")
     }
 
+    pub fn open_dialog_id(&self) -> Option<&str> {
+        self.dialog_id.as_deref()
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.dialog_id.is_some()
+    }
+
     pub fn current_message_number(&self) -> u32 {
         self.message_number.max(1)
     }
 
     pub fn advance_message_number(&mut self) {
         self.message_number = self.current_message_number().saturating_add(1);
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
     }
 }
 
