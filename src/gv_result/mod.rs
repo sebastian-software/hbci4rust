@@ -116,6 +116,13 @@ pub struct Konto {
     pub allowed_gvs: Vec<String>,
 }
 
+impl Konto {
+    pub fn is_sepa_account(&self) -> bool {
+        self.bic.as_deref().is_some_and(|value| !value.is_empty())
+            && self.iban.as_deref().is_some_and(|value| !value.is_empty())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limit {
     #[serde(rename = "type")]

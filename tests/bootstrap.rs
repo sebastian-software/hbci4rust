@@ -103,6 +103,19 @@ fn rejects_out_of_scope_job() {
 }
 
 #[test]
+fn konto_reports_sepa_account_when_bic_and_iban_are_present() {
+    assert!(giro_account().is_sepa_account());
+
+    let mut missing_bic = giro_account();
+    missing_bic.bic = None;
+    assert!(!missing_bic.is_sepa_account());
+
+    let mut empty_iban = giro_account();
+    empty_iban.iban = Some(String::new());
+    assert!(!empty_iban.is_sepa_account());
+}
+
+#[test]
 fn passport_account_by_number_returns_cached_account() {
     let passport = PinTanPassport::new(PinTanPassportData {
         accounts: vec![giro_account()],
