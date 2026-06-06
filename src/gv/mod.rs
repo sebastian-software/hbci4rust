@@ -156,6 +156,41 @@ impl HbciJob {
         self.constraint(frontend_name).is_some()
     }
 
+    pub fn verify_constraints(&self) -> HbciResult<BTreeMap<String, String>> {
+        let mut lowlevel_params = BTreeMap::new();
+
+        for constraint in &self.constraints {
+            if let Some(value) = self.resolved_constraint_value(constraint)? {
+                lowlevel_params.insert(constraint.destination_name.clone(), value);
+            }
+        }
+
+        Ok(lowlevel_params)
+    }
+
+    fn resolved_constraint_value(
+        &self,
+        constraint: &HbciJobConstraint,
+    ) -> HbciResult<Option<String>> {
+        let content = match self
+            .param(&constraint.frontend_name)
+            .filter(|value| !value.is_empty())
+        {
+            Some(value) => value.to_owned(),
+            None => constraint.default_value.clone().ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::InvalidArgument,
+                    format!(
+                        "missing required job parameter: {}",
+                        constraint.frontend_name
+                    ),
+                )
+            })?,
+        };
+
+        Ok((!content.is_empty()).then_some(content))
+    }
+
     fn set_optional_account_param(&mut self, base: &str, field: &str, value: Option<&str>) {
         let name = format!("{base}.{field}");
         if self.accepts_param(&name)

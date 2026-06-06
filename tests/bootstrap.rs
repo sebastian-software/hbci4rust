@@ -162,6 +162,78 @@ fn account_param_helper_ignores_unaccepted_or_empty_fields_like_original() {
 }
 
 #[test]
+fn verify_constraints_resolves_frontend_params_and_defaults_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut account = giro_account();
+    account.country = None;
+    account.subnumber = None;
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    saldo.set_param_account("my", &account);
+    let lowlevel = saldo.verify_constraints().expect("constraints resolve");
+
+    assert_eq!(
+        lowlevel.get("Saldo7.KTV.iban").map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        lowlevel.get("Saldo7.KTV.bic").map(String::as_str),
+        Some("MARKDEF1100")
+    );
+    assert_eq!(
+        lowlevel.get("Saldo7.KTV.KIK.country").map(String::as_str),
+        Some("DE")
+    );
+    assert_eq!(
+        lowlevel.get("Saldo7.KTV.KIK.blz").map(String::as_str),
+        Some("12345678")
+    );
+    assert_eq!(
+        lowlevel.get("Saldo7.KTV.number").map(String::as_str),
+        Some("0001234567")
+    );
+    assert_eq!(
+        lowlevel.get("Saldo7.allaccounts").map(String::as_str),
+        Some("N")
+    );
+    assert!(!lowlevel.contains_key("Saldo7.KTV.subnumber"));
+    assert!(!lowlevel.contains_key("Saldo7.maxentries"));
+}
+
+#[test]
+fn verify_constraints_reports_missing_required_frontend_param() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param("my.bic", "MARKDEF1100");
+
+    let err = saldo
+        .verify_constraints()
+        .expect_err("missing iban is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(err.message(), "missing required job parameter: my.iban");
+}
+
+#[test]
+fn verify_constraints_for_saldo_all_uses_only_non_empty_defaults() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let saldo_all = handler.new_job("SaldoReqAll").expect("job is in registry");
+
+    let lowlevel = saldo_all
+        .verify_constraints()
+        .expect("SaldoReqAll defaults resolve");
+
+    assert_eq!(
+        lowlevel.get("Saldo7.allaccounts").map(String::as_str),
+        Some("J")
+    );
+    assert!(!lowlevel.contains_key("Saldo7.maxentries"));
+}
+
+#[test]
 fn rejects_out_of_scope_job() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
