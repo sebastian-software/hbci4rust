@@ -60,15 +60,19 @@ fn callback_reason_codes_match_hbci4java_constants_for_ported_variants() {
     assert_eq!(CallbackReason::NeedPtPin.original_code(), 16);
     assert_eq!(CallbackReason::NeedPtTan.original_code(), 17);
     assert_eq!(CallbackReason::NeedCustomerId.original_code(), 18);
+    assert_eq!(CallbackReason::HaveCrcError.original_code(), 19);
     assert_eq!(CallbackReason::HaveError.original_code(), 20);
     assert_eq!(CallbackReason::NeedConnection.original_code(), 24);
     assert_eq!(CallbackReason::CloseConnection.original_code(), 25);
     assert_eq!(CallbackReason::NeedFilter.original_code(), 26);
     assert_eq!(CallbackReason::NeedPtSecMech.original_code(), 27);
+    assert_eq!(CallbackReason::HaveIbanError.original_code(), 30);
     assert_eq!(CallbackReason::NeedPtTanMedia.original_code(), 32);
 
     assert_eq!(CallbackReason::NEED_COUNTRY, 7);
     assert_eq!(CallbackReason::HAVE_INST_MSG, 14);
+    assert_eq!(CallbackReason::HAVE_CRC_ERROR, 19);
+    assert_eq!(CallbackReason::HAVE_IBAN_ERROR, 30);
     assert_eq!(CallbackReason::NEED_PT_TANMEDIA, 32);
 }
 
@@ -85,6 +89,14 @@ fn callback_reason_decodes_ported_original_codes() {
     assert_eq!(
         CallbackReason::from_original_code(CallbackReason::HAVE_INST_MSG),
         CallbackReason::HaveInstMsg
+    );
+    assert_eq!(
+        CallbackReason::from_original_code(CallbackReason::HAVE_CRC_ERROR),
+        CallbackReason::HaveCrcError
+    );
+    assert_eq!(
+        CallbackReason::from_original_code(CallbackReason::HAVE_IBAN_ERROR),
+        CallbackReason::HaveIbanError
     );
     assert_eq!(
         CallbackReason::from_original_code(CallbackReason::NEED_PT_PIN),

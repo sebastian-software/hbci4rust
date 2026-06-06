@@ -56,7 +56,9 @@ pub enum CallbackReason {
     NeedConnection,
     CloseConnection,
     HaveInstMsg,
+    HaveCrcError,
     HaveError,
+    HaveIbanError,
     Unknown(i32),
 }
 
@@ -70,11 +72,13 @@ impl CallbackReason {
     pub const NEED_PT_PIN: i32 = 16;
     pub const NEED_PT_TAN: i32 = 17;
     pub const NEED_CUSTOMERID: i32 = 18;
+    pub const HAVE_CRC_ERROR: i32 = 19;
     pub const HAVE_ERROR: i32 = 20;
     pub const NEED_CONNECTION: i32 = 24;
     pub const CLOSE_CONNECTION: i32 = 25;
     pub const NEED_FILTER: i32 = 26;
     pub const NEED_PT_SECMECH: i32 = 27;
+    pub const HAVE_IBAN_ERROR: i32 = 30;
     pub const NEED_PT_TANMEDIA: i32 = 32;
 
     pub fn original_code(self) -> i32 {
@@ -93,7 +97,9 @@ impl CallbackReason {
             Self::NeedConnection => Self::NEED_CONNECTION,
             Self::CloseConnection => Self::CLOSE_CONNECTION,
             Self::HaveInstMsg => Self::HAVE_INST_MSG,
+            Self::HaveCrcError => Self::HAVE_CRC_ERROR,
             Self::HaveError => Self::HAVE_ERROR,
+            Self::HaveIbanError => Self::HAVE_IBAN_ERROR,
             Self::Unknown(code) => code,
         }
     }
@@ -114,7 +120,9 @@ impl CallbackReason {
             Self::NEED_CONNECTION => Self::NeedConnection,
             Self::CLOSE_CONNECTION => Self::CloseConnection,
             Self::HAVE_INST_MSG => Self::HaveInstMsg,
+            Self::HAVE_CRC_ERROR => Self::HaveCrcError,
             Self::HAVE_ERROR => Self::HaveError,
+            Self::HAVE_IBAN_ERROR => Self::HaveIbanError,
             code => Self::Unknown(code),
         }
     }
