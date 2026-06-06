@@ -637,11 +637,43 @@ fn job_result_is_ok_uses_stored_global_and_job_status_like_original() {
     assert!(!job_error.is_ok());
 }
 
+#[test]
+fn job_result_result_data_helpers_match_original_basic_properties() {
+    let mut job = job_result("SaldoReq", Vec::new());
+    job.store_result("content.balance", Some("123.45"));
+    job.store_result("basic.dialogid", Some("DIALOG1"));
+    job.store_result("basic.msgnum", Some("2"));
+    job.store_result("basic.segnum", Some("3"));
+    job.store_result("ignored", None::<String>);
+
+    assert_eq!(job.dialog_id(), Some("DIALOG1"));
+    assert_eq!(job.msg_num(), Some("2"));
+    assert_eq!(job.seg_num(), Some("3"));
+    assert_eq!(job.job_id_for_date("20260606"), "20260606/DIALOG1/2/3");
+    assert!(!job.result_data.contains_key("ignored"));
+    assert_eq!(
+        job.to_string(),
+        "basic.dialogid = DIALOG1\nbasic.msgnum = 2\nbasic.segnum = 3\ncontent.balance = 123.45"
+    );
+}
+
+#[test]
+fn job_result_job_id_uses_java_null_shape_for_missing_basic_properties() {
+    let job = job_result("SaldoReq", Vec::new());
+
+    assert_eq!(job.dialog_id(), None);
+    assert_eq!(job.msg_num(), None);
+    assert_eq!(job.seg_num(), None);
+    assert_eq!(job.job_id_for_date("20260606"), "20260606/null/null/null");
+    assert_eq!(job.to_string(), "");
+}
+
 fn job_result(name: &str, return_values: Vec<HbciReturnValue>) -> HbciJobResult {
     HbciJobResult {
         job_name: name.to_owned(),
         success: false,
         raw_response: None,
+        result_data: BTreeMap::new(),
         global_return_values: Vec::new(),
         return_values,
         result: None,

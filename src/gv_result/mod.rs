@@ -569,12 +569,42 @@ pub struct HbciJobResult {
     pub success: bool,
     pub raw_response: Option<String>,
     #[serde(default)]
+    pub result_data: BTreeMap<String, String>,
+    #[serde(default)]
     pub global_return_values: Vec<HbciReturnValue>,
     pub return_values: Vec<HbciReturnValue>,
     pub result: Option<HbciJobResultData>,
 }
 
 impl HbciJobResult {
+    pub fn store_result(&mut self, key: impl Into<String>, value: Option<impl Into<String>>) {
+        if let Some(value) = value {
+            self.result_data.insert(key.into(), value.into());
+        }
+    }
+
+    pub fn dialog_id(&self) -> Option<&str> {
+        self.result_data.get("basic.dialogid").map(String::as_str)
+    }
+
+    pub fn msg_num(&self) -> Option<&str> {
+        self.result_data.get("basic.msgnum").map(String::as_str)
+    }
+
+    pub fn seg_num(&self) -> Option<&str> {
+        self.result_data.get("basic.segnum").map(String::as_str)
+    }
+
+    pub fn job_id_for_date(&self, yyyymmdd: &str) -> String {
+        format!(
+            "{}/{}/{}/{}",
+            yyyymmdd,
+            self.dialog_id().unwrap_or("null"),
+            self.msg_num().unwrap_or("null"),
+            self.seg_num().unwrap_or("null")
+        )
+    }
+
     pub fn ret_number(&self) -> usize {
         self.return_values.len()
     }
@@ -601,6 +631,17 @@ impl HbciJobResult {
             && job_status.status_code() != HbciStatusCode::Error
             && (global_status.status_code() != HbciStatusCode::Unknown
                 || job_status.status_code() != HbciStatusCode::Unknown)
+    }
+}
+
+impl Display for HbciJobResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        for (key, value) in &self.result_data {
+            write_status_line(formatter, &mut first, &format!("{key} = {value}"))?;
+        }
+
+        Ok(())
     }
 }
 

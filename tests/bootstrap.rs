@@ -825,6 +825,13 @@ async fn handler_uses_replay_comm_client() {
     assert!(status.job_results[0].success);
     assert!(status.job_results[0].is_ok());
     assert_eq!(status.job_results[0].ret_number(), 1);
+    assert_eq!(status.job_results[0].dialog_id(), Some("0"));
+    assert_eq!(status.job_results[0].msg_num(), Some("1"));
+    assert_eq!(status.job_results[0].seg_num(), Some("2"));
+    assert_eq!(
+        status.job_results[0].job_id_for_date("20260606"),
+        "20260606/0/1/2"
+    );
     assert_eq!(status.job_results[0].global_return_values[0].code, "0010");
     assert_eq!(status.global_return_values[0].code, "0010");
     assert_eq!(status.job_results[0].ret_value(0).unwrap().code, "0020");

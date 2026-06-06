@@ -179,6 +179,7 @@ where
                 let mut result = HbciJobResult {
                     job_name: job.name().to_owned(),
                     raw_response: raw_response.clone(),
+                    result_data: basic_result_data(&request_ref, segment_sequence),
                     global_return_values: response_status.global_return_values.clone(),
                     return_values: response_status.return_values_for_segment(segment_sequence),
                     result: response_status.result_for_job(&job, index, &self.passport),
@@ -371,6 +372,17 @@ fn render_job_into_custom_message(
             format!("queued job rendering is not ported yet for {name}"),
         )),
     }
+}
+
+fn basic_result_data(
+    request_ref: &MessageReference,
+    segment_sequence: usize,
+) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("basic.dialogid".to_owned(), request_ref.dialog_id.clone()),
+        ("basic.msgnum".to_owned(), request_ref.msgnum.clone()),
+        ("basic.segnum".to_owned(), segment_sequence.to_string()),
+    ])
 }
 
 fn render_saldo_request(
