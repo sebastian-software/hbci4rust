@@ -62,23 +62,26 @@ impl HbciReturnValue {
     }
 
     pub fn message(&self) -> String {
-        let mut message = format!("{}:{}", self.code, self.text);
+        self.to_string()
+    }
+}
+
+impl Display for HbciReturnValue {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}:{}", self.code, self.text)?;
         for param in &self.params {
-            message.push_str(" p:");
-            message.push_str(param);
+            write!(formatter, " p:{param}")?;
         }
 
         if let Some(segment_ref) = &self.segment_ref {
-            message.push_str(" (");
-            message.push_str(segment_ref);
+            write!(formatter, " ({segment_ref}")?;
             if let Some(data_ref) = &self.data_ref {
-                message.push(':');
-                message.push_str(data_ref);
+                write!(formatter, ":{data_ref}")?;
             }
-            message.push(')');
+            formatter.write_str(")")?;
         }
 
-        message
+        Ok(())
     }
 }
 
