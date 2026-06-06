@@ -87,6 +87,19 @@ pub struct GvrSaldoReq {
     pub entries: Vec<GvrSaldoReqInfo>,
 }
 
+impl Display for GvrSaldoReq {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        for (index, entry) in self.entries.iter().enumerate() {
+            if index != 0 {
+                formatter.write_str("\n")?;
+            }
+            write!(formatter, "{entry}")?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GvrSaldoReqInfo {
     pub konto: Konto,
@@ -95,6 +108,28 @@ pub struct GvrSaldoReqInfo {
     pub kredit: Option<Value>,
     pub available: Option<Value>,
     pub used: Option<Value>,
+}
+
+impl Display for GvrSaldoReqInfo {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(formatter, "Konto: {}", self.konto)?;
+        write!(formatter, "  Gebucht: {}", self.ready)?;
+
+        if let Some(unready) = &self.unready {
+            write!(formatter, "\n  Pending: {unready}")?;
+        }
+        if let Some(kredit) = &self.kredit {
+            write!(formatter, "\n  Kredit: {kredit}")?;
+        }
+        if let Some(available) = &self.available {
+            write!(formatter, "\n  Verfügbar: {available}")?;
+        }
+        if let Some(used) = &self.used {
+            write!(formatter, "\n  Benutzt: {used}")?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
