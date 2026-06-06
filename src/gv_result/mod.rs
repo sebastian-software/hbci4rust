@@ -568,13 +568,31 @@ pub struct HbciJobResult {
     pub job_name: String,
     pub success: bool,
     pub raw_response: Option<String>,
+    #[serde(default)]
+    pub global_return_values: Vec<HbciReturnValue>,
     pub return_values: Vec<HbciReturnValue>,
     pub result: Option<HbciJobResultData>,
 }
 
 impl HbciJobResult {
+    pub fn ret_number(&self) -> usize {
+        self.return_values.len()
+    }
+
+    pub fn ret_value(&self, index: usize) -> Option<&HbciReturnValue> {
+        self.return_values.get(index)
+    }
+
+    pub fn global_status(&self) -> HbciStatus {
+        HbciStatus::from_return_values(self.global_return_values.clone())
+    }
+
     pub fn job_status(&self) -> HbciStatus {
         HbciStatus::from_return_values(self.return_values.clone())
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.is_ok_with_global_status(&self.global_status())
     }
 
     pub fn is_ok_with_global_status(&self, global_status: &HbciStatus) -> bool {

@@ -179,6 +179,7 @@ where
                 let mut result = HbciJobResult {
                     job_name: job.name().to_owned(),
                     raw_response: raw_response.clone(),
+                    global_return_values: response_status.global_return_values.clone(),
                     return_values: response_status.return_values_for_segment(segment_sequence),
                     result: response_status.result_for_job(&job, index, &self.passport),
                     success: false,

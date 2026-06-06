@@ -589,11 +589,60 @@ fn job_status_ok_with_global_status_matches_original_rule() {
     assert!(!error_job.is_ok_with_global_status(&ok_global));
 }
 
+#[test]
+fn job_result_ret_helpers_count_only_job_status_like_original() {
+    let job = HbciJobResult {
+        global_return_values: vec![HbciReturnValue::new("0010", "Global OK")],
+        return_values: vec![
+            HbciReturnValue::new("3020", "Jobwarnung"),
+            HbciReturnValue::new("0020", "Job OK"),
+        ],
+        ..job_result("SaldoReq", Vec::new())
+    };
+
+    assert_eq!(job.ret_number(), 2);
+    assert_eq!(job.ret_value(0).unwrap().text, "Jobwarnung");
+    assert_eq!(job.ret_value(1).unwrap().text, "Job OK");
+    assert!(job.ret_value(2).is_none());
+    assert_eq!(job.global_status().successes()[0].text, "Global OK");
+    assert_eq!(job.job_status().warnings()[0].text, "Jobwarnung");
+}
+
+#[test]
+fn job_result_is_ok_uses_stored_global_and_job_status_like_original() {
+    let ok_job_with_global_ok = HbciJobResult {
+        global_return_values: vec![HbciReturnValue::new("0010", "Global OK")],
+        ..job_result("SaldoReq", Vec::new())
+    };
+    let ok_job_with_job_warning = HbciJobResult {
+        return_values: vec![HbciReturnValue::new("3020", "Jobwarnung")],
+        ..job_result("SaldoReq", Vec::new())
+    };
+    let unknown_job = job_result("SaldoReq", Vec::new());
+    let global_error = HbciJobResult {
+        global_return_values: vec![HbciReturnValue::new("9010", "Globalfehler")],
+        return_values: vec![HbciReturnValue::new("0020", "Job OK")],
+        ..job_result("SaldoReq", Vec::new())
+    };
+    let job_error = HbciJobResult {
+        global_return_values: vec![HbciReturnValue::new("0010", "Global OK")],
+        return_values: vec![HbciReturnValue::new("9010", "Jobfehler")],
+        ..job_result("SaldoReq", Vec::new())
+    };
+
+    assert!(ok_job_with_global_ok.is_ok());
+    assert!(ok_job_with_job_warning.is_ok());
+    assert!(!unknown_job.is_ok());
+    assert!(!global_error.is_ok());
+    assert!(!job_error.is_ok());
+}
+
 fn job_result(name: &str, return_values: Vec<HbciReturnValue>) -> HbciJobResult {
     HbciJobResult {
         job_name: name.to_owned(),
         success: false,
         raw_response: None,
+        global_return_values: Vec::new(),
         return_values,
         result: None,
     }
