@@ -1,3 +1,4 @@
+mod account_crc;
 mod bank_info;
 mod handler;
 
@@ -7,6 +8,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use crate::callback::HbciCallback;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
+pub use account_crc::AccountCrcAlgs;
 pub use bank_info::{BankInfo, BankInfoRegistry, HbciVersion};
 pub use handler::HbciHandler;
 

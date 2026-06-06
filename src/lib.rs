@@ -29,7 +29,8 @@ pub use gv_result::{
     HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit, Saldo, Value,
 };
 pub use manager::{
-    BankInfo, BankInfoRegistry, HbciHandler, HbciVersion, done, get_param, init, set_param,
+    AccountCrcAlgs, BankInfo, BankInfoRegistry, HbciHandler, HbciVersion, done, get_param, init,
+    set_param,
 };
 pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};
 pub use tools::{
