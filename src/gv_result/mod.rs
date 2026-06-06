@@ -844,6 +844,8 @@ fn kums_btag_from_block(block: &str) -> GvrKUmsBTag {
         btag.end_type = 'M';
     }
 
+    kums_correct_line_balances(&mut btag);
+
     btag
 }
 
@@ -1016,6 +1018,47 @@ fn trim_after_first_space(input: String) -> String {
         .split_once(' ')
         .map(|(prefix, _)| prefix.to_owned())
         .unwrap_or(input)
+}
+
+fn kums_correct_line_balances(btag: &mut GvrKUmsBTag) {
+    let Some(end) = &btag.end else {
+        return;
+    };
+    let Some(mut saldo) = decimal_to_cents(&end.value.value) else {
+        return;
+    };
+    let Some(last_line_saldo) = btag
+        .lines
+        .last()
+        .and_then(|line| line.saldo.as_ref())
+        .and_then(|saldo| decimal_to_cents(&saldo.value.value))
+    else {
+        return;
+    };
+
+    if last_line_saldo == saldo {
+        return;
+    }
+
+    let curr = end.value.curr.clone();
+    for line in btag.lines.iter_mut().rev() {
+        let Some(line_saldo) = line.saldo.as_mut() else {
+            return;
+        };
+        let Some(line_value) = line
+            .value
+            .as_ref()
+            .and_then(|value| decimal_to_cents(&value.value))
+        else {
+            return;
+        };
+
+        line_saldo.value = Value {
+            value: cents_to_decimal(saldo),
+            curr: curr.clone(),
+        };
+        saldo -= line_value;
+    }
 }
 
 fn kums_account_from_info(konto_info: Option<&str>) -> Konto {

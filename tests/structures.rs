@@ -395,6 +395,35 @@ fn kums_mt940_parser_keeps_unknown_999_multitag_as_additional_like_original() {
 }
 
 #[test]
+fn kums_mt940_parser_corrects_line_balances_from_closing_balance_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:60F:C260601EUR100,00",
+        "\r\n:61:2606020602C2,00NMSCREF1",
+        "\r\n:61:2606030603C1,00NMSCREF2",
+        "\r\n:62F:C260603USD110,00",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(
+        lines[0].saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("260602 109.00 USD")
+    );
+    assert_eq!(
+        lines[1].saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("260603 110.00 USD")
+    );
+    assert_eq!(
+        lines[0].value.as_ref().map(ToString::to_string).as_deref(),
+        Some("2.00 EUR")
+    );
+}
+
+#[test]
 fn kums_mt940_parser_extracts_institution_reference_like_original() {
     let mut result = GvrKUms::new();
     result.append_mt940_data(concat!(
