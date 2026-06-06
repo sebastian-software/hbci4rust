@@ -101,6 +101,50 @@ fn inst_message_from_values_rejects_missing_subject_like_original() {
 }
 
 #[test]
+fn inst_message_collects_counted_values_like_original() {
+    let values = BTreeMap::from([
+        ("KIMsg.betreff".to_owned(), "Wartung".to_owned()),
+        ("KIMsg.text".to_owned(), "Am Wochenende".to_owned()),
+        ("KIMsg_2.betreff".to_owned(), "Hinweis".to_owned()),
+        ("KIMsg_3.betreff".to_owned(), "Neue App".to_owned()),
+        ("KIMsg_3.text".to_owned(), "Bitte aktualisieren".to_owned()),
+    ]);
+
+    let messages = HbciInstMessage::collect_from_values(&values, "KIMsg");
+
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[0].to_string(), "Wartung: Am Wochenende");
+    assert_eq!(messages[1].to_string(), "Hinweis: null");
+    assert_eq!(messages[2].to_string(), "Neue App: Bitte aktualisieren");
+}
+
+#[test]
+fn inst_message_collection_stops_at_first_missing_subject_like_original() {
+    let values = BTreeMap::from([
+        ("KIMsg.betreff".to_owned(), "Wartung".to_owned()),
+        ("KIMsg_2.text".to_owned(), "Text ohne Betreff".to_owned()),
+        (
+            "KIMsg_3.betreff".to_owned(),
+            "Wird nicht gelesen".to_owned(),
+        ),
+    ]);
+
+    let messages = HbciInstMessage::collect_from_values(&values, "KIMsg");
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].subject, "Wartung");
+}
+
+#[test]
+fn inst_message_collection_returns_empty_when_first_subject_is_absent() {
+    let values = BTreeMap::from([("KIMsg_2.betreff".to_owned(), "Später Hinweis".to_owned())]);
+
+    let messages = HbciInstMessage::collect_from_values(&values, "KIMsg");
+
+    assert!(messages.is_empty());
+}
+
+#[test]
 fn status_groups_return_values_like_original() {
     let mut status = HbciStatus::new();
     status.add_return_value(HbciReturnValue::new("3020", "Warnung"));

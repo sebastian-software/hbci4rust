@@ -251,6 +251,24 @@ impl HbciInstMessage {
 
         Ok(Self::new(subject, text))
     }
+
+    pub fn collect_from_values(values: &BTreeMap<String, String>, base: &str) -> Vec<Self> {
+        let mut messages = Vec::new();
+        let mut index = 0;
+
+        loop {
+            let header = counted_header(base, index);
+            let Some(subject) = values.get(&format!("{header}.betreff")).cloned() else {
+                break;
+            };
+            let text = values.get(&format!("{header}.text")).cloned();
+
+            messages.push(Self::new(subject, text));
+            index += 1;
+        }
+
+        messages
+    }
 }
 
 impl Display for HbciInstMessage {
@@ -387,6 +405,14 @@ where
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn counted_header(base: &str, index: usize) -> String {
+    if index == 0 {
+        base.to_owned()
+    } else {
+        format!("{base}_{}", index + 1)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
