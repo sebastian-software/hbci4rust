@@ -132,6 +132,14 @@ fn konto_checks_iban_crc_with_original_uppercase_input_boundary() {
 }
 
 #[test]
+fn konto_default_matches_original_constructor_currency() {
+    let account = Konto::default();
+
+    assert_eq!(account.curr.as_deref(), Some("EUR"));
+    assert_eq!(account.to_string(), " (EUR)");
+}
+
+#[test]
 fn konto_equality_matches_original_compared_fields() {
     let left = giro_account();
     let mut right = giro_account();

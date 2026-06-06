@@ -97,7 +97,7 @@ pub struct GvrSaldoReqInfo {
     pub used: Option<Value>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Konto {
     pub country: Option<String>,
     pub blz: Option<String>,
@@ -116,6 +116,27 @@ pub struct Konto {
     pub limit: Option<Limit>,
     #[serde(default)]
     pub allowed_gvs: Vec<String>,
+}
+
+impl Default for Konto {
+    fn default() -> Self {
+        Self {
+            country: None,
+            blz: None,
+            number: None,
+            subnumber: None,
+            bic: None,
+            iban: None,
+            customer_id: None,
+            name: None,
+            name2: None,
+            acctype: None,
+            account_type: None,
+            curr: Some("EUR".to_owned()),
+            limit: None,
+            allowed_gvs: Vec::new(),
+        }
+    }
 }
 
 impl PartialEq for Konto {
