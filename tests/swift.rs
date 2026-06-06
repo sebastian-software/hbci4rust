@@ -1,4 +1,6 @@
-use hbci4rust::swift::{Mt940Document, decode_umlauts, get_one_block, get_tag_value};
+use hbci4rust::swift::{
+    Mt940Document, decode_umlauts, get_multi_tag_value, get_one_block, get_tag_value, pack_multi,
+};
 
 #[test]
 fn decodes_swift_umlaut_placeholders_like_original() {
@@ -56,6 +58,40 @@ fn one_block_returns_prefix_before_first_later_marker_like_original() {
     let stream = "REST\r\n:20:FIRST\r\n:25:A";
 
     assert_eq!(get_one_block(stream).as_deref(), Some("REST"));
+}
+
+#[test]
+fn pack_multi_removes_crlf_pairs_like_original() {
+    assert_eq!(
+        pack_multi("?00Text\r\n?20Usage\r?30Other\n"),
+        "?00Text?20Usage\r?30Other\n"
+    );
+}
+
+#[test]
+fn extracts_multi_tag_value_until_next_numeric_code_like_original() {
+    let value = get_multi_tag_value("?00BOOKING TEXT?10PN123?20Usage", "00");
+
+    assert_eq!(value.as_deref(), Some("BOOKING TEXT"));
+}
+
+#[test]
+fn multi_tag_value_keeps_question_marks_without_two_digits_like_original() {
+    let value = get_multi_tag_value("?20hello?xworld??still text?30next", "20");
+
+    assert_eq!(value.as_deref(), Some("hello?xworld??still text"));
+}
+
+#[test]
+fn multi_tag_value_uses_tail_when_question_marker_is_too_short_like_original() {
+    let value = get_multi_tag_value("?20hello?3", "20");
+
+    assert_eq!(value.as_deref(), Some("hello?3"));
+}
+
+#[test]
+fn multi_tag_value_returns_none_for_missing_tag_like_java_null() {
+    assert_eq!(get_multi_tag_value("?20hello", "30"), None);
 }
 
 #[test]

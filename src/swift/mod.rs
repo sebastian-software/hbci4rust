@@ -16,6 +16,43 @@ pub fn get_one_block(input: &str) -> Option<String> {
     (endpos > 0).then(|| input[..endpos].to_owned())
 }
 
+pub fn pack_multi(input: &str) -> String {
+    input.replace("\r\n", "")
+}
+
+pub fn get_multi_tag_value(input: &str, tag: &str) -> Option<String> {
+    let marker = format!("?{tag}");
+    let pos = find_from(input, &marker, 0)?;
+    let mut searchpos = pos + 3;
+    let mut endpos;
+
+    loop {
+        endpos = find_from(input, "?", searchpos);
+
+        let Some(candidate) = endpos else {
+            break;
+        };
+
+        let bytes = input.as_bytes();
+        if candidate + 2 < bytes.len()
+            && bytes[candidate + 1].is_ascii_digit()
+            && bytes[candidate + 2].is_ascii_digit()
+        {
+            break;
+        }
+
+        if candidate + 2 >= bytes.len() {
+            endpos = None;
+            break;
+        }
+
+        searchpos = candidate + 1;
+    }
+
+    let endpos = endpos.unwrap_or(input.len());
+    Some(input[pos + 3..endpos].to_owned())
+}
+
 pub fn get_tag_value(input: &str, tag: &str, counter: usize) -> Option<String> {
     let mut endpos = 0;
     let mut remaining = counter;
