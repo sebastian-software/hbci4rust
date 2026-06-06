@@ -1,3 +1,4 @@
+mod bank_info;
 mod handler;
 
 use std::collections::BTreeMap;
@@ -6,6 +7,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use crate::callback::HbciCallback;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
+pub use bank_info::{BankInfo, HbciVersion};
 pub use handler::HbciHandler;
 
 #[derive(Default)]
