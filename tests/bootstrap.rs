@@ -7,6 +7,7 @@ use hbci4rust::{
     HbciHandler, HbciJobResultData, HbciResult, Konto, Limit, PassportStorage, PinTanPassport,
     PinTanPassportData, ReplayCommClient, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
+    sepa::CAMT_052_001_01_URN,
 };
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -90,6 +91,20 @@ fn kums_response_segment(code: &str, booked: &str, notbooked: &str) -> String {
     )
 }
 
+fn kums_camt_response_segment(booked_first: &str, booked_second: &str, notbooked: &str) -> String {
+    let escaped_format = CAMT_052_001_01_URN.replace(':', "?:");
+    format!(
+        "HICAZ:3:1+DE02123456780000000000:MARKDEF1100+{}+@{}@{}:@{}@{}+@{}@{}",
+        escaped_format,
+        booked_first.len(),
+        booked_first,
+        booked_second.len(),
+        booked_second,
+        notbooked.len(),
+        notbooked
+    )
+}
+
 fn mt940_booked_payload() -> String {
     concat!(
         "\r\n:20:STARTUMS",
@@ -116,6 +131,10 @@ fn mt942_unbooked_payload() -> String {
         "\r\n-"
     )
     .to_owned()
+}
+
+fn camt_payload(name: &str) -> String {
+    format!("<Document><BkToCstmrAcctRpt>{name}</BkToCstmrAcctRpt></Document>")
 }
 
 fn giro_account() -> Konto {
@@ -266,6 +285,48 @@ fn kums_new_exposes_original_near_constraints() {
         Some("N")
     );
     assert_eq!(kums.constraint("startdate"), None);
+    assert_eq!(kums.constraint("my.curr"), None);
+}
+
+#[test]
+fn kums_all_camt_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let kums = handler.new_job("KUmsAllCamt").expect("job is in registry");
+
+    assert_eq!(kums.constraints().len(), 12);
+    assert_eq!(
+        kums.constraint("my.iban")
+            .expect("iban constraint")
+            .destination_name,
+        "KUmsZeitCamt1.KTV.iban"
+    );
+    assert_eq!(
+        kums.constraint("suppformat")
+            .expect("suppformat constraint")
+            .destination_name,
+        "KUmsZeitCamt1.formats.suppformat"
+    );
+    assert_eq!(
+        kums.constraint("suppformat")
+            .expect("suppformat constraint")
+            .default_value
+            .as_deref(),
+        Some(CAMT_052_001_01_URN)
+    );
+    assert_eq!(
+        kums.constraint("offset")
+            .expect("offset constraint")
+            .destination_name,
+        "KUmsZeitCamt1.offset"
+    );
+    assert_eq!(
+        kums.constraint("dummy")
+            .expect("dummy allaccounts constraint")
+            .default_value
+            .as_deref(),
+        Some("N")
+    );
     assert_eq!(kums.constraint("my.curr"), None);
 }
 
@@ -1224,6 +1285,55 @@ fn checked_queue_add_prepares_kums_new_like_original_add_task() {
     );
     assert_eq!(queued.lowlevel_param("KUmsNew7.maxentries"), Some("25"));
     assert_eq!(queued.lowlevel_param("KUmsNew7.allaccounts"), Some("N"));
+}
+
+#[test]
+fn checked_queue_add_prepares_kums_all_camt_like_original_add_task() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+    let mut kums = handler.new_job("KUmsAllCamt").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+    kums.try_set_param_date("startdate", "2026-06-01")
+        .expect("start date is accepted");
+    kums.try_set_param_date("enddate", "2026-06-06")
+        .expect("end date is accepted");
+    kums.try_set_param_int("maxentries", 25)
+        .expect("maxentries is accepted");
+    kums.set_param("offset", "CURSOR");
+
+    handler
+        .try_add_to_queue(kums)
+        .expect("valid KUmsAllCamt job is accepted");
+
+    let queued = &handler.queued_jobs()[0];
+    assert_eq!(
+        queued.lowlevel_param("KUmsZeitCamt1.KTV.iban"),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        queued.lowlevel_param("KUmsZeitCamt1.formats.suppformat"),
+        Some(CAMT_052_001_01_URN)
+    );
+    assert_eq!(
+        queued.lowlevel_param("KUmsZeitCamt1.startdate"),
+        Some("2026-06-01")
+    );
+    assert_eq!(
+        queued.lowlevel_param("KUmsZeitCamt1.enddate"),
+        Some("2026-06-06")
+    );
+    assert_eq!(
+        queued.lowlevel_param("KUmsZeitCamt1.maxentries"),
+        Some("25")
+    );
+    assert_eq!(
+        queued.lowlevel_param("KUmsZeitCamt1.offset"),
+        Some("CURSOR")
+    );
+    assert_eq!(
+        queued.lowlevel_param("KUmsZeitCamt1.allaccounts"),
+        Some("N")
+    );
 }
 
 #[tokio::test]
@@ -2227,6 +2337,98 @@ async fn handler_collects_kums_all_raw_result_data() {
 }
 
 #[tokio::test]
+async fn handler_renders_kums_all_camt_request_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut kums = handler.new_job("KUmsAllCamt").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+    kums.try_set_param_date("startdate", "2026-06-01")
+        .expect("start date is accepted");
+    kums.try_set_param_date("enddate", "2026-06-06")
+        .expect("end date is accepted");
+    kums.try_set_param_int("maxentries", 25)
+        .expect("maxentries is accepted");
+    kums.set_param("offset", "CURSOR");
+
+    handler.add_to_queue(kums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "KUmsAllCamt");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains("HKCAZ:2:1+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+")
+    );
+    assert!(body.contains("urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.01"));
+    assert!(body.contains("+N+20260601+20260606+25+CURSOR'"));
+}
+
+#[tokio::test]
+async fn handler_collects_kums_all_camt_raw_result_data() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let booked_first = camt_payload("booked-1");
+    let booked_second = camt_payload("booked-2");
+    let notbooked = camt_payload("notbooked");
+    let segment = kums_camt_response_segment(&booked_first, &booked_second, &notbooked);
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        segment.as_str(),
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut kums = handler.new_job("KUmsAllCamt").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+
+    handler.add_to_queue(kums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "KUmsAllCamt");
+    assert_eq!(
+        result.result_data.get("content.format").map(String::as_str),
+        Some(CAMT_052_001_01_URN)
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.booked.message")
+            .map(String::as_str),
+        Some(booked_first.as_str())
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.booked.message_2")
+            .map(String::as_str),
+        Some(booked_second.as_str())
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.notbooked")
+            .map(String::as_str),
+        Some(notbooked.as_str())
+    );
+
+    let Some(HbciJobResultData::KUms(kums_result)) = result.result.clone() else {
+        panic!("expected KUms result data");
+    };
+    assert_eq!(kums_result.camt_booked, vec![booked_first, booked_second]);
+    assert_eq!(kums_result.camt_not_booked, vec![notbooked]);
+}
+
+#[tokio::test]
 async fn handler_rejects_kums_all_without_account_fallback() {
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2246,6 +2448,30 @@ async fn handler_rejects_kums_all_without_account_fallback() {
     assert_eq!(
         err.message(),
         "KUmsAll requires my.iban, my.number, or a passport account for the current KUmsZeit7 tracer renderer"
+    );
+    assert_eq!(replay.requests().expect("requests").len(), 0);
+}
+
+#[tokio::test]
+async fn handler_rejects_kums_all_camt_without_account_fallback() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("KUmsAllCamt").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let err = handler
+        .execute()
+        .await
+        .expect_err("missing KUmsAllCamt account is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "KUmsAllCamt requires my.iban, my.number, or a passport account for the current KUmsZeitCamt1 tracer renderer"
     );
     assert_eq!(replay.requests().expect("requests").len(), 0);
 }

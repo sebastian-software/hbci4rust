@@ -6,6 +6,7 @@ use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallb
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::{Konto, Value};
 use crate::protocol::normalize_iso_date;
+use crate::sepa::CAMT_052_001_01_URN;
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
@@ -346,7 +347,7 @@ impl HbciJob {
         callback: Option<&dyn HbciCallback>,
     ) -> HbciResult<()> {
         match self.name.as_str() {
-            "KUmsAll" | "KUmsNew" | "SaldoReq" | "SaldoReqAll" => {
+            "KUmsAll" | "KUmsAllCamt" | "KUmsNew" | "SaldoReq" | "SaldoReqAll" => {
                 self.check_account_crc("my", callback).await
             }
             _ => Ok(()),
@@ -604,6 +605,7 @@ impl HbciJobConstraint {
 fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "KUmsAll" => kums_all_constraints(),
+        "KUmsAllCamt" => kums_all_camt_constraints(),
         "KUmsNew" => kums_new_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
@@ -636,6 +638,27 @@ fn kums_new_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.subnumber", "KUmsNew7.KTV.subnumber", Some("")),
         HbciJobConstraint::new("maxentries", "KUmsNew7.maxentries", Some("")),
         HbciJobConstraint::new("dummyall", "KUmsNew7.allaccounts", Some("N")),
+    ]
+}
+
+fn kums_all_camt_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.bic", "KUmsZeitCamt1.KTV.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "KUmsZeitCamt1.KTV.iban", None::<String>),
+        HbciJobConstraint::new("my.country", "KUmsZeitCamt1.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "KUmsZeitCamt1.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "KUmsZeitCamt1.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "KUmsZeitCamt1.KTV.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "suppformat",
+            "KUmsZeitCamt1.formats.suppformat",
+            Some(CAMT_052_001_01_URN),
+        ),
+        HbciJobConstraint::new("dummy", "KUmsZeitCamt1.allaccounts", Some("N")),
+        HbciJobConstraint::new("startdate", "KUmsZeitCamt1.startdate", Some("")),
+        HbciJobConstraint::new("enddate", "KUmsZeitCamt1.enddate", Some("")),
+        HbciJobConstraint::new("maxentries", "KUmsZeitCamt1.maxentries", Some("")),
+        HbciJobConstraint::new("offset", "KUmsZeitCamt1.offset", Some("")),
     ]
 }
 

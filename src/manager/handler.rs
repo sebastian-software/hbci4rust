@@ -13,6 +13,7 @@ use crate::gv_result::{
 };
 use crate::passport::PinTanPassport;
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
+use crate::sepa::CAMT_052_001_01_URN;
 use crate::swift::decode_umlauts;
 
 #[derive(Clone)]
@@ -387,6 +388,7 @@ fn render_job_into_custom_message(
 ) -> HbciResult<()> {
     match job.name() {
         "KUmsAll" => render_kums_all(message, job, index, passport),
+        "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
@@ -557,6 +559,60 @@ fn render_kums_new(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "KUmsNew7.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_kums_all_camt(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.KUmsZeitCamt1");
+    let account = effective_job_account(job, passport, "KUmsZeitCamt1", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "KUmsAllCamt requires my.iban, my.number, or a passport account for the current KUmsZeitCamt1 tracer renderer",
+        ));
+    }
+
+    set_account_values(message, &segment, &account)?;
+    message.set_value(
+        &format!("{segment}.formats.suppformat"),
+        job_param(job, "KUmsZeitCamt1.formats.suppformat", "suppformat")
+            .unwrap_or(CAMT_052_001_01_URN),
+    )?;
+    message.set_value(
+        &format!("{segment}.allaccounts"),
+        job_param(job, "KUmsZeitCamt1.allaccounts", "dummy").unwrap_or("N"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.startdate"),
+        job_param(job, "KUmsZeitCamt1.startdate", "startdate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.enddate"),
+        job_param(job, "KUmsZeitCamt1.enddate", "enddate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "KUmsZeitCamt1.maxentries", "maxentries"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.offset"),
+        job_param(job, "KUmsZeitCamt1.offset", "offset"),
     )?;
 
     Ok(())
@@ -766,6 +822,9 @@ impl ParsedResponseStatus {
                 (!result.entries.is_empty()).then_some(HbciJobResultData::SaldoReq(result))
             }
             "KUmsAll" => self.kums_result_for_root(kums_response_root("KUmsZeitRes7", index)),
+            "KUmsAllCamt" => {
+                self.kums_all_camt_result_for_root(kums_response_root("KUmsZeitCamtRes1", index))
+            }
             "KUmsNew" => self.kums_result_for_root(kums_response_root("KUmsNewRes7", index)),
             _ => None,
         }
@@ -774,6 +833,9 @@ impl ParsedResponseStatus {
     fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
         match job.name() {
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
+            "KUmsAllCamt" => {
+                self.content_result_data([kums_response_root("KUmsZeitCamtRes1", index)])
+            }
             "KUmsNew" => self.content_result_data([kums_response_root("KUmsNewRes7", index)]),
             "SaldoReq" => self.content_result_data([saldo_response_root(index)]),
             "SaldoReqAll" => self.content_result_data(
@@ -844,6 +906,27 @@ impl ParsedResponseStatus {
         }
         if let Some(notbooked) = notbooked {
             result.append_mt942_data(decode_umlauts(notbooked));
+        }
+
+        Some(HbciJobResultData::KUms(result))
+    }
+
+    fn kums_all_camt_result_for_root(&self, root: String) -> Option<HbciJobResultData> {
+        let booked_messages = counted_value_keys(&self.values, &format!("{root}.booked.message"));
+        let notbooked = self.values.get(&format!("{root}.notbooked"));
+
+        if booked_messages.is_empty() && notbooked.is_none() {
+            return None;
+        }
+
+        let mut result = GvrKUms::new();
+        for key in booked_messages {
+            if let Some(booked) = self.values.get(&key) {
+                result.camt_booked.push(booked.clone());
+            }
+        }
+        if let Some(notbooked) = notbooked {
+            result.camt_not_booked.push(notbooked.clone());
         }
 
         Some(HbciJobResultData::KUms(result))
