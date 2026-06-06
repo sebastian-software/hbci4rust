@@ -33,5 +33,6 @@ pub use manager::{
 };
 pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};
 pub use tools::{
-    has_text, join_strings, safe_filename, to_boolean, to_ins_code, to_parameter_code,
+    ParameterFinder, ParameterQuery, Properties, has_text, join_strings, safe_filename, to_boolean,
+    to_ins_code, to_parameter_code,
 };

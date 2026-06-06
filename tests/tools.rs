@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use hbci4rust::{
-    has_text, join_strings, safe_filename, to_boolean, to_ins_code, to_parameter_code,
+    HbciErrorKind, ParameterFinder, ParameterQuery, Properties, has_text, join_strings,
+    safe_filename, to_boolean, to_ins_code, to_parameter_code,
 };
 
 #[test]
@@ -84,4 +85,146 @@ fn safe_filename_name(filename: &str) -> Option<String> {
         .file_name()
         .and_then(|name| name.to_str())
         .map(str::to_owned)
+}
+
+#[test]
+fn parameter_finder_find_collapses_matching_paths_like_original_test001() {
+    let props = properties([
+        (
+            "Params_1.TAN2StepParams1.ParTAN2Step4.TAN2StepParams2.secfunc",
+            "a",
+        ),
+        (
+            "Params_2.TAN2StepParamsFoo.ParTAN2Step1.TAN2StepParams1.secfunc",
+            "b",
+        ),
+        (
+            "Params_2.TAN2StepParamsFoo.ParTAN2Step.TAN2StepParams.2secfunc",
+            "c",
+        ),
+        (
+            "Params.TAN2StepParams1.ParTAN2Step.TAN2StepParams.2secfunc",
+            "d1",
+        ),
+        (
+            "Params.TAN2StepParams1.ParTAN2Step.TAN2StepParams.3secfunc",
+            "d2",
+        ),
+        (
+            "Params_1.TAN2StepParams1.ParTAN2Step.TAN2StepParams.foo",
+            "e",
+        ),
+        ("Params_1.TAN2StepParams1.ParTAN2Step.secfunc", "f"),
+    ]);
+
+    let result = ParameterFinder::find(
+        &props,
+        Some("Params_*.TAN2StepPar*.ParTAN2Step*.TAN2StepParams*.*secfunc"),
+    );
+
+    assert!(result.contains_key("secfunc"));
+    assert!(result.contains_key("2secfunc"));
+    assert!(!result.contains_key("3secfunc"));
+    assert!(!result.contains_key("foo"));
+    assert!(matches!(
+        result.get("secfunc").map(String::as_str),
+        Some("a" | "b")
+    ));
+    assert_eq!(result.get("2secfunc").map(String::as_str), Some("c"));
+}
+
+#[test]
+fn parameter_finder_find_all_preserves_matching_paths_like_original_test002() {
+    let props = properties([
+        (
+            "Params_1.TAN2StepParams1.ParTAN2Step4.TAN2StepParams2.secfunc",
+            "a",
+        ),
+        (
+            "Params_2.TAN2StepParamsFoo.ParTAN2Step1.TAN2StepParams1.secfunc",
+            "b",
+        ),
+        (
+            "Params_2.TAN2StepParamsFoo.ParTAN2Step.TAN2StepParams.2secfunc",
+            "c",
+        ),
+        (
+            "Params.TAN2StepParams1.ParTAN2Step.TAN2StepParams.2secfunc",
+            "d",
+        ),
+        (
+            "Params_1.TAN2StepParams1.ParTAN2Step.TAN2StepParams.foo",
+            "e",
+        ),
+        ("Params_1.TAN2StepParams1.ParTAN2Step.secfunc", "f"),
+    ]);
+
+    let result = ParameterFinder::find_all(
+        &props,
+        Some("Params_*.TAN2StepPar*.ParTAN2Step*.TAN2StepParams*.*secfunc"),
+    );
+
+    assert!(contains_value(&result, "a"));
+    assert!(contains_value(&result, "b"));
+    assert!(contains_value(&result, "c"));
+    assert!(!contains_value(&result, "d"));
+    assert!(!contains_value(&result, "e"));
+    assert!(!contains_value(&result, "f"));
+}
+
+#[test]
+fn parameter_finder_known_can1step_query_matches_original_test003() {
+    let props = properties([
+        ("Params_160.TAN2StepPar1.ParTAN2Step.can1step", "N"),
+        (
+            "Params_2.TAN2StepParamsFoo.ParTAN2Step.TAN2StepParams.can1step",
+            "X",
+        ),
+        ("Params_161.TAN2StepPar3.ParTAN2Step.can1step", "J"),
+    ]);
+
+    let result = ParameterFinder::find_all_query(&props, &ParameterQuery::BPD_PINTAN_CAN1STEP)
+        .expect("query parameters are set");
+
+    assert!(contains_value(&result, "J"));
+    assert!(contains_value(&result, "N"));
+    assert!(!contains_value(&result, "X"));
+}
+
+#[test]
+fn parameter_finder_parameterized_orderhash_query_matches_original_test004() {
+    let props = properties([
+        ("Params_160.TAN2StepPar1.ParTAN2Step.orderhashmode", "0"),
+        ("Params_161.TAN2StepPar3.ParTAN2Step.orderhashmode", "1"),
+        ("Params_162.TAN2StepPar6.ParTAN2Step.orderhashmode", "2"),
+    ]);
+    let query = ParameterQuery::BPD_PINTAN_ORDERHASHMODE.with_parameters(&["6"]);
+
+    let value =
+        ParameterFinder::get_value_query(&props, &query, None).expect("query parameters are set");
+
+    assert_eq!(value.as_deref(), Some("2"));
+}
+
+#[test]
+fn parameter_finder_rejects_unset_parameterized_query_like_original_test005() {
+    let props = Properties::new();
+
+    let err =
+        ParameterFinder::get_value_query(&props, &ParameterQuery::BPD_PINTAN_ORDERHASHMODE, None)
+            .expect_err("unset query parameters are rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::InvalidArgument);
+    assert!(err.message().contains("Parameters not set in query"));
+}
+
+fn properties<const N: usize>(entries: [(&str, &str); N]) -> Properties {
+    entries
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect()
+}
+
+fn contains_value(props: &Properties, value: &str) -> bool {
+    props.values().any(|candidate| candidate == value)
 }
