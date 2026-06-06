@@ -195,6 +195,21 @@ impl HbciJob {
         Ok(())
     }
 
+    pub fn try_set_indexed_param_value(
+        &mut self,
+        name: &str,
+        index: usize,
+        value: &Value,
+    ) -> HbciResult<()> {
+        self.try_set_optional_indexed_structured_param(
+            name,
+            index,
+            "value",
+            Some(value.value.as_str()),
+        )?;
+        self.try_set_optional_indexed_structured_param(name, index, "curr", value.curr.as_deref())
+    }
+
     pub fn set_param_account(&mut self, name: &str, account: &Konto) {
         self.set_optional_account_param(name, "country", account.country.as_deref());
         self.set_optional_account_param(name, "blz", account.blz.as_deref());
@@ -371,6 +386,22 @@ impl HbciJob {
         {
             self.set_frontend_and_lowlevel_param(name, value);
         }
+    }
+
+    fn try_set_optional_indexed_structured_param(
+        &mut self,
+        base: &str,
+        index: usize,
+        field: &str,
+        value: Option<&str>,
+    ) -> HbciResult<()> {
+        let name = format!("{base}.{field}");
+        if self.accepts_param(&name)
+            && let Some(value) = value.filter(|value| !value.is_empty())
+        {
+            self.try_set_indexed_param(name, index, value)?;
+        }
+        Ok(())
     }
 
     fn set_frontend_and_lowlevel_param(

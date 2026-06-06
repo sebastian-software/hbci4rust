@@ -295,6 +295,133 @@ fn indexed_job_param_setter_rejects_non_indexed_param_like_original() {
 }
 
 #[test]
+fn indexed_value_param_helper_sets_amount_and_currency_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedValueJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "btg.value",
+                    "destination_name": "ValueSeg.lines.BTG.value",
+                    "default_value": null,
+                    "indexed": true
+                },
+                {
+                    "frontend_name": "btg.curr",
+                    "destination_name": "ValueSeg.lines.BTG.curr",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed value job");
+
+    job.try_set_indexed_param_value(
+        "btg",
+        2,
+        &Value {
+            value: "123.45".to_owned(),
+            curr: Some("EUR".to_owned()),
+        },
+    )
+    .expect("indexed value parameter is accepted");
+
+    assert_eq!(job.param("btg.value"), None);
+    assert_eq!(
+        job.lowlevel_param("ValueSeg.lines.BTG[2].value"),
+        Some("123.45")
+    );
+    assert_eq!(
+        job.lowlevel_param("ValueSeg.lines.BTG[2].curr"),
+        Some("EUR")
+    );
+}
+
+#[test]
+fn indexed_value_param_helper_ignores_unaccepted_or_empty_fields_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedValueJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "btg.value",
+                    "destination_name": "ValueSeg.lines.BTG.value",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed value job");
+
+    job.try_set_indexed_param_value(
+        "btg",
+        1,
+        &Value {
+            value: "50.00".to_owned(),
+            curr: Some(String::new()),
+        },
+    )
+    .expect("indexed value with empty currency is accepted");
+    job.try_set_indexed_param_value(
+        "fee",
+        1,
+        &Value {
+            value: "1.00".to_owned(),
+            curr: Some("EUR".to_owned()),
+        },
+    )
+    .expect("unaccepted indexed value fields are ignored");
+
+    assert_eq!(
+        job.lowlevel_param("ValueSeg.lines.BTG[1].value"),
+        Some("50.00")
+    );
+    assert_eq!(job.lowlevel_param("ValueSeg.lines.BTG[1].curr"), None);
+    assert!(job.params().is_empty());
+}
+
+#[test]
+fn indexed_value_param_helper_rejects_accepted_non_indexed_field() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedValueJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "btg.value",
+                    "destination_name": "ValueSeg.BTG.value",
+                    "default_value": null,
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed value job");
+
+    let err = job
+        .try_set_indexed_param_value(
+            "btg",
+            0,
+            &Value {
+                value: "123.45".to_owned(),
+                curr: Some("EUR".to_owned()),
+            },
+        )
+        .expect_err("accepted non-indexed value field is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "job parameter btg.value is not indexed by IndexedValueJob"
+    );
+    assert!(job.lowlevel_params().is_empty());
+}
+
+#[test]
 fn saldo_job_sets_account_params_like_original_overload() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
