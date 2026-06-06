@@ -22,6 +22,27 @@ fn return_value_display_omits_absent_references_like_original() {
 }
 
 #[test]
+fn return_value_equality_matches_original_compared_fields() {
+    let mut left = HbciReturnValue::new("3020", "Hinweis");
+    left.segment_ref = Some("4".to_owned());
+    left.data_ref = Some("2".to_owned());
+    left.params = vec!["alpha".to_owned()];
+
+    let mut right = left.clone();
+    right.params = vec!["beta".to_owned(), "gamma".to_owned()];
+
+    assert_eq!(left, right);
+
+    let mut different_ref = left.clone();
+    different_ref.data_ref = Some("3".to_owned());
+    assert_ne!(left, different_ref);
+
+    let mut different_text = left.clone();
+    different_text.text = "Anderer Hinweis".to_owned();
+    assert_ne!(left, different_text);
+}
+
+#[test]
 fn status_groups_return_values_like_original() {
     let mut status = HbciStatus::new();
     status.add_return_value(HbciReturnValue::new("3020", "Warnung"));

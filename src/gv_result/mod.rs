@@ -178,7 +178,7 @@ pub enum HbciJobResultData {
     SaldoReq(GvrSaldoReq),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HbciReturnValue {
     pub code: String,
     pub segment_ref: Option<String>,
@@ -218,6 +218,17 @@ impl HbciReturnValue {
         self.to_string()
     }
 }
+
+impl PartialEq for HbciReturnValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.code == other.code
+            && self.text == other.text
+            && self.segment_ref == other.segment_ref
+            && self.data_ref == other.data_ref
+    }
+}
+
+impl Eq for HbciReturnValue {}
 
 impl Display for HbciReturnValue {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
