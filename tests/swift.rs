@@ -1,4 +1,4 @@
-use hbci4rust::swift::{Mt940Document, decode_umlauts, get_tag_value};
+use hbci4rust::swift::{Mt940Document, decode_umlauts, get_one_block, get_tag_value};
 
 #[test]
 fn decodes_swift_umlaut_placeholders_like_original() {
@@ -21,6 +21,41 @@ fn mt940_document_preserves_raw_input_until_parser_is_ported() {
     let document = Mt940Document::parse(":20:START\r\n:86:M[LLER");
 
     assert_eq!(document.raw, ":20:START\r\n:86:M[LLER");
+}
+
+#[test]
+fn one_block_returns_none_for_empty_stream_like_java_null() {
+    assert_eq!(get_one_block(""), None);
+}
+
+#[test]
+fn one_block_returns_whole_single_block_like_original() {
+    let stream = "\r\n:20:FIRST\r\n:25:12030000/1019815776\r\n:62F:C150626EUR91,32\r\n-";
+
+    assert_eq!(get_one_block(stream).as_deref(), Some(stream));
+}
+
+#[test]
+fn one_block_splits_before_next_20_marker_like_original() {
+    let first = "\r\n:20:FIRST\r\n:25:12030000/1019815776\r\n-";
+    let second = "\r\n:20:SECOND\r\n:25:12030000/1019815777\r\n-";
+    let stream = format!("{first}{second}");
+
+    assert_eq!(get_one_block(&stream).as_deref(), Some(first));
+}
+
+#[test]
+fn one_block_search_starts_after_first_byte_like_original() {
+    let stream = "\r\n:20:FIRST\r\n:25:A";
+
+    assert_eq!(get_one_block(stream).as_deref(), Some(stream));
+}
+
+#[test]
+fn one_block_returns_prefix_before_first_later_marker_like_original() {
+    let stream = "REST\r\n:20:FIRST\r\n:25:A";
+
+    assert_eq!(get_one_block(stream).as_deref(), Some("REST"));
 }
 
 #[test]

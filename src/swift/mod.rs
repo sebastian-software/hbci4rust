@@ -11,6 +11,11 @@ pub fn decode_umlauts(input: &str) -> String {
         .replace('~', "ß")
 }
 
+pub fn get_one_block(input: &str) -> Option<String> {
+    let endpos = find_from(input, "\r\n:20:", 1).unwrap_or(input.len());
+    (endpos > 0).then(|| input[..endpos].to_owned())
+}
+
 pub fn get_tag_value(input: &str, tag: &str, counter: usize) -> Option<String> {
     let mut endpos = 0;
     let mut remaining = counter;
@@ -41,9 +46,12 @@ pub fn get_tag_value(input: &str, tag: &str, counter: usize) -> Option<String> {
 }
 
 fn find_from(input: &str, pattern: &str, start: usize) -> Option<usize> {
+    let needle = pattern.as_bytes();
     input
+        .as_bytes()
         .get(start..)?
-        .find(pattern)
+        .windows(needle.len())
+        .position(|window| window == needle)
         .map(|relative| start + relative)
 }
 
