@@ -298,6 +298,38 @@ fn kums_mt940_parser_uses_start_date_when_booking_date_is_missing_like_original(
 }
 
 #[test]
+fn kums_upstream_mt940_fixture_with_booking_dates_matches_original_test001() {
+    let mt940 = latin1_fixture(include_bytes!(
+        "fixtures/hbci4java/swift/test-mt940-001.sta"
+    ));
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(mt940);
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 2);
+    for line in lines {
+        assert!(line.valuta.is_some());
+        assert!(line.bdate.is_some());
+    }
+}
+
+#[test]
+fn kums_upstream_mt940_fixture_without_booking_dates_matches_original_test002() {
+    let mt940 = latin1_fixture(include_bytes!(
+        "fixtures/hbci4java/swift/test-mt940-002.sta"
+    ));
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(mt940);
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 2);
+    for line in lines {
+        assert!(line.valuta.is_some());
+        assert!(line.bdate.is_some());
+    }
+}
+
+#[test]
 fn kums_mt940_parser_extracts_debit_refs_and_optional_values_like_original() {
     let mut result = GvrKUms::new();
     result.append_mt940_data(concat!(
@@ -531,4 +563,8 @@ fn test_value(value: &str) -> Value {
         value: value.to_owned(),
         curr: Some("EUR".to_owned()),
     }
+}
+
+fn latin1_fixture(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| char::from(*byte)).collect()
 }
