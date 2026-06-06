@@ -226,8 +226,42 @@ impl From<CamtReport> for GvrKUmsBTag {
                 tag.lines.push(line);
             }
         }
+        camt_correct_line_balances_from_end(&mut tag);
 
         tag
+    }
+}
+
+fn camt_correct_line_balances_from_end(tag: &mut GvrKUmsBTag) {
+    let missing_start_timestamp = tag
+        .start
+        .as_ref()
+        .and_then(|saldo| saldo.date.as_ref())
+        .is_none();
+    let Some(mut end_saldo) = tag
+        .end
+        .as_ref()
+        .filter(|saldo| saldo.date.is_some())
+        .and_then(|saldo| decimal_amount_to_cents(&saldo.value.value))
+    else {
+        return;
+    };
+
+    if !missing_start_timestamp {
+        return;
+    }
+
+    for line in tag.lines.iter_mut().rev() {
+        if let Some(saldo) = &mut line.saldo {
+            saldo.value.value = cents_to_decimal_amount(end_saldo);
+        }
+
+        let line_value = line
+            .value
+            .as_ref()
+            .and_then(|value| decimal_amount_to_cents(&value.value))
+            .unwrap_or(0);
+        end_saldo -= line_value;
     }
 }
 

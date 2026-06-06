@@ -266,6 +266,75 @@ fn camt_basic_entry_lines_map_amount_dates_and_running_balance_like_original() {
 }
 
 #[test]
+fn camt_entry_lines_correct_running_balances_backwards_from_end_like_original() {
+    let xml = format!(
+        r#"<Document xmlns="{CAMT_052_001_01_URN}">
+  <BkToCstmrAcctRpt>
+    <Rpt>
+      <Acct><Id><IBAN>DE12345678901234567890</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>FWDB</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">999.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">107.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">10</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <BookgDt><Dt>2018-07-20</Dt></BookgDt>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">3</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2018-07-20</Dt></BookgDt>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>"#
+    );
+
+    let days =
+        parse_camt_report_shell(&xml, SepaVersion::CAMT_052_001_01).expect("CAMT lines parse");
+    let day = &days[0];
+
+    assert!(day.start.is_none());
+    assert_eq!(
+        day.end.as_ref().map(ToString::to_string).as_deref(),
+        Some("2018-07-20 107.00 EUR")
+    );
+    assert_eq!(
+        day.lines[0]
+            .saldo
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("2018-07-20 110.00 EUR")
+    );
+    assert_eq!(
+        day.lines[1]
+            .saldo
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("2018-07-20 107.00 EUR")
+    );
+    assert_eq!(
+        day.lines[1]
+            .value
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("-3.00 EUR")
+    );
+}
+
+#[test]
 fn camt_basic_entry_lines_map_debit_storno_and_date_fallback_like_original() {
     let xml = format!(
         r#"<Document xmlns="{CAMT_052_001_01_URN}">
