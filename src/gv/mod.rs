@@ -193,12 +193,19 @@ impl HbciJob {
         self.constraint(frontend_name).is_some()
     }
 
-    pub fn verify_constraints(&self) -> HbciResult<BTreeMap<String, String>> {
+    pub fn verify_constraints(&mut self) -> HbciResult<BTreeMap<String, String>> {
         let mut lowlevel_params = BTreeMap::new();
 
-        for constraint in &self.constraints {
-            if let Some(value) = self.resolved_constraint_value(constraint)? {
-                lowlevel_params.insert(constraint.destination_name.clone(), value);
+        for constraint in self.constraints.clone() {
+            if let Some(value) = self.resolved_constraint_value(&constraint)? {
+                if !self
+                    .lowlevel_params
+                    .contains_key(&constraint.destination_name)
+                {
+                    self.lowlevel_params
+                        .insert(constraint.destination_name.clone(), value.clone());
+                }
+                lowlevel_params.insert(constraint.destination_name, value);
             }
         }
 

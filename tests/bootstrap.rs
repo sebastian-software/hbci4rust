@@ -263,13 +263,15 @@ fn verify_constraints_resolves_frontend_params_and_defaults_like_original() {
         lowlevel.get("Saldo7.allaccounts").map(String::as_str),
         Some("N")
     );
+    assert_eq!(saldo.lowlevel_param("Saldo7.KTV.KIK.country"), Some("DE"));
+    assert_eq!(saldo.lowlevel_param("Saldo7.allaccounts"), Some("N"));
     assert!(!lowlevel.contains_key("Saldo7.KTV.subnumber"));
     assert!(!lowlevel.contains_key("Saldo7.maxentries"));
 }
 
 #[test]
 fn verify_constraints_resolves_existing_lowlevel_params_like_original() {
-    let job: hbci4rust::HbciJob = serde_json::from_str(
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
         r#"{
             "name": "SaldoReq",
             "params": {},
@@ -304,11 +306,12 @@ fn verify_constraints_resolves_existing_lowlevel_params_like_original() {
         lowlevel.get("Saldo7.allaccounts").map(String::as_str),
         Some("N")
     );
+    assert_eq!(job.lowlevel_param("Saldo7.allaccounts"), Some("N"));
 }
 
 #[test]
 fn verify_constraints_prefers_lowlevel_over_frontend_like_original() {
-    let job: hbci4rust::HbciJob = serde_json::from_str(
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
         r#"{
             "name": "SaldoReq",
             "params": {
@@ -356,7 +359,7 @@ fn verify_constraints_reports_missing_required_frontend_param() {
 fn verify_constraints_for_saldo_all_uses_only_non_empty_defaults() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
-    let saldo_all = handler.new_job("SaldoReqAll").expect("job is in registry");
+    let mut saldo_all = handler.new_job("SaldoReqAll").expect("job is in registry");
 
     let lowlevel = saldo_all
         .verify_constraints()
@@ -366,6 +369,7 @@ fn verify_constraints_for_saldo_all_uses_only_non_empty_defaults() {
         lowlevel.get("Saldo7.allaccounts").map(String::as_str),
         Some("J")
     );
+    assert_eq!(saldo_all.lowlevel_param("Saldo7.allaccounts"), Some("J"));
     assert!(!lowlevel.contains_key("Saldo7.maxentries"));
 }
 
