@@ -176,10 +176,12 @@ where
             .enumerate()
             .map(|(index, job)| {
                 let segment_sequence = queued_job_segment_sequence(index);
+                let mut result_data = basic_result_data(&request_ref, segment_sequence);
+                result_data.extend(response_status.result_data_for_job(&job, index));
                 let mut result = HbciJobResult {
                     job_name: job.name().to_owned(),
                     raw_response: raw_response.clone(),
-                    result_data: basic_result_data(&request_ref, segment_sequence),
+                    result_data,
                     global_return_values: response_status.global_return_values.clone(),
                     return_values: response_status.return_values_for_segment(segment_sequence),
                     result: response_status.result_for_job(&job, index, &self.passport),
@@ -383,6 +385,22 @@ fn basic_result_data(
         ("basic.msgnum".to_owned(), request_ref.msgnum.clone()),
         ("basic.segnum".to_owned(), segment_sequence.to_string()),
     ])
+}
+
+fn counted_result_header(base: &str, index: usize) -> String {
+    if index == 0 {
+        base.to_owned()
+    } else {
+        format!("{base}_{}", index + 1)
+    }
+}
+
+fn saldo_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.SaldoRes7".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.SaldoRes7", index + 1)
+    }
 }
 
 fn render_saldo_request(
@@ -595,16 +613,46 @@ impl ParsedResponseStatus {
         }
     }
 
+    fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
+        match job.name() {
+            "SaldoReq" => self.content_result_data([saldo_response_root(index)]),
+            "SaldoReqAll" => self.content_result_data(
+                counted_prefixes(&self.values, "CustomMsgRes.GVRes")
+                    .into_iter()
+                    .map(|prefix| format!("{prefix}.SaldoRes7")),
+            ),
+            _ => BTreeMap::new(),
+        }
+    }
+
+    fn content_result_data<I>(&self, roots: I) -> BTreeMap<String, String>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let mut result_data = BTreeMap::new();
+
+        for (index, root) in roots.into_iter().enumerate() {
+            let content_header = counted_result_header("content", index);
+            let root_prefix = format!("{root}.");
+            for (key, value) in self
+                .values
+                .iter()
+                .filter(|(key, _)| key.starts_with(&root_prefix))
+            {
+                let suffix = &key[root_prefix.len()..];
+                result_data.insert(format!("{content_header}.{suffix}"), value.clone());
+            }
+        }
+
+        result_data
+    }
+
     fn saldo_result_for_index(
         &self,
         index: usize,
         passport: &PinTanPassport,
     ) -> Option<GvrSaldoReq> {
-        let root = if index == 0 {
-            "CustomMsgRes.GVRes.SaldoRes7".to_owned()
-        } else {
-            format!("CustomMsgRes.GVRes_{}.SaldoRes7", index + 1)
-        };
+        let root = saldo_response_root(index);
 
         saldo_info_from_values(&self.values, &root, passport).map(|info| GvrSaldoReq {
             entries: vec![info],

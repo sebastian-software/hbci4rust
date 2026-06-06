@@ -832,6 +832,20 @@ async fn handler_uses_replay_comm_client() {
         status.job_results[0].job_id_for_date("20260606"),
         "20260606/0/1/2"
     );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.KTV.iban")
+            .map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.booked.BTG.value")
+            .map(String::as_str),
+        Some("123.45")
+    );
     assert_eq!(status.job_results[0].global_return_values[0].code, "0010");
     assert_eq!(status.global_return_values[0].code, "0010");
     assert_eq!(status.job_results[0].ret_value(0).unwrap().code, "0020");
@@ -1016,6 +1030,20 @@ async fn handler_renders_saldo_request_all_without_account() {
     );
     assert_eq!(
         result.entries[1].konto.iban.as_deref(),
+        Some("DE02123456780000000001")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.KTV.iban")
+            .map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content_2.KTV.iban")
+            .map(String::as_str),
         Some("DE02123456780000000001")
     );
 
