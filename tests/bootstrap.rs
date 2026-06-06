@@ -98,6 +98,33 @@ fn creates_java_named_job_with_string_params() {
 }
 
 #[test]
+fn saldo_jobs_expose_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+
+    let saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    assert_eq!(saldo.constraints().len(), 8);
+    let iban = saldo.constraint("my.iban").expect("iban constraint");
+    assert_eq!(iban.destination_name, "Saldo7.KTV.iban");
+    assert_eq!(iban.default_value, None);
+    let country = saldo.constraint("my.country").expect("country constraint");
+    assert_eq!(country.destination_name, "Saldo7.KTV.KIK.country");
+    assert_eq!(country.default_value.as_deref(), Some("DE"));
+    let dummyall = saldo.constraint("dummyall").expect("dummyall constraint");
+    assert_eq!(dummyall.destination_name, "Saldo7.allaccounts");
+    assert_eq!(dummyall.default_value.as_deref(), Some("N"));
+
+    let saldo_all = handler.new_job("SaldoReqAll").expect("job is in registry");
+    let dummyall_all = saldo_all
+        .constraint("dummyall")
+        .expect("SaldoReqAll dummyall constraint");
+
+    assert_eq!(saldo_all.constraints().len(), 2);
+    assert_eq!(dummyall_all.default_value.as_deref(), Some("J"));
+}
+
+#[test]
 fn rejects_out_of_scope_job() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);

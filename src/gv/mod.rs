@@ -100,12 +100,16 @@ impl JobRegistry {
 pub struct HbciJob {
     name: String,
     params: BTreeMap<String, String>,
+    #[serde(default)]
+    constraints: Vec<HbciJobConstraint>,
 }
 
 impl HbciJob {
     pub fn new(name: impl Into<String>) -> Self {
+        let name = name.into();
         Self {
-            name: name.into(),
+            constraints: constraints_for_job(&name),
+            name,
             params: BTreeMap::new(),
         }
     }
@@ -125,4 +129,66 @@ impl HbciJob {
     pub fn params(&self) -> &BTreeMap<String, String> {
         &self.params
     }
+
+    pub fn constraints(&self) -> &[HbciJobConstraint] {
+        &self.constraints
+    }
+
+    pub fn constraint(&self, frontend_name: &str) -> Option<&HbciJobConstraint> {
+        self.constraints
+            .iter()
+            .find(|constraint| constraint.frontend_name == frontend_name)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HbciJobConstraint {
+    pub frontend_name: String,
+    pub destination_name: String,
+    pub default_value: Option<String>,
+    pub indexed: bool,
+}
+
+impl HbciJobConstraint {
+    pub fn new(
+        frontend_name: impl Into<String>,
+        destination_name: impl Into<String>,
+        default_value: Option<impl Into<String>>,
+    ) -> Self {
+        Self {
+            frontend_name: frontend_name.into(),
+            destination_name: destination_name.into(),
+            default_value: default_value.map(Into::into),
+            indexed: false,
+        }
+    }
+
+    pub fn indexed(mut self, indexed: bool) -> Self {
+        self.indexed = indexed;
+        self
+    }
+}
+
+fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
+    match name {
+        "SaldoReq" => saldo_req_constraints(),
+        "SaldoReqAll" => vec![
+            HbciJobConstraint::new("dummyall", "Saldo7.allaccounts", Some("J")),
+            HbciJobConstraint::new("maxentries", "Saldo7.maxentries", Some("")),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn saldo_req_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.bic", "Saldo7.KTV.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "Saldo7.KTV.iban", None::<String>),
+        HbciJobConstraint::new("my.country", "Saldo7.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "Saldo7.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "Saldo7.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "Saldo7.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("dummyall", "Saldo7.allaccounts", Some("N")),
+        HbciJobConstraint::new("maxentries", "Saldo7.maxentries", Some("")),
+    ]
 }

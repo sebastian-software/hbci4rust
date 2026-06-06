@@ -21,7 +21,7 @@ pub use callback::{
 pub use comm::{CommClient, CommRequest, CommResponse, DefaultCommClient, ReplayCommClient};
 pub use dialog::{DialogContext, KnownReturncode};
 pub use error::{HbciError, HbciErrorKind, HbciResult};
-pub use gv::{HbciJob, JobRegistry, PINTAN_JOB_NAMES};
+pub use gv::{HbciJob, HbciJobConstraint, JobRegistry, PINTAN_JOB_NAMES};
 pub use gv_result::{
     GvrSaldoReq, GvrSaldoReqInfo, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
     HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit,
