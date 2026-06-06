@@ -186,6 +186,7 @@ struct CamtTxDetails {
     return_additional: Vec<String>,
     instructed_amount: Option<String>,
     instructed_amount_currency: Option<String>,
+    proprietary_bank_code: Option<String>,
 }
 
 impl From<CamtReport> for GvrKUmsBTag {
@@ -637,6 +638,8 @@ fn collect_camt_tx_text(stack: &[String], text: &str, tx: &mut CamtTxDetails) {
         tx.return_additional.push(text.to_owned());
     } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "AmtDtls", "InstdAmt", "Amt"]) {
         tx.instructed_amount = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "BkTxCd", "Prtry", "Cd"]) {
+        tx.proprietary_bank_code = Some(text.to_owned());
     }
 }
 
@@ -720,6 +723,7 @@ fn camt_line_from_entry(
         line.mandate_id = tx.mandate_id;
         line.other = Some(other);
         line.usage.extend(tx.usages);
+        camt_apply_proprietary_bank_code(&mut line, tx.proprietary_bank_code.as_deref());
         line.purposecode = tx.purpose_code;
 
         if is_return {
@@ -737,6 +741,27 @@ fn camt_line_from_entry(
     }
 
     Some(line)
+}
+
+fn camt_apply_proprietary_bank_code(line: &mut GvrKUmsLine, code: Option<&str>) {
+    let Some(code) = code.filter(|code| code.contains('+')) else {
+        return;
+    };
+
+    let parts = java_like_plus_split(code);
+    if parts.len() == 4 {
+        line.gvcode = Some(parts[1].to_owned());
+        line.primanota = Some(parts[2].to_owned());
+        line.addkey = Some(parts[3].to_owned());
+    }
+}
+
+fn java_like_plus_split(code: &str) -> Vec<&str> {
+    let mut parts = code.split('+').collect::<Vec<_>>();
+    while parts.last() == Some(&"") {
+        parts.pop();
+    }
+    parts
 }
 
 fn attr_value(

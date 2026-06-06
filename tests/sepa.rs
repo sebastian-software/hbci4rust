@@ -527,6 +527,82 @@ fn camt_transaction_details_return_info_flips_counterparty_and_maps_original_amo
 }
 
 #[test]
+fn camt_transaction_details_maps_proprietary_bank_code_like_original() {
+    let xml = format!(
+        r#"<Document xmlns="{CAMT_052_001_02_URN}">
+  <BkToCstmrAcctRpt>
+    <Rpt>
+      <Acct><Id><IBAN>DE12345678901234567890</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>ITBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">10</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <BookgDt><Dt>2018-07-20</Dt></BookgDt>
+        <NtryDtls>
+          <TxDtls>
+            <BkTxCd><Prtry><Cd>SBOOK+152+9245+53</Cd></Prtry></BkTxCd>
+            <Purp><Cd>GDDS</Cd></Purp>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>"#
+    );
+
+    let days =
+        parse_camt_report_shell(&xml, SepaVersion::CAMT_052_001_02).expect("CAMT details parse");
+    let line = &days[0].lines[0];
+
+    assert_eq!(line.gvcode.as_deref(), Some("152"));
+    assert_eq!(line.primanota.as_deref(), Some("9245"));
+    assert_eq!(line.addkey.as_deref(), Some("53"));
+    assert_eq!(line.purposecode.as_deref(), Some("GDDS"));
+}
+
+#[test]
+fn camt_transaction_details_ignores_malformed_proprietary_bank_code_like_java_split() {
+    let xml = format!(
+        r#"<Document xmlns="{CAMT_052_001_02_URN}">
+  <BkToCstmrAcctRpt>
+    <Rpt>
+      <Acct><Id><IBAN>DE12345678901234567890</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>ITBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">10</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <BookgDt><Dt>2018-07-20</Dt></BookgDt>
+        <NtryDtls>
+          <TxDtls>
+            <BkTxCd><Prtry><Cd>SBOOK+152+9245+</Cd></Prtry></BkTxCd>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>"#
+    );
+
+    let days =
+        parse_camt_report_shell(&xml, SepaVersion::CAMT_052_001_02).expect("CAMT details parse");
+    let line = &days[0].lines[0];
+
+    assert_eq!(line.gvcode, None);
+    assert_eq!(line.primanota, None);
+    assert_eq!(line.addkey, None);
+}
+
+#[test]
 fn camt_transaction_details_skip_entry_when_first_detail_has_no_tx_like_original() {
     let xml = format!(
         r#"<Document xmlns="{CAMT_052_001_02_URN}">
