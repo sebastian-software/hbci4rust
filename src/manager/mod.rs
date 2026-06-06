@@ -1,6 +1,7 @@
 mod account_crc;
 mod bank_info;
 mod handler;
+mod secmech;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -11,6 +12,7 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 pub use account_crc::AccountCrcAlgs;
 pub use bank_info::{BankInfo, BankInfoRegistry, HbciVersion};
 pub use handler::HbciHandler;
+pub use secmech::{HhdVersion, HhdVersionType, MatrixCode, QrCode};
 
 #[derive(Default)]
 struct RuntimeState {
