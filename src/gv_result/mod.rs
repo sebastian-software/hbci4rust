@@ -245,6 +245,32 @@ impl Limit {
     pub const TYPE_TIME: &'static str = "Z";
 }
 
+impl Display for Limit {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self.limit_type.as_str() {
+            Self::TYPE_SINGLE => write!(formatter, "Einzellimit")?,
+            Self::TYPE_DAILY => write!(formatter, "Tageslimit")?,
+            Self::TYPE_WEEKLY => write!(formatter, "Wochenlimit")?,
+            Self::TYPE_MONTHLY => write!(formatter, "Monatslimit")?,
+            Self::TYPE_TIME => write!(
+                formatter,
+                "Zeitliches Limit ({} Tage)",
+                self.days.unwrap_or_default()
+            )?,
+            _ => {}
+        }
+
+        write!(
+            formatter,
+            ": {}",
+            self.value
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "null".to_owned())
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Saldo {
     pub value: Value,
@@ -252,8 +278,79 @@ pub struct Saldo {
     pub time: Option<String>,
 }
 
+impl Display for Saldo {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match (self.date.as_deref(), self.time.as_deref()) {
+            (Some(date), Some(time)) => write!(formatter, "{date} {time}")?,
+            (Some(date), None) => write!(formatter, "{date}")?,
+            (None, Some(time)) => write!(formatter, "{time}")?,
+            (None, None) => write!(formatter, "null")?,
+        }
+
+        write!(formatter, " {}", self.value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Value {
     pub value: String,
     pub curr: Option<String>,
+}
+
+impl Display for Value {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} {}",
+            format_value_amount(&self.value),
+            self.curr.as_deref().unwrap_or("null")
+        )
+    }
+}
+
+fn format_value_amount(value: &str) -> String {
+    let compact = value.chars().filter(|ch| *ch != ' ').collect::<String>();
+    let (negative, unsigned) = strip_sign(&compact);
+    let (integer, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+
+    if !integer.chars().all(|ch| ch.is_ascii_digit())
+        || !fraction.chars().all(|ch| ch.is_ascii_digit())
+        || fraction.len() > 2
+        || (integer.is_empty() && fraction.is_empty())
+    {
+        return compact;
+    }
+
+    let integer = trimmed_integer_part(integer);
+    let mut formatted = String::new();
+    if negative {
+        formatted.push('-');
+    }
+    formatted.push_str(&integer);
+    formatted.push('.');
+    formatted.push_str(fraction);
+    for _ in fraction.len()..2 {
+        formatted.push('0');
+    }
+
+    formatted
+}
+
+fn strip_sign(value: &str) -> (bool, &str) {
+    if let Some(unsigned) = value.strip_prefix('-') {
+        (true, unsigned)
+    } else if let Some(unsigned) = value.strip_prefix('+') {
+        (false, unsigned)
+    } else {
+        (false, value)
+    }
+}
+
+fn trimmed_integer_part(value: &str) -> String {
+    let trimmed = value.trim_start_matches('0');
+    if trimmed.is_empty() {
+        "0".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
 }
