@@ -908,3 +908,27 @@ fn camt_upstream_05200108_fixture_matches_original_test006_observable_fields() {
     assert_eq!(other.name.as_deref(), Some("Beispiel AG"));
     assert_eq!(other.creditorid.as_deref(), Some("DE46ZZZ00000012345"));
 }
+
+#[test]
+fn camt_upstream_05200108_missing_balance_dates_parse_like_original_test007() {
+    let xml = include_str!("fixtures/hbci4java/sepa/test-camt-parse-5200108-missing-date.xml");
+
+    let version = SepaVersion::autodetect(xml)
+        .expect("valid upstream fixture")
+        .expect("known CAMT version");
+    assert_eq!(version, SepaVersion::CAMT_052_001_08);
+
+    parse_camt_report_shell(xml, version).expect("upstream missing-date CAMT parses");
+}
+
+#[test]
+fn camt_upstream_05200108_invalid_saldo_amounts_parse_like_original_test008() {
+    let xml = include_str!("fixtures/hbci4java/sepa/test-camt-parse-5200108-invalid-saldo.xml");
+
+    let version = SepaVersion::autodetect(xml)
+        .expect("valid upstream fixture")
+        .expect("known CAMT version");
+    assert_eq!(version, SepaVersion::CAMT_052_001_08);
+
+    parse_camt_report_shell(xml, version).expect("upstream invalid-saldo CAMT parses");
+}
