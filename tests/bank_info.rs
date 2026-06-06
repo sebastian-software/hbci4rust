@@ -115,3 +115,54 @@ fn assert_bank_codes(infos: Vec<&BankInfo>, expected: &[&str]) {
         .collect::<Vec<_>>();
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn upstream_bank_info_fixture_matches_original_test001() {
+    let registry = upstream_bank_info_registry();
+    let info = registry.get_bank_info("86050200").expect("bank info");
+
+    assert_eq!(info.blz(), Some("86050200"));
+    assert_eq!(info.bic(), Some("SOLADES1GRM"));
+    assert_eq!(info.location(), Some("Grimma"));
+    assert_eq!(info.name(), Some("Sparkasse Muldental"));
+    assert_eq!(
+        info.pin_tan_address(),
+        Some("https://banking-sn5.s-fints-pt-sn.de/fints30")
+    );
+    assert_eq!(info.pin_tan_version(), Some(HbciVersion::Hbci300));
+    assert_eq!(info.rdh_address(), Some("i052.s-fints-sn.de"));
+    assert_eq!(info.rdh_version(), Some(HbciVersion::Hbci220));
+}
+
+#[test]
+fn upstream_bank_info_fixture_searches_like_original_tests002_to006() {
+    let registry = upstream_bank_info_registry();
+
+    let by_blz = registry.search_bank_info("86050");
+    assert_bank_codes(by_blz, &["86050000", "86050200"]);
+
+    let by_bic = registry.search_bank_info("SOLADES");
+    assert_bank_codes(by_bic, &["85550000", "86050000", "86050200", "86055002"]);
+
+    let by_location = registry.search_bank_info("Grim");
+    assert!(
+        by_location
+            .iter()
+            .any(|info| info.location() == Some("Grimma"))
+    );
+
+    let by_name = registry.search_bank_info("Muldent");
+    assert!(
+        by_name
+            .iter()
+            .any(|info| info.name() == Some("Sparkasse Muldental"))
+    );
+
+    assert_eq!(registry.search_bank_info("12"), Vec::<&BankInfo>::new());
+}
+
+fn upstream_bank_info_registry() -> BankInfoRegistry {
+    BankInfoRegistry::parse_properties(include_str!(
+        "fixtures/hbci4java/bank_info/test-bank-info.properties"
+    ))
+}
