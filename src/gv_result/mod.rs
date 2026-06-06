@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dialog::KnownReturncode;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
+use crate::swift::{get_one_block, get_tag_value};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HbciExecStatus {
@@ -648,6 +649,252 @@ impl Display for HbciJobResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HbciJobResultData {
     SaldoReq(GvrSaldoReq),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrKUms {
+    buffer_mt940: String,
+    buffer_mt942: String,
+    tage_mt940: Vec<GvrKUmsBTag>,
+    tage_mt942: Vec<GvrKUmsBTag>,
+    pub camt_booked: Vec<String>,
+    pub camt_not_booked: Vec<String>,
+    parsed: bool,
+    pub rest_mt940: String,
+    pub rest_mt942: String,
+}
+
+impl GvrKUms {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn append_mt940_data(&mut self, data: impl AsRef<str>) {
+        self.buffer_mt940.push_str(data.as_ref());
+    }
+
+    pub fn append_mt942_data(&mut self, data: impl AsRef<str>) {
+        self.buffer_mt942.push_str(data.as_ref());
+    }
+
+    pub fn get_data_per_day(&mut self) -> &[GvrKUmsBTag] {
+        self.verify_mt94x_parsing();
+        &self.tage_mt940
+    }
+
+    pub fn get_data_per_day_unbooked(&mut self) -> &[GvrKUmsBTag] {
+        self.verify_mt94x_parsing();
+        &self.tage_mt942
+    }
+
+    pub fn get_flat_data(&mut self) -> Vec<&GvrKUmsLine> {
+        self.verify_mt94x_parsing();
+        self.tage_mt940
+            .iter()
+            .flat_map(|tag| tag.lines.iter())
+            .collect()
+    }
+
+    pub fn get_flat_data_unbooked(&mut self) -> Vec<&GvrKUmsLine> {
+        self.verify_mt94x_parsing();
+        self.tage_mt942
+            .iter()
+            .flat_map(|tag| tag.lines.iter())
+            .collect()
+    }
+
+    fn verify_mt94x_parsing(&mut self) {
+        if self.parsed {
+            return;
+        }
+
+        self.parsed = true;
+        parse_mt94x(
+            &mut self.buffer_mt940,
+            &mut self.tage_mt940,
+            &mut self.rest_mt940,
+        );
+        parse_mt94x(
+            &mut self.buffer_mt942,
+            &mut self.tage_mt942,
+            &mut self.rest_mt942,
+        );
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrKUmsBTag {
+    pub my: Konto,
+    pub counter: Option<String>,
+    pub start: Option<Saldo>,
+    pub start_type: char,
+    pub lines: Vec<GvrKUmsLine>,
+    pub end: Option<Saldo>,
+    pub end_type: char,
+}
+
+impl Default for GvrKUmsBTag {
+    fn default() -> Self {
+        Self {
+            my: Konto::default(),
+            counter: None,
+            start: None,
+            start_type: '\0',
+            lines: Vec::new(),
+            end: None,
+            end_type: '\0',
+        }
+    }
+}
+
+impl GvrKUmsBTag {
+    pub fn add_line(&mut self, line: GvrKUmsLine) {
+        self.lines.push(line);
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrKUmsLine {
+    pub valuta: Option<String>,
+    pub bdate: Option<String>,
+    pub value: Option<Value>,
+    pub is_storno: bool,
+    pub saldo: Option<Saldo>,
+    pub customerref: Option<String>,
+    pub instref: Option<String>,
+    pub orig_value: Option<Value>,
+    pub charge_value: Option<Value>,
+    pub gvcode: Option<String>,
+    pub additional: Option<String>,
+    pub text: Option<String>,
+    pub primanota: Option<String>,
+    pub usage: Vec<String>,
+    pub other: Option<Konto>,
+    pub addkey: Option<String>,
+    pub is_sepa: bool,
+    pub is_camt: bool,
+    pub id: Option<String>,
+    pub end_to_end_id: Option<String>,
+    pub purposecode: Option<String>,
+    pub mandate_id: Option<String>,
+}
+
+impl GvrKUmsLine {
+    pub fn add_usage(&mut self, usage: Option<String>) {
+        if let Some(usage) = usage {
+            self.usage.push(usage);
+        }
+    }
+}
+
+fn parse_mt94x(buffer: &mut String, tags: &mut Vec<GvrKUmsBTag>, rest: &mut String) {
+    if buffer.is_empty() {
+        return;
+    }
+
+    while !buffer.is_empty() {
+        let Some(block) = get_one_block(buffer) else {
+            break;
+        };
+        tags.push(kums_btag_from_block(&block));
+        buffer.drain(..block.len());
+    }
+
+    rest.clear();
+    rest.push_str(buffer);
+}
+
+fn kums_btag_from_block(block: &str) -> GvrKUmsBTag {
+    let mut btag = GvrKUmsBTag {
+        my: kums_account_from_info(get_tag_value(block, "25", 0).as_deref()),
+        counter: get_tag_value(block, "28C", 0),
+        ..GvrKUmsBTag::default()
+    };
+
+    if let Some(start) = get_tag_value(block, "60F", 0) {
+        btag.start = kums_saldo_from_mt940(&start);
+        btag.start_type = 'F';
+    } else if let Some(start) = get_tag_value(block, "60M", 0) {
+        btag.start = kums_saldo_from_mt940(&start);
+        btag.start_type = 'M';
+    }
+
+    btag.end_type = 'F';
+    if let Some(end) = get_tag_value(block, "62F", 0) {
+        btag.end = kums_saldo_from_mt940(&end);
+        btag.end_type = 'F';
+    } else if let Some(end) = get_tag_value(block, "62M", 0) {
+        btag.end = kums_saldo_from_mt940(&end);
+        btag.end_type = 'M';
+    }
+
+    btag
+}
+
+fn kums_account_from_info(konto_info: Option<&str>) -> Konto {
+    let mut account = Konto {
+        blz: Some(String::new()),
+        number: Some(String::new()),
+        iban: konto_info.map(str::to_owned),
+        curr: Some(String::new()),
+        ..Konto::default()
+    };
+
+    if let Some((blz, number)) = konto_info.and_then(|value| value.split_once('/')) {
+        let (number, curr) = split_mt940_number_currency(number);
+        account.blz = Some(blz.to_owned());
+        account.number = Some(number);
+        account.iban = Some(String::new());
+        account.curr = Some(curr);
+    }
+
+    account
+}
+
+fn split_mt940_number_currency(number: &str) -> (String, String) {
+    let mut split = number.len();
+    while split > 0 {
+        let character = number[..split]
+            .chars()
+            .next_back()
+            .expect("split is at a character boundary");
+        if character.is_ascii_digit() {
+            break;
+        }
+        split -= character.len_utf8();
+    }
+
+    if split < number.len() {
+        (number[..split].to_owned(), number[split..].to_owned())
+    } else {
+        (number.to_owned(), String::new())
+    }
+}
+
+fn kums_saldo_from_mt940(input: &str) -> Option<Saldo> {
+    let credit_debit = input.get(0..1)?;
+    let date = input.get(1..7)?;
+    let curr = input.get(7..10)?;
+    let amount = input
+        .get(10..)?
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>()
+        .replace(',', ".");
+    let value = if credit_debit == "D" {
+        format!("-{amount}")
+    } else {
+        amount
+    };
+
+    Some(Saldo {
+        value: Value {
+            value,
+            curr: Some(curr.to_owned()),
+        },
+        date: Some(date.to_owned()),
+        time: None,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
