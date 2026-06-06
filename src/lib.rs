@@ -14,6 +14,7 @@ pub mod passport;
 pub mod protocol;
 pub mod sepa;
 pub mod swift;
+pub mod tools;
 
 pub use callback::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, HbciCallback,
@@ -31,3 +32,4 @@ pub use manager::{
     BankInfo, BankInfoRegistry, HbciHandler, HbciVersion, done, get_param, init, set_param,
 };
 pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};
+pub use tools::{has_text, join_strings, to_boolean, to_ins_code, to_parameter_code};
