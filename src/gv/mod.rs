@@ -460,10 +460,7 @@ impl HbciJobConstraint {
 fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "SaldoReq" => saldo_req_constraints(),
-        "SaldoReqAll" => vec![
-            HbciJobConstraint::new("dummyall", "Saldo7.allaccounts", Some("J")),
-            HbciJobConstraint::new("maxentries", "Saldo7.maxentries", Some("")),
-        ],
+        "SaldoReqAll" => saldo_req_all_constraints(),
         _ => Vec::new(),
     }
 }
@@ -478,6 +475,19 @@ fn saldo_req_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.subnumber", "Saldo7.KTV.subnumber", Some("")),
         HbciJobConstraint::new("dummyall", "Saldo7.allaccounts", Some("N")),
         HbciJobConstraint::new("maxentries", "Saldo7.maxentries", Some("")),
+    ]
+}
+
+fn saldo_req_all_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("maxentries", "Saldo7.maxentries", Some("")),
+        HbciJobConstraint::new("dummyall", "Saldo7.allaccounts", Some("J")),
+        HbciJobConstraint::new("my.bic", "Saldo7.KTV.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "Saldo7.KTV.iban", None::<String>),
+        HbciJobConstraint::new("my.country", "Saldo7.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "Saldo7.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "Saldo7.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "Saldo7.KTV.subnumber", Some("")),
     ]
 }
 

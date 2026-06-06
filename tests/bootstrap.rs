@@ -120,9 +120,14 @@ fn saldo_jobs_expose_original_near_constraints() {
     let dummyall_all = saldo_all
         .constraint("dummyall")
         .expect("SaldoReqAll dummyall constraint");
+    let iban_all = saldo_all
+        .constraint("my.iban")
+        .expect("SaldoReqAll iban constraint");
 
-    assert_eq!(saldo_all.constraints().len(), 2);
+    assert_eq!(saldo_all.constraints().len(), 8);
     assert_eq!(dummyall_all.default_value.as_deref(), Some("J"));
+    assert_eq!(iban_all.destination_name, "Saldo7.KTV.iban");
+    assert_eq!(saldo_all.constraint("my.curr"), None);
 }
 
 #[test]
@@ -270,7 +275,14 @@ fn account_param_helper_ignores_unaccepted_or_empty_fields_like_original() {
     assert_eq!(saldo.param("my.iban"), None);
     assert_eq!(saldo.param("my.subnumber"), None);
     assert_eq!(saldo.param("my.number"), Some("0001234567"));
-    assert!(saldo_all.params().is_empty());
+    assert_eq!(saldo_all.param("my.iban"), None);
+    assert_eq!(saldo_all.param("my.subnumber"), None);
+    assert_eq!(saldo_all.param("my.number"), Some("0001234567"));
+    assert_eq!(saldo_all.param("my.curr"), None);
+    assert_eq!(
+        saldo_all.lowlevel_param("Saldo7.KTV.number"),
+        Some("0001234567")
+    );
 }
 
 #[test]
@@ -402,18 +414,27 @@ fn verify_constraints_reports_missing_required_frontend_param() {
 }
 
 #[test]
-fn verify_constraints_for_saldo_all_uses_only_non_empty_defaults() {
+fn verify_constraints_for_saldo_all_resolves_account_and_all_default() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
     let mut saldo_all = handler.new_job("SaldoReqAll").expect("job is in registry");
+    saldo_all.set_param_account("my", &giro_account());
 
     let lowlevel = saldo_all
         .verify_constraints()
         .expect("SaldoReqAll defaults resolve");
 
     assert_eq!(
+        lowlevel.get("Saldo7.KTV.iban").map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
         lowlevel.get("Saldo7.allaccounts").map(String::as_str),
         Some("J")
+    );
+    assert_eq!(
+        saldo_all.lowlevel_param("Saldo7.KTV.iban"),
+        Some("DE02123456780000000000")
     );
     assert_eq!(saldo_all.lowlevel_param("Saldo7.allaccounts"), Some("J"));
     assert!(!lowlevel.contains_key("Saldo7.maxentries"));
