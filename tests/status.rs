@@ -128,6 +128,35 @@ fn exec_and_job_status_helpers_group_existing_return_values() {
 }
 
 #[test]
+fn exec_status_error_string_and_display_match_message_status_shape() {
+    let exec_status = HbciExecStatus {
+        global_return_values: vec![
+            HbciReturnValue::new("3020", "Globalwarnung"),
+            HbciReturnValue::new("0010", "Dialog OK"),
+        ],
+        segment_return_values: vec![HbciReturnValue::new("9010", "Segmentfehler")],
+        ..HbciExecStatus::default()
+    };
+
+    assert_eq!(exec_status.error_string(), "9010:Segmentfehler");
+    assert_eq!(
+        exec_status.to_string(),
+        "3020:Globalwarnung\n0010:Dialog OK\n9010:Segmentfehler"
+    );
+}
+
+#[test]
+fn exec_status_error_string_trims_empty_global_or_segment_status() {
+    let exec_status = HbciExecStatus {
+        segment_return_values: vec![HbciReturnValue::new("9010", "Segmentfehler")],
+        ..HbciExecStatus::default()
+    };
+
+    assert_eq!(exec_status.error_string(), "9010:Segmentfehler");
+    assert_eq!(exec_status.to_string(), "9010:Segmentfehler");
+}
+
+#[test]
 fn job_status_ok_with_global_status_matches_original_rule() {
     let ok_global = HbciStatus::from_return_values([HbciReturnValue::new("0010", "OK")]);
     let unknown_global = HbciStatus::new();

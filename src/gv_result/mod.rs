@@ -19,6 +19,22 @@ impl HbciExecStatus {
     pub fn segment_status(&self) -> HbciStatus {
         HbciStatus::from_return_values(self.segment_return_values.clone())
     }
+
+    pub fn error_string(&self) -> String {
+        joined_status_strings([
+            self.global_status().error_string(),
+            self.segment_status().error_string(),
+        ])
+    }
+}
+
+impl Display for HbciExecStatus {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&joined_status_strings([
+            self.global_status().to_string(),
+            self.segment_status().to_string(),
+        ]))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,6 +278,17 @@ fn write_status_line(formatter: &mut Formatter<'_>, first: &mut bool, line: &str
     formatter.write_str(line)?;
     *first = false;
     Ok(())
+}
+
+fn joined_status_strings<I>(parts: I) -> String
+where
+    I: IntoIterator<Item = String>,
+{
+    parts
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
