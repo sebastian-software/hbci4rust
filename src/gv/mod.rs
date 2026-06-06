@@ -152,6 +152,40 @@ impl HbciJob {
         Ok(())
     }
 
+    pub fn try_set_indexed_param(
+        &mut self,
+        name: impl Into<String>,
+        index: usize,
+        value: impl Into<String>,
+    ) -> HbciResult<()> {
+        let name = name.into();
+        let value = value.into();
+
+        if !self.accepts_param(&name) {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("job parameter {name} is not accepted by {}", self.name),
+            ));
+        }
+
+        if value.is_empty() {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("job parameter {name} must not be empty for {}", self.name),
+            ));
+        }
+
+        if !self.accepts_indexed_param(&name) {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("job parameter {name} is not indexed by {}", self.name),
+            ));
+        }
+
+        self.set_indexed_lowlevel_params_for_frontend(&name, index, &value);
+        Ok(())
+    }
+
     pub fn set_param_account(&mut self, name: &str, account: &Konto) {
         self.set_optional_account_param(name, "country", account.country.as_deref());
         self.set_optional_account_param(name, "blz", account.blz.as_deref());
@@ -191,6 +225,12 @@ impl HbciJob {
 
     pub fn accepts_param(&self, frontend_name: &str) -> bool {
         self.constraint(frontend_name).is_some()
+    }
+
+    pub fn accepts_indexed_param(&self, frontend_name: &str) -> bool {
+        self.constraints
+            .iter()
+            .any(|constraint| constraint.frontend_name == frontend_name && constraint.indexed)
     }
 
     pub fn verify_constraints(&mut self) -> HbciResult<BTreeMap<String, String>> {
@@ -271,6 +311,45 @@ impl HbciJob {
             self.lowlevel_params.insert(destination, value.to_owned());
         }
     }
+
+    fn set_indexed_lowlevel_params_for_frontend(
+        &mut self,
+        frontend_name: &str,
+        index: usize,
+        value: &str,
+    ) {
+        let destinations = self
+            .constraints
+            .iter()
+            .filter(|constraint| constraint.frontend_name == frontend_name && constraint.indexed)
+            .map(|constraint| indexed_destination_name(&constraint.destination_name, index))
+            .collect::<Vec<_>>();
+
+        for destination in destinations {
+            self.lowlevel_params.insert(destination, value.to_owned());
+        }
+    }
+}
+
+fn indexed_destination_name(destination: &str, index: usize) -> String {
+    let parts = destination.split('.').collect::<Vec<_>>();
+    if !matches!(parts.len(), 3 | 4) || !parts.iter().all(|part| is_word_part(part)) {
+        return destination.to_owned();
+    }
+
+    let base = format!("{}.{}.{}[{index}]", parts[0], parts[1], parts[2]);
+    if parts.len() == 4 {
+        format!("{base}.{}", parts[3])
+    } else {
+        base
+    }
+}
+
+fn is_word_part(part: &str) -> bool {
+    !part.is_empty()
+        && part
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

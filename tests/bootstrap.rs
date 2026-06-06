@@ -179,6 +179,52 @@ fn checked_job_param_setter_rejects_empty_value_like_original() {
 }
 
 #[test]
+fn indexed_job_param_setter_inserts_index_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "line.value",
+                    "destination_name": "IndexedSeg.lines.entry.value",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed job");
+
+    job.try_set_indexed_param("line.value", 3, "hello")
+        .expect("indexed parameter is accepted");
+
+    assert_eq!(
+        job.lowlevel_param("IndexedSeg.lines.entry[3].value"),
+        Some("hello")
+    );
+    assert_eq!(job.param("line.value"), None);
+}
+
+#[test]
+fn indexed_job_param_setter_rejects_non_indexed_param_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    let err = saldo
+        .try_set_indexed_param("my.iban", 0, "DE02123456780000000000")
+        .expect_err("non-indexed high-level parameter is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "job parameter my.iban is not indexed by SaldoReq"
+    );
+    assert!(saldo.lowlevel_params().is_empty());
+}
+
+#[test]
 fn saldo_job_sets_account_params_like_original_overload() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
