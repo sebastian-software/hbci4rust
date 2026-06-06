@@ -346,7 +346,7 @@ impl HbciJob {
         callback: Option<&dyn HbciCallback>,
     ) -> HbciResult<()> {
         match self.name.as_str() {
-            "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
+            "KUmsAll" | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             _ => Ok(()),
         }
     }
@@ -601,10 +601,26 @@ impl HbciJobConstraint {
 
 fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
+        "KUmsAll" => kums_all_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
         _ => Vec::new(),
     }
+}
+
+fn kums_all_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.bic", "KUmsZeit7.KTV.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "KUmsZeit7.KTV.iban", None::<String>),
+        HbciJobConstraint::new("my.country", "KUmsZeit7.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "KUmsZeit7.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "KUmsZeit7.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "KUmsZeit7.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("startdate", "KUmsZeit7.startdate", Some("")),
+        HbciJobConstraint::new("enddate", "KUmsZeit7.enddate", Some("")),
+        HbciJobConstraint::new("maxentries", "KUmsZeit7.maxentries", Some("")),
+        HbciJobConstraint::new("dummy", "KUmsZeit7.allaccounts", Some("N")),
+    ]
 }
 
 fn saldo_req_constraints() -> Vec<HbciJobConstraint> {

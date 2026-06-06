@@ -384,6 +384,7 @@ fn render_job_into_custom_message(
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
     match job.name() {
+        "KUmsAll" => render_kums_all(message, job, index, passport),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         name => Err(HbciError::new(
@@ -452,7 +453,7 @@ fn render_saldo_job(
         format!("CustomMsg.GV_{}", index + 1)
     };
     let segment = format!("{root}.Saldo7");
-    let account = effective_saldo_account(job, passport);
+    let account = effective_job_account(job, passport, "Saldo7", "my");
     if require_account && !has_account_identity(&account) {
         return Err(HbciError::new(
             HbciErrorKind::InvalidArgument,
@@ -460,50 +461,123 @@ fn render_saldo_job(
         ));
     }
 
-    set_saldo_account_values(message, &segment, &account)?;
+    set_account_values(message, &segment, &account)?;
     message.set_value(
         &format!("{segment}.allaccounts"),
-        saldo_param(job, "Saldo7.allaccounts", "dummyall").unwrap_or(default_allaccounts),
+        job_param(job, "Saldo7.allaccounts", "dummyall").unwrap_or(default_allaccounts),
     )?;
-    if let Some(maxentries) = saldo_param(job, "Saldo7.maxentries", "maxentries") {
+    if let Some(maxentries) = job_param(job, "Saldo7.maxentries", "maxentries") {
         message.set_value(&format!("{segment}.maxentries"), maxentries)?;
     }
 
     Ok(())
 }
 
-fn effective_saldo_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
+fn render_kums_all(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.KUmsZeit7");
+    let account = effective_job_account(job, passport, "KUmsZeit7", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "KUmsAll requires my.iban, my.number, or a passport account for the current KUmsZeit7 tracer renderer",
+        ));
+    }
+
+    set_account_values(message, &segment, &account)?;
+    message.set_value(
+        &format!("{segment}.allaccounts"),
+        job_param(job, "KUmsZeit7.allaccounts", "dummy").unwrap_or("N"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.startdate"),
+        job_param(job, "KUmsZeit7.startdate", "startdate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.enddate"),
+        job_param(job, "KUmsZeit7.enddate", "enddate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "KUmsZeit7.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn effective_job_account(
+    job: &HbciJob,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+    frontend_base: &str,
+) -> Konto {
     let mut account = passport.first_account().cloned().unwrap_or_default();
 
     overlay_account_param(
         &mut account.iban,
-        saldo_param(job, "Saldo7.KTV.iban", "my.iban"),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.KTV.iban"),
+            &format!("{frontend_base}.iban"),
+        ),
     );
     overlay_account_param(
         &mut account.bic,
-        saldo_param(job, "Saldo7.KTV.bic", "my.bic"),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.KTV.bic"),
+            &format!("{frontend_base}.bic"),
+        ),
     );
     overlay_account_param(
         &mut account.country,
-        saldo_param(job, "Saldo7.KTV.KIK.country", "my.country"),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.KTV.KIK.country"),
+            &format!("{frontend_base}.country"),
+        ),
     );
     overlay_account_param(
         &mut account.blz,
-        saldo_param(job, "Saldo7.KTV.KIK.blz", "my.blz"),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.KTV.KIK.blz"),
+            &format!("{frontend_base}.blz"),
+        ),
     );
     overlay_account_param(
         &mut account.number,
-        saldo_param(job, "Saldo7.KTV.number", "my.number"),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.KTV.number"),
+            &format!("{frontend_base}.number"),
+        ),
     );
     overlay_account_param(
         &mut account.subnumber,
-        saldo_param(job, "Saldo7.KTV.subnumber", "my.subnumber"),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.KTV.subnumber"),
+            &format!("{frontend_base}.subnumber"),
+        ),
     );
 
     account
 }
 
-fn saldo_param<'a>(job: &'a HbciJob, lowlevel_name: &str, frontend_name: &str) -> Option<&'a str> {
+fn job_param<'a>(job: &'a HbciJob, lowlevel_name: &str, frontend_name: &str) -> Option<&'a str> {
     job.lowlevel_param(lowlevel_name)
         .or_else(|| job.param(frontend_name))
         .filter(|value| !value.is_empty())
@@ -526,11 +600,7 @@ fn has_account_identity(account: &Konto) -> bool {
             .is_some_and(|value| !value.is_empty())
 }
 
-fn set_saldo_account_values(
-    message: &mut HbciMessage,
-    segment: &str,
-    account: &Konto,
-) -> HbciResult<()> {
+fn set_account_values(message: &mut HbciMessage, segment: &str, account: &Konto) -> HbciResult<()> {
     set_optional_message_value(
         message,
         &format!("{segment}.KTV.iban"),
