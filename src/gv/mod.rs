@@ -123,6 +123,32 @@ impl HbciJob {
         self.params.insert(name.into(), value.into());
     }
 
+    pub fn try_set_param(
+        &mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> HbciResult<()> {
+        let name = name.into();
+        let value = value.into();
+
+        if !self.accepts_param(&name) {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("job parameter {name} is not accepted by {}", self.name),
+            ));
+        }
+
+        if value.is_empty() {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("job parameter {name} must not be empty for {}", self.name),
+            ));
+        }
+
+        self.set_param(name, value);
+        Ok(())
+    }
+
     pub fn set_param_account(&mut self, name: &str, account: &Konto) {
         self.set_optional_account_param(name, "country", account.country.as_deref());
         self.set_optional_account_param(name, "blz", account.blz.as_deref());

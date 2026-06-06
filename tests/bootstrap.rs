@@ -125,6 +125,55 @@ fn saldo_jobs_expose_original_near_constraints() {
 }
 
 #[test]
+fn checked_job_param_setter_accepts_known_non_empty_param() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("known parameter is accepted");
+
+    assert_eq!(saldo.param("my.iban"), Some("DE02123456780000000000"));
+}
+
+#[test]
+fn checked_job_param_setter_rejects_unaccepted_param_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    let err = saldo
+        .try_set_param("src.iban", "DE02123456780000000000")
+        .expect_err("unknown high-level parameter is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "job parameter src.iban is not accepted by SaldoReq"
+    );
+    assert!(saldo.params().is_empty());
+}
+
+#[test]
+fn checked_job_param_setter_rejects_empty_value_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    let err = saldo
+        .try_set_param("my.iban", "")
+        .expect_err("empty high-level parameter value is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "job parameter my.iban must not be empty for SaldoReq"
+    );
+    assert!(saldo.params().is_empty());
+}
+
+#[test]
 fn saldo_job_sets_account_params_like_original_overload() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
