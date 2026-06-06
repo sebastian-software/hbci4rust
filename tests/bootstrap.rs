@@ -374,6 +374,41 @@ fn verify_constraints_for_saldo_all_uses_only_non_empty_defaults() {
 }
 
 #[test]
+fn checked_queue_add_verifies_constraints_like_original_add_task() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    handler
+        .try_add_to_queue(saldo)
+        .expect("verified job is queued");
+
+    let queued = &handler.queued_jobs()[0];
+    assert_eq!(queued.lowlevel_param("Saldo7.allaccounts"), Some("N"));
+    assert_eq!(
+        queued.lowlevel_param("Saldo7.KTV.iban"),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(queued.lowlevel_param("Saldo7.maxentries"), None);
+}
+
+#[test]
+fn checked_queue_add_rejects_missing_required_job_data() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+    let saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    let err = handler
+        .try_add_to_queue(saldo)
+        .expect_err("missing required SaldoReq data is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(err.message(), "missing required job parameter: my.bic");
+    assert!(handler.queued_jobs().is_empty());
+}
+
+#[test]
 fn rejects_out_of_scope_job() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);

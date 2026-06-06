@@ -70,6 +70,12 @@ where
         self.queue.push(job);
     }
 
+    pub fn try_add_to_queue(&mut self, mut job: HbciJob) -> HbciResult<()> {
+        job.verify_constraints()?;
+        self.queue.push(job);
+        Ok(())
+    }
+
     pub fn queued_jobs(&self) -> &[HbciJob] {
         &self.queue
     }
