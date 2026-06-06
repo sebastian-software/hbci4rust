@@ -446,9 +446,9 @@ fn render_saldo_job(
     set_saldo_account_values(message, &segment, &account)?;
     message.set_value(
         &format!("{segment}.allaccounts"),
-        job.param("dummyall").unwrap_or(default_allaccounts),
+        saldo_param(job, "Saldo7.allaccounts", "dummyall").unwrap_or(default_allaccounts),
     )?;
-    if let Some(maxentries) = job.param("maxentries") {
+    if let Some(maxentries) = saldo_param(job, "Saldo7.maxentries", "maxentries") {
         message.set_value(&format!("{segment}.maxentries"), maxentries)?;
     }
 
@@ -458,14 +458,38 @@ fn render_saldo_job(
 fn effective_saldo_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
     let mut account = passport.first_account().cloned().unwrap_or_default();
 
-    overlay_account_param(&mut account.iban, job.param("my.iban"));
-    overlay_account_param(&mut account.bic, job.param("my.bic"));
-    overlay_account_param(&mut account.country, job.param("my.country"));
-    overlay_account_param(&mut account.blz, job.param("my.blz"));
-    overlay_account_param(&mut account.number, job.param("my.number"));
-    overlay_account_param(&mut account.subnumber, job.param("my.subnumber"));
+    overlay_account_param(
+        &mut account.iban,
+        saldo_param(job, "Saldo7.KTV.iban", "my.iban"),
+    );
+    overlay_account_param(
+        &mut account.bic,
+        saldo_param(job, "Saldo7.KTV.bic", "my.bic"),
+    );
+    overlay_account_param(
+        &mut account.country,
+        saldo_param(job, "Saldo7.KTV.KIK.country", "my.country"),
+    );
+    overlay_account_param(
+        &mut account.blz,
+        saldo_param(job, "Saldo7.KTV.KIK.blz", "my.blz"),
+    );
+    overlay_account_param(
+        &mut account.number,
+        saldo_param(job, "Saldo7.KTV.number", "my.number"),
+    );
+    overlay_account_param(
+        &mut account.subnumber,
+        saldo_param(job, "Saldo7.KTV.subnumber", "my.subnumber"),
+    );
 
     account
+}
+
+fn saldo_param<'a>(job: &'a HbciJob, lowlevel_name: &str, frontend_name: &str) -> Option<&'a str> {
+    job.lowlevel_param(lowlevel_name)
+        .or_else(|| job.param(frontend_name))
+        .filter(|value| !value.is_empty())
 }
 
 fn overlay_account_param(target: &mut Option<String>, value: Option<&str>) {

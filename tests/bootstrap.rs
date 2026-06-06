@@ -1102,6 +1102,37 @@ async fn handler_uses_replay_comm_client() {
 }
 
 #[tokio::test]
+async fn handler_renders_saldo_request_from_lowlevel_params_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "SaldoReq",
+            "params": {},
+            "lowlevel_params": {
+                "Saldo7.KTV.iban": "DE02123456780000000000",
+                "Saldo7.KTV.bic": "MARKDEF1100",
+                "Saldo7.allaccounts": "N",
+                "Saldo7.maxentries": "7"
+            }
+        }"#,
+    )
+    .expect("job with lowlevel params");
+
+    handler.add_to_queue(job);
+    handler.execute().await.expect("replay response");
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKSAL:2:7+DE02123456780000000000:MARKDEF1100+N+7'"));
+}
+
+#[tokio::test]
 async fn handler_rejects_saldo_request_without_account_fallback() {
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
