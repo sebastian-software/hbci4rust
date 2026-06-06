@@ -12,7 +12,10 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 pub use account_crc::AccountCrcAlgs;
 pub use bank_info::{BankInfo, BankInfoRegistry, HbciVersion};
 pub use handler::HbciHandler;
-pub use secmech::{HhdVersion, HhdVersionType, MatrixCode, QrCode};
+pub use secmech::{
+    FlickerCode, FlickerCodeVersion, FlickerDataElement, FlickerEncoding, FlickerRenderer,
+    FlickerStartCode, HhdVersion, HhdVersionType, MatrixCode, QrCode,
+};
 
 #[derive(Default)]
 struct RuntimeState {

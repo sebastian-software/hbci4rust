@@ -3,6 +3,13 @@ use base64::Engine;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::tools::Properties;
 
+const FLICKER_LC_LENGTH_HHD14: usize = 3;
+const FLICKER_LC_LENGTH_HHD13: usize = 2;
+const FLICKER_LDE_LENGTH_DEFAULT: usize = 2;
+const FLICKER_LDE_LENGTH_SPARDA: usize = 3;
+const FLICKER_BIT_ENCODING: u8 = 6;
+const FLICKER_BIT_CONTROLBYTE: u8 = 7;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatrixCode {
     mimetype: Option<String>,
@@ -247,6 +254,352 @@ pub enum HhdVersionType {
     Decoupled,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlickerCode {
+    pub version: Option<FlickerCodeVersion>,
+    pub lc: u32,
+    pub start_code: FlickerStartCode,
+    pub de1: FlickerDataElement,
+    pub de2: FlickerDataElement,
+    pub de3: FlickerDataElement,
+    pub rest: Option<String>,
+}
+
+impl FlickerCode {
+    pub fn new(code: &str) -> HbciResult<Self> {
+        Self::with_hhd(None, code)
+    }
+
+    pub fn with_hhd(hhd: Option<HhdVersion>, code: &str) -> HbciResult<Self> {
+        if let Some(hhd) = hhd
+            && let Some(version) = FlickerCodeVersion::from_hhd_version(hhd)
+            && let Ok(code) = Self::parse(code, version, FLICKER_LDE_LENGTH_DEFAULT)
+        {
+            return Ok(code);
+        }
+
+        Self::parse(code, FlickerCodeVersion::Hhd14, FLICKER_LDE_LENGTH_DEFAULT)
+            .or_else(|_| Self::parse(code, FlickerCodeVersion::Hhd14, FLICKER_LDE_LENGTH_SPARDA))
+            .or_else(|_| Self::parse(code, FlickerCodeVersion::Hhd13, FLICKER_LDE_LENGTH_DEFAULT))
+    }
+
+    pub fn try_parse(
+        hhd: Option<HhdVersion>,
+        challenge: Option<&str>,
+        hhduc: Option<&str>,
+    ) -> Option<Self> {
+        if let Some(hhduc) = hhduc.filter(|value| !value.trim().is_empty())
+            && let Ok(code) = Self::with_hhd(hhd, hhduc)
+            && code.render().is_ok()
+        {
+            return Some(code);
+        }
+
+        if let Some(challenge) = challenge.filter(|value| !value.trim().is_empty())
+            && let Ok(code) = Self::with_hhd(hhd, challenge)
+            && code.render().is_ok()
+        {
+            return Some(code);
+        }
+
+        None
+    }
+
+    pub fn render(&self) -> HbciResult<String> {
+        let payload = self.create_payload()?;
+        let luhn = self.create_luhn_checksum()?;
+        let xor = create_xor_checksum(&payload)?;
+        Ok(format!("{payload}{luhn}{xor}"))
+    }
+
+    fn parse(code: &str, version: FlickerCodeVersion, lde_len: usize) -> HbciResult<Self> {
+        let code = clean_flicker_code(code);
+        let lc_len = match version {
+            FlickerCodeVersion::Hhd14 => FLICKER_LC_LENGTH_HHD14,
+            FlickerCodeVersion::Hhd13 => FLICKER_LC_LENGTH_HHD13,
+        };
+
+        let (lc, rest) = take_prefix(&code, lc_len)?;
+        let lc = parse_decimal(lc)?;
+        let (start_code, parsed_version, rest) = FlickerStartCode::parse(rest)?;
+        let (de1, rest) = FlickerDataElement::parse(rest, lde_len)?;
+        let (de2, rest) = FlickerDataElement::parse(rest, lde_len)?;
+        let (de3, rest) = FlickerDataElement::parse(rest, lde_len)?;
+
+        Ok(Self {
+            version: Some(parsed_version),
+            lc,
+            start_code,
+            de1,
+            de2,
+            de3,
+            rest: (!rest.is_empty()).then(|| rest.to_owned()),
+        })
+    }
+
+    fn create_payload(&self) -> HbciResult<String> {
+        let mut payload = String::new();
+        payload.push_str(&self.start_code.render_length(self.version_or_error()?)?);
+        for control_byte in &self.start_code.control_bytes {
+            payload.push_str(&to_hex(*control_byte, 2));
+        }
+        payload.push_str(&self.start_code.element.render_data()?);
+
+        for de in [&self.de1, &self.de2, &self.de3] {
+            payload.push_str(&de.render_length(self.version_or_error()?)?);
+            payload.push_str(&de.render_data()?);
+        }
+
+        let byte_len = (payload.len() + 2) / 2;
+        Ok(format!("{}{}", to_hex(byte_len as u32, 2), payload))
+    }
+
+    fn create_luhn_checksum(&self) -> HbciResult<String> {
+        let mut payload = String::new();
+        for control_byte in &self.start_code.control_bytes {
+            payload.push_str(&to_hex(*control_byte, 2));
+        }
+        payload.push_str(&self.start_code.element.render_data()?);
+        for de in [&self.de1, &self.de2, &self.de3] {
+            if de.data.is_some() {
+                payload.push_str(&de.render_data()?);
+            }
+        }
+
+        if !payload.len().is_multiple_of(2) {
+            return Err(invalid_flicker_code());
+        }
+
+        let mut luhn_sum = 0;
+        let bytes = payload.as_bytes();
+        for index in (0..bytes.len()).step_by(2) {
+            luhn_sum += hex_digit(bytes[index])?;
+            luhn_sum += digit_sum(2 * hex_digit(bytes[index + 1])?);
+        }
+
+        let modulo = luhn_sum % 10;
+        if modulo == 0 {
+            return Ok("0".to_owned());
+        }
+
+        Ok(to_hex(10 - modulo, 1))
+    }
+
+    fn version_or_error(&self) -> HbciResult<FlickerCodeVersion> {
+        self.version.ok_or_else(invalid_flicker_code)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlickerCodeVersion {
+    Hhd14,
+    Hhd13,
+}
+
+impl FlickerCodeVersion {
+    fn from_hhd_version(version: HhdVersion) -> Option<Self> {
+        match version {
+            HhdVersion::Qr14 | HhdVersion::Hhd14 | HhdVersion::Ms1 => Some(Self::Hhd14),
+            HhdVersion::Qr13 | HhdVersion::Hhd13 | HhdVersion::Hhd12 => Some(Self::Hhd13),
+            HhdVersion::Decoupled => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlickerEncoding {
+    Asc,
+    Bcd,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlickerDataElement {
+    pub length: u32,
+    pub lde: u32,
+    pub lde_len: usize,
+    pub encoding: Option<FlickerEncoding>,
+    pub data: Option<String>,
+}
+
+impl FlickerDataElement {
+    fn parse(input: &str, lde_len: usize) -> HbciResult<(Self, &str)> {
+        if input.is_empty() {
+            return Ok((Self::default(), input));
+        }
+
+        let (lde, rest) = take_prefix(input, lde_len)?;
+        let lde = parse_decimal(lde)?;
+        let length = get_bit_sum(lde, 5);
+        let (data, rest) = take_prefix(rest, length as usize)?;
+
+        Ok((
+            Self {
+                length,
+                lde,
+                lde_len,
+                encoding: None,
+                data: Some(data.to_owned()),
+            },
+            rest,
+        ))
+    }
+
+    fn render_length(&self, version: FlickerCodeVersion) -> HbciResult<String> {
+        if self.data.is_none() {
+            return Ok(String::new());
+        }
+
+        let encoding = self.resolved_encoding();
+        let mut byte_len = self.render_data()?.len() / 2;
+        if encoding == FlickerEncoding::Bcd {
+            return Ok(to_hex(byte_len as u32, 2));
+        }
+
+        if version == FlickerCodeVersion::Hhd14 {
+            byte_len += 1 << FLICKER_BIT_ENCODING;
+            return Ok(to_hex(byte_len as u32, 2));
+        }
+
+        Ok(format!("1{}", to_hex(byte_len as u32, 1)))
+    }
+
+    fn render_data(&self) -> HbciResult<String> {
+        let Some(data) = &self.data else {
+            return Ok(String::new());
+        };
+
+        if self.resolved_encoding() == FlickerEncoding::Asc {
+            return Ok(to_hex_string(data));
+        }
+
+        let mut rendered = data.clone();
+        if rendered.len() % 2 == 1 {
+            rendered.push('F');
+        }
+        Ok(rendered)
+    }
+
+    fn resolved_encoding(&self) -> FlickerEncoding {
+        if let Some(encoding) = self.encoding {
+            return encoding;
+        }
+
+        if self
+            .data
+            .as_deref()
+            .is_some_and(|data| !data.is_empty() && data.bytes().all(|byte| byte.is_ascii_digit()))
+        {
+            return FlickerEncoding::Bcd;
+        }
+
+        FlickerEncoding::Asc
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlickerStartCode {
+    pub element: FlickerDataElement,
+    pub control_bytes: Vec<u32>,
+}
+
+impl FlickerStartCode {
+    fn parse(input: &str) -> HbciResult<(Self, FlickerCodeVersion, &str)> {
+        let (lde, rest) = take_prefix(input, 2)?;
+        let lde = parse_hex(lde)?;
+        let length = get_bit_sum(lde, 5);
+        let mut rest = rest;
+        let mut version = FlickerCodeVersion::Hhd13;
+        let mut control_bytes = Vec::new();
+
+        if is_bit_set(lde, FLICKER_BIT_CONTROLBYTE) {
+            version = FlickerCodeVersion::Hhd14;
+            for _ in 0..10 {
+                let (control_byte, next) = take_prefix(rest, 2)?;
+                let control_byte = parse_hex(control_byte)?;
+                control_bytes.push(control_byte);
+                rest = next;
+
+                if !is_bit_set(control_byte, FLICKER_BIT_CONTROLBYTE) {
+                    break;
+                }
+            }
+        }
+
+        let (data, rest) = take_prefix(rest, length as usize)?;
+        let element = FlickerDataElement {
+            length,
+            lde,
+            lde_len: 0,
+            encoding: None,
+            data: Some(data.to_owned()),
+        };
+
+        Ok((
+            Self {
+                element,
+                control_bytes,
+            },
+            version,
+            rest,
+        ))
+    }
+
+    fn render_length(&self, version: FlickerCodeVersion) -> HbciResult<String> {
+        let mut rendered = self.element.render_length(version)?;
+        if version == FlickerCodeVersion::Hhd13 || self.control_bytes.is_empty() {
+            return Ok(rendered);
+        }
+
+        let mut len = parse_hex(&rendered)?;
+        len += 1 << FLICKER_BIT_CONTROLBYTE;
+        rendered = to_hex(len, 2);
+        Ok(rendered)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlickerRenderer {
+    bit_array: Vec<[bool; 5]>,
+}
+
+impl FlickerRenderer {
+    pub const FREQUENCY_DEFAULT: u32 = 10;
+    pub const FREQUENCY_MIN: u32 = 2;
+    pub const FREQUENCY_MAX: u32 = 40;
+
+    pub fn new(code: &str) -> HbciResult<Self> {
+        let code = format!("0FFF{code}");
+        if code.len() % 2 != 0 {
+            return Err(invalid_flicker_code());
+        }
+
+        let mut bit_array = Vec::new();
+        let chars = code.as_bytes();
+        for index in (0..chars.len()).step_by(2) {
+            bit_array.push(flicker_bits(chars[index + 1])?);
+            bit_array.push(flicker_bits(chars[index])?);
+        }
+
+        Ok(Self { bit_array })
+    }
+
+    pub fn frames_for_iterations(&self, iterations: usize) -> Vec<[bool; 5]> {
+        let mut frames = Vec::with_capacity(self.bit_array.len() * iterations * 2);
+        for _ in 0..iterations {
+            for bits in &self.bit_array {
+                let mut high_clock = *bits;
+                high_clock[0] = true;
+                frames.push(high_clock);
+
+                let mut low_clock = *bits;
+                low_clock[0] = false;
+                frames.push(low_clock);
+            }
+        }
+        frames
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ImagePayload {
     mimetype: String,
@@ -306,10 +659,133 @@ fn property<'a>(properties: &'a Properties, key: &str) -> Option<&'a str> {
     properties.get(key).map(String::as_str)
 }
 
+fn clean_flicker_code(code: &str) -> String {
+    let mut code = code.replace(' ', "");
+    code = code.trim().to_owned();
+
+    let challenge_start = code.find("CHLGUC");
+    let text_start = code.find("CHLGTEXT");
+    let (Some(challenge_start), Some(text_start)) = (challenge_start, text_start) else {
+        return code;
+    };
+    if text_start <= challenge_start {
+        return code;
+    }
+
+    let code = &code[challenge_start..text_start];
+    let Some(code) = code.get(10..) else {
+        return String::new();
+    };
+    format!("0{code}")
+}
+
+fn take_prefix(input: &str, len: usize) -> HbciResult<(&str, &str)> {
+    if input.len() < len {
+        return Err(invalid_flicker_code());
+    }
+    Ok((&input[..len], &input[len..]))
+}
+
+fn parse_decimal(value: &str) -> HbciResult<u32> {
+    value.parse::<u32>().map_err(|error| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            "invalid flicker code",
+            error,
+        )
+    })
+}
+
+fn parse_hex(value: &str) -> HbciResult<u32> {
+    u32::from_str_radix(value, 16).map_err(|error| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            "invalid flicker code",
+            error,
+        )
+    })
+}
+
+fn to_hex(value: u32, len: usize) -> String {
+    let mut rendered = format!("{value:X}");
+    while rendered.len() < len {
+        rendered.insert(0, '0');
+    }
+    rendered
+}
+
+fn to_hex_string(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| to_hex(character as u32, 2))
+        .collect()
+}
+
+fn create_xor_checksum(payload: &str) -> HbciResult<String> {
+    let mut xor_sum = 0;
+    for byte in payload.bytes() {
+        xor_sum ^= hex_digit(byte)?;
+    }
+    Ok(to_hex(xor_sum, 1))
+}
+
+fn hex_digit(byte: u8) -> HbciResult<u32> {
+    match byte {
+        b'0'..=b'9' => Ok(u32::from(byte - b'0')),
+        b'A'..=b'F' => Ok(u32::from(byte - b'A' + 10)),
+        b'a'..=b'f' => Ok(u32::from(byte - b'a' + 10)),
+        _ => Err(invalid_flicker_code()),
+    }
+}
+
+fn digit_sum(mut value: u32) -> u32 {
+    let mut sum = 0;
+    while value != 0 {
+        sum += value % 10;
+        value /= 10;
+    }
+    sum
+}
+
+fn get_bit_sum(value: u32, bits: u8) -> u32 {
+    (0..=bits).map(|bit| value & (1 << bit)).sum()
+}
+
+fn is_bit_set(value: u32, bit: u8) -> bool {
+    value & (1 << bit) != 0
+}
+
+fn flicker_bits(byte: u8) -> HbciResult<[bool; 5]> {
+    let bits = match byte {
+        b'0' => [false, false, false, false, false],
+        b'1' => [false, true, false, false, false],
+        b'2' => [false, false, true, false, false],
+        b'3' => [false, true, true, false, false],
+        b'4' => [false, false, false, true, false],
+        b'5' => [false, true, false, true, false],
+        b'6' => [false, false, true, true, false],
+        b'7' => [false, true, true, true, false],
+        b'8' => [false, false, false, false, true],
+        b'9' => [false, true, false, false, true],
+        b'A' | b'a' => [false, false, true, false, true],
+        b'B' | b'b' => [false, true, true, false, true],
+        b'C' | b'c' => [false, false, false, true, true],
+        b'D' | b'd' => [false, true, false, true, true],
+        b'E' | b'e' => [false, false, true, true, true],
+        b'F' | b'f' => [false, true, true, true, true],
+        _ => return Err(invalid_flicker_code()),
+    };
+    Ok(bits)
+}
+
 fn invalid_matrix_code() -> HbciError {
     HbciError::new(HbciErrorKind::InvalidArgument, "invalid matrix code")
 }
 
 fn invalid_qr_code() -> HbciError {
     HbciError::new(HbciErrorKind::InvalidArgument, "invalid QR code")
+}
+
+fn invalid_flicker_code() -> HbciError {
+    HbciError::new(HbciErrorKind::InvalidArgument, "invalid flicker code")
 }
