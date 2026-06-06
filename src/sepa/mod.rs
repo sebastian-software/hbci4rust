@@ -2,7 +2,7 @@ use quick_xml::events::Event;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
-use crate::gv_result::{GvrKUmsBTag, Konto, Saldo, Value};
+use crate::gv_result::{GvrKUmsBTag, GvrKUmsLine, Konto, Saldo, Value};
 
 pub const DATE_FORMAT: &str = "%Y-%m-%d";
 pub const DATE_UNDEFINED: &str = "1999-01-01";
@@ -142,6 +142,7 @@ pub fn parse_camt_report_shell(xml: &str, version: SepaVersion) -> HbciResult<Ve
 struct CamtReport {
     account: Konto,
     balances: Vec<CamtBalance>,
+    entries: Vec<CamtEntry>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -151,6 +152,19 @@ struct CamtBalance {
     currency: Option<String>,
     credit_debit: Option<String>,
     date: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CamtEntry {
+    amount: Option<String>,
+    currency: Option<String>,
+    credit_debit: Option<String>,
+    reversal: bool,
+    booking_date: Option<String>,
+    value_date: Option<String>,
+    text: Option<String>,
+    customer_ref: Option<String>,
+    has_details: bool,
 }
 
 impl From<CamtReport> for GvrKUmsBTag {
@@ -167,6 +181,27 @@ impl From<CamtReport> for GvrKUmsBTag {
         }
         if let Some(end) = report.balances.get(1).and_then(camt_end_balance) {
             tag.end = Some(end);
+        }
+
+        let mut saldo = tag
+            .start
+            .as_ref()
+            .and_then(|saldo| decimal_amount_to_cents(&saldo.value.value))
+            .unwrap_or(0);
+        let saldo_curr = tag
+            .start
+            .as_ref()
+            .and_then(|saldo| saldo.value.curr.clone())
+            .or_else(|| tag.my.curr.clone());
+
+        for entry in report.entries {
+            let line = camt_line_from_entry(entry, saldo, saldo_curr.as_deref());
+            saldo = line
+                .saldo
+                .as_ref()
+                .and_then(|saldo| decimal_amount_to_cents(&saldo.value.value))
+                .unwrap_or(saldo);
+            tag.lines.push(line);
         }
 
         tag
@@ -219,6 +254,7 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
     let mut reports = Vec::new();
     let mut report = None::<CamtReport>;
     let mut balance = None::<CamtBalance>;
+    let mut entry = None::<CamtEntry>;
 
     loop {
         match reader.read_event() {
@@ -228,12 +264,25 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
                     report = Some(CamtReport::default());
                 } else if report.is_some() && name == "Bal" {
                     balance = Some(CamtBalance::default());
+                } else if report.is_some() && name == "Ntry" {
+                    entry = Some(CamtEntry::default());
+                } else if entry.is_some() && name == "NtryDtls" {
+                    if let Some(entry) = &mut entry {
+                        entry.has_details = true;
+                    }
                 } else if balance.is_some()
                     && name == "Amt"
                     && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
                     && let Some(balance) = &mut balance
                 {
                     balance.currency = Some(currency);
+                } else if entry.is_some()
+                    && name == "Amt"
+                    && path_ends_with(&stack, &["Rpt", "Ntry"])
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(entry) = &mut entry
+                {
+                    entry.currency = Some(currency);
                 }
                 stack.push(name);
             }
@@ -245,6 +294,13 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
                     && let Some(balance) = &mut balance
                 {
                     balance.currency = Some(currency);
+                } else if entry.is_some()
+                    && name == "Amt"
+                    && path_ends_with(&stack, &["Rpt", "Ntry"])
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(entry) = &mut entry
+                {
+                    entry.currency = Some(currency);
                 }
             }
             Ok(Event::Text(event)) => {
@@ -257,7 +313,7 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
                 })?;
                 let text = text.trim();
                 if !text.is_empty() {
-                    collect_camt_text(&stack, text, &mut report, &mut balance);
+                    collect_camt_text(&stack, text, &mut report, &mut balance, &mut entry);
                 }
             }
             Ok(Event::End(event)) => {
@@ -265,6 +321,10 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
                 if name == "Bal" {
                     if let (Some(report), Some(balance)) = (&mut report, balance.take()) {
                         report.balances.push(balance);
+                    }
+                } else if name == "Ntry" {
+                    if let (Some(report), Some(entry)) = (&mut report, entry.take()) {
+                        report.entries.push(entry);
                     }
                 } else if name == "Rpt"
                     && let Some(report) = report.take()
@@ -293,6 +353,7 @@ fn collect_camt_text(
     text: &str,
     report: &mut Option<CamtReport>,
     balance: &mut Option<CamtBalance>,
+    entry: &mut Option<CamtEntry>,
 ) {
     let Some(report) = report else {
         return;
@@ -306,6 +367,28 @@ fn collect_camt_text(
         || path_ends_with(stack, &["Rpt", "Acct", "Svcr", "FinInstnId", "BICFI"])
     {
         report.account.bic = Some(text.to_owned());
+    }
+
+    if let Some(entry) = entry {
+        if path_ends_with(stack, &["Rpt", "Ntry", "Amt"]) {
+            entry.amount = Some(text.to_owned());
+        } else if path_ends_with(stack, &["Rpt", "Ntry", "CdtDbtInd"]) {
+            entry.credit_debit = Some(text.to_owned());
+        } else if path_ends_with(stack, &["Rpt", "Ntry", "RvslInd"]) {
+            entry.reversal = text.eq_ignore_ascii_case("true");
+        } else if path_ends_with(stack, &["Rpt", "Ntry", "BookgDt", "Dt"])
+            || path_ends_with(stack, &["Rpt", "Ntry", "BookgDt", "DtTm"])
+        {
+            entry.booking_date = Some(text.chars().take(10).collect());
+        } else if path_ends_with(stack, &["Rpt", "Ntry", "ValDt", "Dt"])
+            || path_ends_with(stack, &["Rpt", "Ntry", "ValDt", "DtTm"])
+        {
+            entry.value_date = Some(text.chars().take(10).collect());
+        } else if path_ends_with(stack, &["Rpt", "Ntry", "AddtlNtryInf"]) {
+            entry.text = Some(text.to_owned());
+        } else if path_ends_with(stack, &["Rpt", "Ntry", "AcctSvcrRef"]) {
+            entry.customer_ref = Some(text.to_owned());
+        }
     }
 
     let Some(balance) = balance else {
@@ -323,6 +406,63 @@ fn collect_camt_text(
     {
         balance.date = Some(text.chars().take(10).collect());
     }
+}
+
+fn camt_line_from_entry(
+    entry: CamtEntry,
+    current_saldo: i64,
+    saldo_curr: Option<&str>,
+) -> GvrKUmsLine {
+    let value = Value {
+        value: camt_signed_amount(
+            entry.amount.as_deref().unwrap_or("0"),
+            entry.credit_debit.as_deref(),
+        ),
+        curr: entry
+            .currency
+            .clone()
+            .or_else(|| saldo_curr.map(ToOwned::to_owned)),
+    };
+    let value_cents = decimal_amount_to_cents(&value.value).unwrap_or(0);
+    let next_saldo = current_saldo + value_cents;
+
+    let mut bdate = entry.booking_date;
+    let mut valuta = entry.value_date;
+    if bdate.is_none() {
+        bdate.clone_from(&valuta);
+    }
+    if valuta.is_none() {
+        valuta.clone_from(&bdate);
+    }
+
+    let mut line = GvrKUmsLine {
+        valuta,
+        bdate: bdate.clone(),
+        value: Some(value.clone()),
+        is_storno: entry.reversal,
+        saldo: Some(Saldo {
+            value: Value {
+                value: cents_to_decimal_amount(next_saldo),
+                curr: value.curr.clone(),
+            },
+            date: bdate,
+            time: None,
+        }),
+        customerref: entry.customer_ref,
+        text: entry.text.clone(),
+        other: Some(Konto::default()),
+        is_sepa: true,
+        is_camt: true,
+        ..GvrKUmsLine::default()
+    };
+
+    if !entry.has_details
+        && let Some(text) = entry.text
+    {
+        line.add_usage(Some(text));
+    }
+
+    line
 }
 
 fn attr_value(
@@ -373,14 +513,44 @@ fn camt_signed_amount(amount: &str, credit_debit: Option<&str>) -> String {
 }
 
 fn normalize_decimal_amount(amount: &str) -> String {
-    let trimmed = amount.trim().replace(',', ".");
-    let (integer, fraction) = trimmed.split_once('.').unwrap_or((trimmed.as_str(), ""));
-    let mut fraction = fraction.chars().take(2).collect::<String>();
-    while fraction.len() < 2 {
-        fraction.push('0');
-    }
+    decimal_amount_to_cents(amount)
+        .map(cents_to_decimal_amount)
+        .unwrap_or_else(|| amount.trim().replace(',', "."))
+}
 
-    format!("{}.{}", integer.trim_start_matches('+'), fraction)
+fn decimal_amount_to_cents(amount: &str) -> Option<i64> {
+    let amount = amount.trim().replace(',', ".");
+    let negative = amount.starts_with('-');
+    let amount = amount.trim_start_matches(['+', '-']);
+    let (integer, fraction) = amount.split_once('.').unwrap_or((amount, ""));
+    let integer = if integer.is_empty() {
+        0
+    } else {
+        integer.parse::<i64>().ok()?
+    };
+    let mut fraction_digits = fraction.chars().filter(|ch| ch.is_ascii_digit());
+    let tens = fraction_digits
+        .next()
+        .and_then(|ch| ch.to_digit(10))
+        .unwrap_or(0) as i64;
+    let ones = fraction_digits
+        .next()
+        .and_then(|ch| ch.to_digit(10))
+        .unwrap_or(0) as i64;
+    let round = fraction_digits
+        .next()
+        .and_then(|ch| ch.to_digit(10))
+        .is_some_and(|digit| digit >= 5) as i64;
+    let cents = integer * 100 + tens * 10 + ones + round;
+
+    Some(if negative { -cents } else { cents })
+}
+
+fn cents_to_decimal_amount(cents: i64) -> String {
+    let negative = cents < 0;
+    let cents = cents.abs();
+    let prefix = if negative { "-" } else { "" };
+    format!("{prefix}{}.{:02}", cents / 100, cents % 100)
 }
 
 fn add_one_iso_day(date: &str) -> Option<String> {
