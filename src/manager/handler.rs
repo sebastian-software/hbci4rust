@@ -422,6 +422,14 @@ fn saldo_response_root(index: usize) -> String {
     }
 }
 
+fn kums_response_root(segment_name: &str, index: usize) -> String {
+    if index == 0 {
+        format!("CustomMsgRes.GVRes.{segment_name}")
+    } else {
+        format!("CustomMsgRes.GVRes_{}.{segment_name}", index + 1)
+    }
+}
+
 fn render_saldo_request(
     message: &mut HbciMessage,
     job: &HbciJob,
@@ -761,6 +769,8 @@ impl ParsedResponseStatus {
 
     fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
         match job.name() {
+            "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
+            "KUmsNew" => self.content_result_data([kums_response_root("KUmsNewRes7", index)]),
             "SaldoReq" => self.content_result_data([saldo_response_root(index)]),
             "SaldoReqAll" => self.content_result_data(
                 counted_prefixes(&self.values, "CustomMsgRes.GVRes")

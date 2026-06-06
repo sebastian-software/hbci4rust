@@ -2121,6 +2121,40 @@ async fn handler_renders_kums_all_request_like_original() {
 }
 
 #[tokio::test]
+async fn handler_collects_kums_all_raw_result_data() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIKAZ:3:7+@6@BOOKED+@8@UNBOOKED",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut kums = handler.new_job("KUmsAll").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+
+    handler.add_to_queue(kums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "KUmsAll");
+    assert!(result.result.is_none());
+    assert_eq!(
+        result.result_data.get("content.booked").map(String::as_str),
+        Some("BOOKED")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.notbooked")
+            .map(String::as_str),
+        Some("UNBOOKED")
+    );
+}
+
+#[tokio::test]
 async fn handler_rejects_kums_all_without_account_fallback() {
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2171,6 +2205,40 @@ async fn handler_renders_kums_new_request_like_original() {
         body.contains(
             "HKKAN:2:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N+25'"
         )
+    );
+}
+
+#[tokio::test]
+async fn handler_collects_kums_new_raw_result_data() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIKAN:3:7+@9@NEWBOOKED+@11@NEWUNBOOKED",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut kums = handler.new_job("KUmsNew").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+
+    handler.add_to_queue(kums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "KUmsNew");
+    assert!(result.result.is_none());
+    assert_eq!(
+        result.result_data.get("content.booked").map(String::as_str),
+        Some("NEWBOOKED")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.notbooked")
+            .map(String::as_str),
+        Some("NEWUNBOOKED")
     );
 }
 
