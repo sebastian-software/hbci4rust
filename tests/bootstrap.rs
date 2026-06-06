@@ -195,6 +195,43 @@ fn kums_all_exposes_original_near_constraints() {
 }
 
 #[test]
+fn kums_new_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let kums = handler.new_job("KUmsNew").expect("job is in registry");
+
+    assert_eq!(kums.constraints().len(), 8);
+    assert_eq!(
+        kums.constraint("my.iban")
+            .expect("iban constraint")
+            .destination_name,
+        "KUmsNew7.KTV.iban"
+    );
+    assert_eq!(
+        kums.constraint("my.country")
+            .expect("country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        kums.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "KUmsNew7.maxentries"
+    );
+    assert_eq!(
+        kums.constraint("dummyall")
+            .expect("dummyall constraint")
+            .default_value
+            .as_deref(),
+        Some("N")
+    );
+    assert_eq!(kums.constraint("startdate"), None);
+    assert_eq!(kums.constraint("my.curr"), None);
+}
+
+#[test]
 fn checked_job_param_setter_accepts_known_non_empty_param() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -1127,6 +1164,28 @@ fn checked_queue_add_prepares_kums_all_like_original_add_task() {
     );
     assert_eq!(queued.lowlevel_param("KUmsZeit7.maxentries"), Some("25"));
     assert_eq!(queued.lowlevel_param("KUmsZeit7.allaccounts"), Some("N"));
+}
+
+#[test]
+fn checked_queue_add_prepares_kums_new_like_original_add_task() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+    let mut kums = handler.new_job("KUmsNew").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+    kums.try_set_param_int("maxentries", 25)
+        .expect("maxentries is accepted");
+
+    handler
+        .try_add_to_queue(kums)
+        .expect("valid KUmsNew job is accepted");
+
+    let queued = &handler.queued_jobs()[0];
+    assert_eq!(
+        queued.lowlevel_param("KUmsNew7.KTV.iban"),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(queued.lowlevel_param("KUmsNew7.maxentries"), Some("25"));
+    assert_eq!(queued.lowlevel_param("KUmsNew7.allaccounts"), Some("N"));
 }
 
 #[tokio::test]
@@ -2081,6 +2140,60 @@ async fn handler_rejects_kums_all_without_account_fallback() {
     assert_eq!(
         err.message(),
         "KUmsAll requires my.iban, my.number, or a passport account for the current KUmsZeit7 tracer renderer"
+    );
+    assert_eq!(replay.requests().expect("requests").len(), 0);
+}
+
+#[tokio::test]
+async fn handler_renders_kums_new_request_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut kums = handler.new_job("KUmsNew").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+    kums.try_set_param_int("maxentries", 25)
+        .expect("maxentries is accepted");
+
+    handler.add_to_queue(kums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "KUmsNew");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains(
+            "HKKAN:2:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N+25'"
+        )
+    );
+}
+
+#[tokio::test]
+async fn handler_rejects_kums_new_without_account_fallback() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("KUmsNew").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let err = handler
+        .execute()
+        .await
+        .expect_err("missing KUmsNew account is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "KUmsNew requires my.iban, my.number, or a passport account for the current KUmsNew7 tracer renderer"
     );
     assert_eq!(replay.requests().expect("requests").len(), 0);
 }

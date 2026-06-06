@@ -385,6 +385,7 @@ fn render_job_into_custom_message(
 ) -> HbciResult<()> {
     match job.name() {
         "KUmsAll" => render_kums_all(message, job, index, passport),
+        "KUmsNew" => render_kums_new(message, job, index, passport),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         name => Err(HbciError::new(
@@ -512,6 +513,40 @@ fn render_kums_all(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "KUmsZeit7.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_kums_new(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.KUmsNew7");
+    let account = effective_job_account(job, passport, "KUmsNew7", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "KUmsNew requires my.iban, my.number, or a passport account for the current KUmsNew7 tracer renderer",
+        ));
+    }
+
+    set_account_values(message, &segment, &account)?;
+    message.set_value(
+        &format!("{segment}.allaccounts"),
+        job_param(job, "KUmsNew7.allaccounts", "dummyall").unwrap_or("N"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "KUmsNew7.maxentries", "maxentries"),
     )?;
 
     Ok(())
