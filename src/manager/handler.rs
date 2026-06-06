@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 use std::str;
 
+use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason};
 use crate::comm::{CommClient, CommRequest, CommResponse, DefaultCommClient};
 use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrSaldoReq, GvrSaldoReqInfo, HbciExecStatus, HbciJobResult, HbciJobResultData,
-    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrSaldoReq, GvrSaldoReqInfo, HbciExecStatus, HbciInstMessage, HbciJobResult,
+    HbciJobResultData, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::PinTanPassport;
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
@@ -84,9 +85,7 @@ where
 
         if let Some(callback) = callback.as_ref() {
             callback
-                .handle(crate::callback::CallbackEvent::new(
-                    crate::callback::CallbackReason::NeedConnection,
-                ))
+                .handle(CallbackEvent::new(CallbackReason::NeedConnection))
                 .await?;
         }
 
@@ -94,9 +93,7 @@ where
 
         if let Some(callback) = callback.as_ref() {
             callback
-                .handle(crate::callback::CallbackEvent::new(
-                    crate::callback::CallbackReason::CloseConnection,
-                ))
+                .handle(CallbackEvent::new(CallbackReason::CloseConnection))
                 .await?;
         }
 
@@ -116,6 +113,18 @@ where
             .update_parameter_data_from_values(&values, "DialogInitRes");
         self.passport
             .update_accounts_from_values(&values, "DialogInitRes.UPD");
+        if let Some(callback) = callback.as_ref() {
+            for message in HbciInstMessage::collect_from_values(&values, "DialogInitRes.KIMsg") {
+                callback
+                    .handle(CallbackEvent {
+                        reason: CallbackReason::HaveInstMsg,
+                        message: message.to_string(),
+                        data_type: CallbackDataType::None,
+                        current_value: None,
+                    })
+                    .await?;
+            }
+        }
         Ok(())
     }
 

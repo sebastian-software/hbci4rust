@@ -1,20 +1,23 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use hbci4rust::{
-    CallbackEvent, CallbackResponse, CommResponse, HbciCallback, HbciHandler, HbciJobResultData,
-    HbciResult, Konto, Limit, PassportStorage, PinTanPassport, PinTanPassportData,
-    ReplayCommClient, Value, init,
+    CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, CommResponse, HbciCallback,
+    HbciHandler, HbciJobResultData, HbciResult, Konto, Limit, PassportStorage, PinTanPassport,
+    PinTanPassportData, ReplayCommClient, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
 };
 
 #[derive(Debug)]
-struct TestCallback;
+struct RecordingCallback {
+    events: Arc<Mutex<Vec<CallbackEvent>>>,
+}
 
 #[async_trait]
-impl HbciCallback for TestCallback {
-    async fn handle(&self, _event: CallbackEvent) -> HbciResult<CallbackResponse> {
+impl HbciCallback for RecordingCallback {
+    async fn handle(&self, event: CallbackEvent) -> HbciResult<CallbackResponse> {
+        self.events.lock().expect("callback event lock").push(event);
         Ok(CallbackResponse::empty())
     }
 }
@@ -411,6 +414,51 @@ async fn handler_init_uses_cached_bpd_and_upd_versions() {
 }
 
 #[tokio::test]
+async fn handler_init_emits_institute_message_callbacks() {
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(RecordingCallback {
+            events: events.clone(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::Initialisiert",
+        "HIKIM:3:2+Wartung+Am Wochenende",
+        "HIKIM:4:2+Hinweis+Bitte lesen",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+
+    let inst_messages = events
+        .lock()
+        .expect("callback event lock")
+        .iter()
+        .filter(|event| event.reason == CallbackReason::HaveInstMsg)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    assert_eq!(inst_messages.len(), 2);
+    assert_eq!(inst_messages[0].message, "Wartung: Am Wochenende");
+    assert_eq!(inst_messages[0].data_type, CallbackDataType::None);
+    assert_eq!(inst_messages[0].current_value, None);
+    assert_eq!(inst_messages[1].message, "Hinweis: Bitte lesen");
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
 async fn handler_init_rejects_mismatched_response_reference() {
     let passport = PinTanPassport::new(PinTanPassportData {
         country: "DE".to_owned(),
@@ -688,8 +736,6 @@ async fn handler_close_rejects_mismatched_response_dialog_id() {
 
 #[tokio::test]
 async fn handler_uses_replay_comm_client() {
-    init(BTreeMap::<String, String>::new(), Arc::new(TestCallback)).expect("runtime init");
-
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
