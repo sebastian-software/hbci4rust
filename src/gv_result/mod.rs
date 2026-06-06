@@ -95,7 +95,7 @@ pub struct GvrSaldoReqInfo {
     pub used: Option<Value>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Konto {
     pub country: Option<String>,
     pub blz: Option<String>,
@@ -115,6 +115,24 @@ pub struct Konto {
     #[serde(default)]
     pub allowed_gvs: Vec<String>,
 }
+
+impl PartialEq for Konto {
+    fn eq(&self, other: &Self) -> bool {
+        self.blz == other.blz
+            && self.country == other.country
+            && self.number == other.number
+            && self.subnumber == other.subnumber
+            && self.curr == other.curr
+            && self.customer_id == other.customer_id
+            && self.name == other.name
+            && self.name2 == other.name2
+            && self.account_type == other.account_type
+            && self.bic == other.bic
+            && self.iban == other.iban
+    }
+}
+
+impl Eq for Konto {}
 
 impl Konto {
     pub fn check_iban(&self) -> bool {

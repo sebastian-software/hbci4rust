@@ -132,6 +132,21 @@ fn konto_checks_iban_crc_with_original_uppercase_input_boundary() {
 }
 
 #[test]
+fn konto_equality_matches_original_compared_fields() {
+    let left = giro_account();
+    let mut right = giro_account();
+    right.acctype = Some("9".to_owned());
+    right.limit = None;
+    right.allowed_gvs = vec!["HKCCS".to_owned()];
+
+    assert_eq!(left, right);
+
+    let mut different_iban = left.clone();
+    different_iban.iban = Some("DE89370400440532013000".to_owned());
+    assert_ne!(left, different_iban);
+}
+
+#[test]
 fn passport_account_by_number_returns_cached_account() {
     let passport = PinTanPassport::new(PinTanPassportData {
         accounts: vec![giro_account()],
