@@ -844,3 +844,67 @@ fn camt_upstream_return_fixture_matches_original_test005_observable_fields() {
     assert_eq!(other.bic.as_deref(), Some("TESTS1234"));
     assert_eq!(other.name.as_deref(), Some("Sven Schuldner"));
 }
+
+#[test]
+fn camt_upstream_05200108_fixture_matches_original_test006_observable_fields() {
+    let xml = include_str!("fixtures/hbci4java/sepa/test-camt-parse-05200108.xml");
+
+    let version = SepaVersion::autodetect(xml)
+        .expect("valid upstream fixture")
+        .expect("known CAMT version");
+    assert_eq!(version, SepaVersion::CAMT_052_001_08);
+
+    let days = parse_camt_report_shell(xml, version).expect("upstream CAMT 052.001.08 parses");
+
+    assert_eq!(days.len(), 1);
+    let day = &days[0];
+    assert_eq!(day.lines.len(), 1);
+    assert_eq!(
+        day.start.as_ref().map(ToString::to_string).as_deref(),
+        Some("2023-11-08 100.00 EUR")
+    );
+    assert_eq!(
+        day.end.as_ref().map(ToString::to_string).as_deref(),
+        Some("2023-11-10 66.00 EUR")
+    );
+    assert_eq!(day.my.iban.as_deref(), Some("DE12345678901234567890"));
+    assert_eq!(day.my.bic.as_deref(), Some("ABCDEFG1ABC"));
+    assert_eq!(day.my.curr.as_deref(), Some("EUR"));
+    assert_eq!(day.start_type, 'F');
+    assert_eq!(day.end_type, 'F');
+
+    let line = &day.lines[0];
+    assert_eq!(line.additional, None);
+    assert_eq!(line.addkey.as_deref(), Some("992"));
+    assert_eq!(line.bdate.as_deref(), Some("2023-11-10"));
+    assert_eq!(line.charge_value, None);
+    assert_eq!(
+        line.customerref.as_deref(),
+        Some("2023-11-10-00.06.42.329883")
+    );
+    assert_eq!(line.gvcode.as_deref(), Some("105"));
+    assert_eq!(line.id.as_deref(), Some("2023-11-10-00.06.42.329883"));
+    assert_eq!(line.instref, None);
+    assert!(line.is_camt);
+    assert!(line.is_sepa);
+    assert!(!line.is_storno);
+    assert_eq!(line.orig_value, None);
+    assert_eq!(line.primanota.as_deref(), Some("9200"));
+    assert_eq!(line.purposecode, None);
+    assert_eq!(line.text.as_deref(), Some("FOLGELASTSCHRIFT"));
+    assert_eq!(line.usage, vec!["Verwendungszweck"]);
+    assert_eq!(line.valuta.as_deref(), Some("2023-11-10"));
+    assert_eq!(
+        line.value.as_ref().map(ToString::to_string).as_deref(),
+        Some("-34.00 EUR")
+    );
+    assert_eq!(
+        line.saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("2023-11-10 66.00 EUR")
+    );
+    let other = line.other.as_ref().expect("counter account");
+    assert_eq!(other.iban.as_deref(), Some("DE12345678901234567892"));
+    assert_eq!(other.bic.as_deref(), Some("ABCDEFG1CBA"));
+    assert_eq!(other.name.as_deref(), Some("Beispiel AG"));
+    assert_eq!(other.creditorid.as_deref(), Some("DE46ZZZ00000012345"));
+}

@@ -552,9 +552,19 @@ fn collect_camt_tx_text(stack: &[String], text: &str, tx: &mut CamtTxDetails) {
         &["NtryDtls", "TxDtls", "RltdPties", "CdtrAcct", "Id", "IBAN"],
     ) {
         tx.creditor.iban = Some(text.to_owned());
-    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RltdPties", "Dbtr", "Nm"]) {
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RltdPties", "Dbtr", "Nm"])
+        || path_ends_with(
+            stack,
+            &["NtryDtls", "TxDtls", "RltdPties", "Dbtr", "Pty", "Nm"],
+        )
+    {
         tx.debtor.name = Some(text.to_owned());
-    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RltdPties", "Cdtr", "Nm"]) {
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RltdPties", "Cdtr", "Nm"])
+        || path_ends_with(
+            stack,
+            &["NtryDtls", "TxDtls", "RltdPties", "Cdtr", "Pty", "Nm"],
+        )
+    {
         tx.creditor.name = Some(text.to_owned());
     } else if path_ends_with(
         stack,
@@ -590,6 +600,32 @@ fn collect_camt_tx_text(stack: &[String], text: &str, tx: &mut CamtTxDetails) {
             "OthrId",
             "Id",
         ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Dbtr",
+            "Pty",
+            "Id",
+            "PrvtId",
+            "Othr",
+            "Id",
+        ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Dbtr",
+            "Pty",
+            "Id",
+            "PrvtId",
+            "OthrId",
+            "Id",
+        ],
     ) {
         tx.debtor.creditorid = Some(text.to_owned());
     } else if path_ends_with(
@@ -611,6 +647,32 @@ fn collect_camt_tx_text(stack: &[String], text: &str, tx: &mut CamtTxDetails) {
             "TxDtls",
             "RltdPties",
             "Cdtr",
+            "Id",
+            "PrvtId",
+            "OthrId",
+            "Id",
+        ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Cdtr",
+            "Pty",
+            "Id",
+            "PrvtId",
+            "Othr",
+            "Id",
+        ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Cdtr",
+            "Pty",
             "Id",
             "PrvtId",
             "OthrId",
