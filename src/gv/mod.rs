@@ -102,6 +102,8 @@ pub struct HbciJob {
     name: String,
     params: BTreeMap<String, String>,
     #[serde(default)]
+    lowlevel_params: BTreeMap<String, String>,
+    #[serde(default)]
     constraints: Vec<HbciJobConstraint>,
 }
 
@@ -110,6 +112,7 @@ impl HbciJob {
         let name = name.into();
         Self {
             constraints: constraints_for_job(&name),
+            lowlevel_params: BTreeMap::new(),
             name,
             params: BTreeMap::new(),
         }
@@ -145,7 +148,7 @@ impl HbciJob {
             ));
         }
 
-        self.set_param(name, value);
+        self.set_frontend_and_lowlevel_param(name, value);
         Ok(())
     }
 
@@ -166,6 +169,14 @@ impl HbciJob {
 
     pub fn params(&self) -> &BTreeMap<String, String> {
         &self.params
+    }
+
+    pub fn lowlevel_param(&self, name: &str) -> Option<&str> {
+        self.lowlevel_params.get(name).map(String::as_str)
+    }
+
+    pub fn lowlevel_params(&self) -> &BTreeMap<String, String> {
+        &self.lowlevel_params
     }
 
     pub fn constraints(&self) -> &[HbciJobConstraint] {
@@ -222,7 +233,32 @@ impl HbciJob {
         if self.accepts_param(&name)
             && let Some(value) = value.filter(|value| !value.is_empty())
         {
-            self.set_param(name, value);
+            self.set_frontend_and_lowlevel_param(name, value);
+        }
+    }
+
+    fn set_frontend_and_lowlevel_param(
+        &mut self,
+        frontend_name: impl Into<String>,
+        value: impl Into<String>,
+    ) {
+        let frontend_name = frontend_name.into();
+        let value = value.into();
+
+        self.set_lowlevel_params_for_frontend(&frontend_name, &value);
+        self.set_param(frontend_name, value);
+    }
+
+    fn set_lowlevel_params_for_frontend(&mut self, frontend_name: &str, value: &str) {
+        let destinations = self
+            .constraints
+            .iter()
+            .filter(|constraint| constraint.frontend_name == frontend_name)
+            .map(|constraint| constraint.destination_name.clone())
+            .collect::<Vec<_>>();
+
+        for destination in destinations {
+            self.lowlevel_params.insert(destination, value.to_owned());
         }
     }
 }

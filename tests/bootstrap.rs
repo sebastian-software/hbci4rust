@@ -95,6 +95,7 @@ fn creates_java_named_job_with_string_params() {
 
     assert_eq!(job.name(), "SaldoReq");
     assert_eq!(job.param("src.iban"), Some("DE1234567890"));
+    assert!(job.lowlevel_params().is_empty());
 }
 
 #[test]
@@ -135,6 +136,10 @@ fn checked_job_param_setter_accepts_known_non_empty_param() {
         .expect("known parameter is accepted");
 
     assert_eq!(saldo.param("my.iban"), Some("DE02123456780000000000"));
+    assert_eq!(
+        saldo.lowlevel_param("Saldo7.KTV.iban"),
+        Some("DE02123456780000000000")
+    );
 }
 
 #[test]
@@ -189,6 +194,18 @@ fn saldo_job_sets_account_params_like_original_overload() {
     assert_eq!(saldo.param("my.iban"), Some("DE02123456780000000000"));
     assert_eq!(saldo.param("my.name"), None);
     assert_eq!(saldo.param("my.curr"), None);
+    assert_eq!(saldo.lowlevel_param("Saldo7.KTV.KIK.country"), Some("DE"));
+    assert_eq!(saldo.lowlevel_param("Saldo7.KTV.KIK.blz"), Some("12345678"));
+    assert_eq!(
+        saldo.lowlevel_param("Saldo7.KTV.number"),
+        Some("0001234567")
+    );
+    assert_eq!(saldo.lowlevel_param("Saldo7.KTV.bic"), Some("MARKDEF1100"));
+    assert_eq!(
+        saldo.lowlevel_param("Saldo7.KTV.iban"),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(saldo.lowlevel_param("Saldo7.curr"), None);
 }
 
 #[test]
