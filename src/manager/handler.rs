@@ -7,11 +7,13 @@ use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrSaldoReq, GvrSaldoReqInfo, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
+    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
+    Value,
 };
 use crate::passport::PinTanPassport;
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
+use crate::swift::decode_umlauts;
 
 #[derive(Clone)]
 pub struct HbciHandler<C = DefaultCommClient> {
@@ -763,6 +765,8 @@ impl ParsedResponseStatus {
                 let result = self.saldo_result_all(passport);
                 (!result.entries.is_empty()).then_some(HbciJobResultData::SaldoReq(result))
             }
+            "KUmsAll" => self.kums_result_for_root(kums_response_root("KUmsZeitRes7", index)),
+            "KUmsNew" => self.kums_result_for_root(kums_response_root("KUmsNewRes7", index)),
             _ => None,
         }
     }
@@ -824,6 +828,25 @@ impl ParsedResponseStatus {
             .collect();
 
         GvrSaldoReq { entries }
+    }
+
+    fn kums_result_for_root(&self, root: String) -> Option<HbciJobResultData> {
+        let booked = self.values.get(&format!("{root}.booked"));
+        let notbooked = self.values.get(&format!("{root}.notbooked"));
+
+        if booked.is_none() && notbooked.is_none() {
+            return None;
+        }
+
+        let mut result = GvrKUms::new();
+        if let Some(booked) = booked {
+            result.append_mt940_data(decode_umlauts(booked));
+        }
+        if let Some(notbooked) = notbooked {
+            result.append_mt942_data(decode_umlauts(notbooked));
+        }
+
+        Some(HbciJobResultData::KUms(result))
     }
 }
 

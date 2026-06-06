@@ -80,6 +80,44 @@ fn custom_msg_ok_response() -> CommResponse {
     custom_msg_response(&["HIRMG:2:2+0010::OK"])
 }
 
+fn kums_response_segment(code: &str, booked: &str, notbooked: &str) -> String {
+    format!(
+        "{code}:3:7+@{}@{}+@{}@{}",
+        booked.len(),
+        booked,
+        notbooked.len(),
+        notbooked
+    )
+}
+
+fn mt940_booked_payload() -> String {
+    concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:28C:1",
+        "\r\n:60F:C230209EUR100,00",
+        "\r\n:61:2302090209CR2,00NTRFBOOKEDREF",
+        "\r\n:86:152?00GUTSCHRIFT M[LLER?109245?20Booked usage?32Max Mustermann?34000",
+        "\r\n:62F:C230209EUR102,00",
+        "\r\n-"
+    )
+    .to_owned()
+}
+
+fn mt942_unbooked_payload() -> String {
+    concat!(
+        "\r\n:20:STARTUMV",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:28C:2",
+        "\r\n:60F:C230210EUR0,00",
+        "\r\n:61:2302100210CR3,00NTRFUNBOOKEDREF",
+        "\r\n:86:152?00VORMERKUNG?20Unbooked usage",
+        "\r\n:62F:C230210EUR3,00",
+        "\r\n-"
+    )
+    .to_owned()
+}
+
 fn giro_account() -> Konto {
     Konto {
         country: Some("DE".to_owned()),
@@ -2126,9 +2164,12 @@ async fn handler_collects_kums_all_raw_result_data() {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
     });
+    let booked = mt940_booked_payload();
+    let notbooked = mt942_unbooked_payload();
+    let segment = kums_response_segment("HIKAZ", &booked, &notbooked);
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
-        "HIKAZ:3:7+@6@BOOKED+@8@UNBOOKED",
+        segment.as_str(),
     ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay);
     let mut kums = handler.new_job("KUmsAll").expect("job is in registry");
@@ -2140,18 +2181,49 @@ async fn handler_collects_kums_all_raw_result_data() {
     assert!(status.success);
     let result = &status.job_results[0];
     assert_eq!(result.job_name, "KUmsAll");
-    assert!(result.result.is_none());
     assert_eq!(
         result.result_data.get("content.booked").map(String::as_str),
-        Some("BOOKED")
+        Some(booked.as_str())
     );
     assert_eq!(
         result
             .result_data
             .get("content.notbooked")
             .map(String::as_str),
-        Some("UNBOOKED")
+        Some(notbooked.as_str())
     );
+
+    let Some(HbciJobResultData::KUms(mut kums_result)) = result.result.clone() else {
+        panic!("expected KUms result data");
+    };
+    {
+        let booked_lines = kums_result.get_flat_data();
+        assert_eq!(booked_lines.len(), 1);
+        assert_eq!(booked_lines[0].text.as_deref(), Some("GUTSCHRIFT MÄLLER"));
+        assert_eq!(booked_lines[0].usage, vec!["Booked usage"]);
+        assert_eq!(
+            booked_lines[0]
+                .value
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("2.00 EUR")
+        );
+    }
+    {
+        let unbooked_lines = kums_result.get_flat_data_unbooked();
+        assert_eq!(unbooked_lines.len(), 1);
+        assert_eq!(unbooked_lines[0].text.as_deref(), Some("VORMERKUNG"));
+        assert_eq!(unbooked_lines[0].usage, vec!["Unbooked usage"]);
+        assert_eq!(
+            unbooked_lines[0]
+                .value
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("3.00 EUR")
+        );
+    }
 }
 
 #[tokio::test]
@@ -2214,9 +2286,12 @@ async fn handler_collects_kums_new_raw_result_data() {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
     });
+    let booked = mt940_booked_payload();
+    let notbooked = mt942_unbooked_payload();
+    let segment = kums_response_segment("HIKAN", &booked, &notbooked);
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
-        "HIKAN:3:7+@9@NEWBOOKED+@11@NEWUNBOOKED",
+        segment.as_str(),
     ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay);
     let mut kums = handler.new_job("KUmsNew").expect("job is in registry");
@@ -2228,18 +2303,23 @@ async fn handler_collects_kums_new_raw_result_data() {
     assert!(status.success);
     let result = &status.job_results[0];
     assert_eq!(result.job_name, "KUmsNew");
-    assert!(result.result.is_none());
     assert_eq!(
         result.result_data.get("content.booked").map(String::as_str),
-        Some("NEWBOOKED")
+        Some(booked.as_str())
     );
     assert_eq!(
         result
             .result_data
             .get("content.notbooked")
             .map(String::as_str),
-        Some("NEWUNBOOKED")
+        Some(notbooked.as_str())
     );
+
+    let Some(HbciJobResultData::KUms(mut kums_result)) = result.result.clone() else {
+        panic!("expected KUms result data");
+    };
+    assert_eq!(kums_result.get_flat_data().len(), 1);
+    assert_eq!(kums_result.get_flat_data_unbooked().len(), 1);
 }
 
 #[tokio::test]

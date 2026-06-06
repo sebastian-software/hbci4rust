@@ -649,6 +649,7 @@ impl Display for HbciJobResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HbciJobResultData {
     SaldoReq(GvrSaldoReq),
+    KUms(GvrKUms),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
