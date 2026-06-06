@@ -24,11 +24,15 @@ impl HbciExecStatus {
         HbciStatus::from_return_values(self.segment_return_values.clone())
     }
 
+    pub fn message_status(&self) -> HbciMsgStatus {
+        HbciMsgStatus {
+            global_status: self.global_status(),
+            segment_status: self.segment_status(),
+        }
+    }
+
     pub fn error_string(&self) -> String {
-        joined_status_strings([
-            self.global_status().error_string(),
-            self.segment_status().error_string(),
-        ])
+        self.message_status().error_string()
     }
 
     pub fn is_invalid_pin(&self) -> bool {
@@ -74,9 +78,77 @@ impl HbciExecStatus {
 
 impl Display for HbciExecStatus {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(&self.message_status(), formatter)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HbciMsgStatus {
+    pub global_status: HbciStatus,
+    pub segment_status: HbciStatus,
+}
+
+impl HbciMsgStatus {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_statuses(global_status: HbciStatus, segment_status: HbciStatus) -> Self {
+        Self {
+            global_status,
+            segment_status,
+        }
+    }
+
+    pub fn has_exceptions(&self) -> bool {
+        self.global_status.has_exceptions()
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.global_status.status_code() == HbciStatusCode::Ok
+    }
+
+    pub fn error_string(&self) -> String {
+        joined_status_strings([
+            self.global_status.error_string(),
+            self.segment_status.error_string(),
+        ])
+    }
+
+    pub fn is_invalid_pin(&self) -> bool {
+        self.invalid_pin_code().is_some()
+    }
+
+    pub fn invalid_pin_code(&self) -> Option<&HbciReturnValue> {
+        self.global_status
+            .errors()
+            .into_iter()
+            .chain(self.segment_status.errors())
+            .find(|value| {
+                KnownReturncode::contains(value.code.as_str(), &KnownReturncode::LIST_AUTH_FAIL)
+            })
+    }
+
+    pub fn return_values_for_code(&self, code: KnownReturncode) -> Vec<&HbciReturnValue> {
+        self.global_status
+            .return_values_for_code(code)
+            .into_iter()
+            .chain(self.segment_status.return_values_for_code(code))
+            .collect()
+    }
+
+    pub fn return_value_for_code(&self, code: KnownReturncode) -> Option<&HbciReturnValue> {
+        self.global_status
+            .return_value_for_code(code)
+            .or_else(|| self.segment_status.return_value_for_code(code))
+    }
+}
+
+impl Display for HbciMsgStatus {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str(&joined_status_strings([
-            self.global_status().to_string(),
-            self.segment_status().to_string(),
+            self.global_status.to_string(),
+            self.segment_status.to_string(),
         ]))
     }
 }

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use hbci4rust::KnownReturncode;
 use hbci4rust::{
-    HbciErrorKind, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciReturnValue, HbciStatus,
-    HbciStatusCode,
+    HbciErrorKind, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciMsgStatus, HbciReturnValue,
+    HbciStatus, HbciStatusCode,
 };
 
 #[test]
@@ -218,6 +218,84 @@ fn status_searches_return_values_for_known_code_like_original() {
 }
 
 #[test]
+fn msg_status_display_and_error_string_match_original_shape() {
+    let msg_status = HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([
+            HbciReturnValue::new("3020", "Globalwarnung"),
+            HbciReturnValue::new("0010", "Dialog OK"),
+        ]),
+        HbciStatus::from_return_values([HbciReturnValue::new("9010", "Segmentfehler")]),
+    );
+
+    assert_eq!(msg_status.error_string(), "9010:Segmentfehler");
+    assert_eq!(
+        msg_status.to_string(),
+        "3020:Globalwarnung\n0010:Dialog OK\n9010:Segmentfehler"
+    );
+}
+
+#[test]
+fn msg_status_is_ok_uses_only_global_status_like_original() {
+    let msg_status = HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([HbciReturnValue::new("0010", "Dialog OK")]),
+        HbciStatus::from_return_values([HbciReturnValue::new("9010", "Segmentfehler")]),
+    );
+
+    assert!(msg_status.is_ok());
+
+    let msg_status_with_global_error = HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([HbciReturnValue::new("9010", "Dialogfehler")]),
+        HbciStatus::from_return_values([HbciReturnValue::new("0010", "Segment OK")]),
+    );
+
+    assert!(!msg_status_with_global_error.is_ok());
+}
+
+#[test]
+fn msg_status_uses_global_exceptions_like_original() {
+    let mut global_status = HbciStatus::new();
+    global_status.add_exception_message("Transportfehler");
+    let mut segment_status = HbciStatus::new();
+    segment_status.add_exception_message("Segmentdiagnose");
+    let msg_status = HbciMsgStatus::from_statuses(global_status, segment_status);
+
+    assert!(msg_status.has_exceptions());
+    assert_eq!(
+        msg_status.error_string(),
+        "Transportfehler\nSegmentdiagnose"
+    );
+}
+
+#[test]
+fn msg_status_searches_return_codes_and_invalid_pin_like_original() {
+    let msg_status = HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([
+            HbciReturnValue::new("3920", "Globale TAN-Liste"),
+            HbciReturnValue::new("9930", "PIN gesperrt"),
+        ]),
+        HbciStatus::from_return_values([
+            HbciReturnValue::new("3920", "Segment-TAN-Liste"),
+            HbciReturnValue::new("9942", "PIN falsch"),
+        ]),
+    );
+
+    let tan_values = msg_status.return_values_for_code(KnownReturncode::W3920);
+
+    assert_eq!(tan_values.len(), 2);
+    assert_eq!(tan_values[0].text, "Globale TAN-Liste");
+    assert_eq!(tan_values[1].text, "Segment-TAN-Liste");
+    assert_eq!(
+        msg_status
+            .return_value_for_code(KnownReturncode::W3920)
+            .unwrap()
+            .text,
+        "Globale TAN-Liste"
+    );
+    assert!(msg_status.is_invalid_pin());
+    assert_eq!(msg_status.invalid_pin_code().unwrap().code, "9930");
+}
+
+#[test]
 fn exec_and_job_status_helpers_group_existing_return_values() {
     let exec_status = HbciExecStatus {
         global_return_values: vec![HbciReturnValue::new("0010", "Dialog OK")],
@@ -236,6 +314,16 @@ fn exec_and_job_status_helpers_group_existing_return_values() {
     let segment_status = exec_status.segment_status();
     assert_eq!(segment_status.status_code(), HbciStatusCode::Error);
     assert_eq!(segment_status.errors()[0].text, "Segmentfehler");
+
+    let message_status = exec_status.message_status();
+    assert_eq!(
+        message_status.global_status.status_code(),
+        HbciStatusCode::Ok
+    );
+    assert_eq!(
+        message_status.segment_status.status_code(),
+        HbciStatusCode::Error
+    );
 
     let job = &exec_status.job_results[0];
     assert_eq!(job.job_status().status_code(), HbciStatusCode::Ok);
