@@ -789,6 +789,98 @@ fn verify_constraints_prefers_lowlevel_over_frontend_like_original() {
 }
 
 #[test]
+fn verify_constraints_resolves_indexed_zero_lowlevel_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedValueJob",
+            "params": {},
+            "lowlevel_params": {
+                "ValueSeg.lines.BTG[0].value": "123.45"
+            },
+            "constraints": [
+                {
+                    "frontend_name": "btg.value",
+                    "destination_name": "ValueSeg.lines.BTG.value",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed job with lowlevel params");
+
+    let lowlevel = job.verify_constraints().expect("constraints resolve");
+
+    assert_eq!(
+        lowlevel.get("ValueSeg.lines.BTG.value").map(String::as_str),
+        Some("123.45")
+    );
+    assert_eq!(
+        job.lowlevel_param("ValueSeg.lines.BTG[0].value"),
+        Some("123.45")
+    );
+    assert_eq!(job.lowlevel_param("ValueSeg.lines.BTG.value"), None);
+}
+
+#[test]
+fn verify_constraints_prefers_unindexed_lowlevel_over_indexed_zero_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedValueJob",
+            "params": {},
+            "lowlevel_params": {
+                "ValueSeg.lines.BTG.value": "UNINDEXED",
+                "ValueSeg.lines.BTG[0].value": "INDEXED"
+            },
+            "constraints": [
+                {
+                    "frontend_name": "btg.value",
+                    "destination_name": "ValueSeg.lines.BTG.value",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed job with lowlevel params");
+
+    let lowlevel = job.verify_constraints().expect("constraints resolve");
+
+    assert_eq!(
+        lowlevel.get("ValueSeg.lines.BTG.value").map(String::as_str),
+        Some("UNINDEXED")
+    );
+}
+
+#[test]
+fn verify_constraints_persists_indexed_defaults_unindexed_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedDefaultJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "line.mode",
+                    "destination_name": "LineSeg.lines.mode",
+                    "default_value": "N",
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed job with default constraint");
+
+    let lowlevel = job.verify_constraints().expect("constraints resolve");
+
+    assert_eq!(
+        lowlevel.get("LineSeg.lines.mode").map(String::as_str),
+        Some("N")
+    );
+    assert_eq!(job.lowlevel_param("LineSeg.lines.mode"), Some("N"));
+    assert_eq!(job.lowlevel_param("LineSeg.lines.mode[0]"), None);
+}
+
+#[test]
 fn verify_constraints_reports_missing_required_frontend_param() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);

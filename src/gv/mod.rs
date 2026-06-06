@@ -307,15 +307,16 @@ impl HbciJob {
         let mut lowlevel_params = BTreeMap::new();
 
         for constraint in self.constraints.clone() {
-            if let Some(value) = self.resolved_constraint_value(&constraint)? {
-                if !self
-                    .lowlevel_params
-                    .contains_key(&constraint.destination_name)
+            if let Some(resolved) = self.resolved_constraint_value(&constraint)? {
+                if resolved.persist_destination
+                    && !self
+                        .lowlevel_params
+                        .contains_key(&constraint.destination_name)
                 {
                     self.lowlevel_params
-                        .insert(constraint.destination_name.clone(), value.clone());
+                        .insert(constraint.destination_name.clone(), resolved.value.clone());
                 }
-                lowlevel_params.insert(constraint.destination_name, value);
+                lowlevel_params.insert(constraint.destination_name, resolved.value);
             }
         }
 
@@ -335,27 +336,42 @@ impl HbciJob {
     fn resolved_constraint_value(
         &self,
         constraint: &HbciJobConstraint,
-    ) -> HbciResult<Option<String>> {
-        let content = match self
+    ) -> HbciResult<Option<ResolvedConstraintValue>> {
+        if let Some(value) = self
             .lowlevel_param(&constraint.destination_name)
             .filter(|value| !value.is_empty())
-            .or_else(|| {
-                self.param(&constraint.frontend_name)
-                    .filter(|value| !value.is_empty())
-            }) {
-            Some(value) => value.to_owned(),
-            None => constraint.default_value.clone().ok_or_else(|| {
-                HbciError::new(
-                    HbciErrorKind::InvalidArgument,
-                    format!(
-                        "missing required job parameter: {}",
-                        constraint.frontend_name
-                    ),
-                )
-            })?,
-        };
+        {
+            return Ok(Some(ResolvedConstraintValue::existing(value)));
+        }
 
-        Ok((!content.is_empty()).then_some(content))
+        if constraint.indexed {
+            let indexed_destination = indexed_destination_name(&constraint.destination_name, 0);
+            if let Some(value) = self
+                .lowlevel_param(&indexed_destination)
+                .filter(|value| !value.is_empty())
+            {
+                return Ok(Some(ResolvedConstraintValue::existing(value)));
+            }
+        }
+
+        if let Some(value) = self
+            .param(&constraint.frontend_name)
+            .filter(|value| !value.is_empty())
+        {
+            return Ok(Some(ResolvedConstraintValue::new(value.to_owned(), true)));
+        }
+
+        let content = constraint.default_value.clone().ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!(
+                    "missing required job parameter: {}",
+                    constraint.frontend_name
+                ),
+            )
+        })?;
+
+        Ok((!content.is_empty()).then(|| ResolvedConstraintValue::new(content, true)))
     }
 
     async fn check_account_crc(
@@ -485,6 +501,25 @@ impl HbciJob {
 
         for destination in destinations {
             self.lowlevel_params.insert(destination, value.to_owned());
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedConstraintValue {
+    value: String,
+    persist_destination: bool,
+}
+
+impl ResolvedConstraintValue {
+    fn existing(value: &str) -> Self {
+        Self::new(value.to_owned(), false)
+    }
+
+    fn new(value: String, persist_destination: bool) -> Self {
+        Self {
+            value,
+            persist_destination,
         }
     }
 }
