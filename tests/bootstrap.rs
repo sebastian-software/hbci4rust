@@ -511,12 +511,33 @@ async fn handler_execute_uses_dialog_context_from_init_response() {
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
 
     handler.init().await.expect("dialog init replay response");
+    let init_status = handler
+        .dialog_status()
+        .init_status
+        .as_ref()
+        .expect("handler keeps dialog init status");
+    assert_eq!(
+        init_status.global_status.successes()[0].text,
+        "Initialisiert"
+    );
     let job = handler.new_job("SaldoReq").expect("job is in registry");
     handler.add_to_queue(job);
 
     let status = handler.execute().await.expect("custom message response");
 
     assert!(status.success);
+    assert_eq!(status.customer_ids(), vec!["customer"]);
+    let dialog_status = status
+        .dialog_status("customer")
+        .expect("execute result carries current dialog status");
+    assert!(dialog_status.init_status.is_some());
+    assert_eq!(dialog_status.message_statuses.len(), 1);
+    assert_eq!(
+        dialog_status.message_statuses[0].global_status.successes()[0].text,
+        "OK"
+    );
+    assert!(dialog_status.end_status.is_none());
+    assert!(!status.is_ok());
     assert_eq!(handler.dialog_context().message_number, 3);
     let requests = replay.requests().expect("requests");
     assert_eq!(requests.len(), 2);
@@ -646,6 +667,16 @@ async fn handler_close_sends_dialog_end_and_resets_context() {
 
     assert!(handler.dialog_context().dialog_id.is_none());
     assert_eq!(handler.dialog_context().message_number, 1);
+    let end_status = handler
+        .dialog_status()
+        .end_status
+        .as_ref()
+        .expect("handler keeps dialog end status");
+    assert_eq!(
+        end_status.global_status.successes()[0].text,
+        "Dialog beendet"
+    );
+    assert!(handler.dialog_status().is_ok());
     let requests = replay.requests().expect("requests");
     assert_eq!(requests.len(), 3);
 
@@ -697,6 +728,42 @@ async fn handler_close_preserves_context_on_dialog_end_error() {
     let close_body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
     assert!(close_body.contains("+300+DIALOG1+2'"));
     assert!(close_body.contains("HKEND:2:1+DIALOG1'"));
+}
+
+#[tokio::test]
+async fn handler_close_accepts_segment_error_when_global_status_is_ok_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&["HIRMG:2:2+0010::Initialisiert"])),
+        Ok(custom_msg_response_for_request(
+            "DIALOG1",
+            2,
+            &[
+                "HIRMG:2:2+0010::Dialog beendet",
+                "HIRMS:3:2+9010:2:Segmentfehler",
+            ],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+    handler.close().await.expect("dialog end response");
+
+    assert!(handler.dialog_context().dialog_id.is_none());
+    let end_status = handler
+        .dialog_status()
+        .end_status
+        .as_ref()
+        .expect("dialog end status is kept");
+    assert!(end_status.is_ok());
+    assert_eq!(end_status.segment_status.errors()[0].text, "Segmentfehler");
 }
 
 #[tokio::test]
@@ -753,6 +820,7 @@ async fn handler_uses_replay_comm_client() {
     let status = handler.execute().await.expect("replay response");
 
     assert!(status.success);
+    assert!(status.customer_ids().is_empty());
     assert_eq!(status.job_results[0].job_name, "SaldoReq");
     assert!(status.job_results[0].success);
     assert_eq!(status.global_return_values[0].code, "0010");

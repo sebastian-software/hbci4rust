@@ -7,8 +7,8 @@ use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrSaldoReq, GvrSaldoReqInfo, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrSaldoReq, GvrSaldoReqInfo, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
+    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::PinTanPassport;
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
@@ -21,6 +21,7 @@ pub struct HbciHandler<C = DefaultCommClient> {
     registry: JobRegistry,
     queue: Vec<HbciJob>,
     dialog: DialogContext,
+    dialog_status: HbciDialogStatus,
 }
 
 impl HbciHandler<DefaultCommClient> {
@@ -41,6 +42,7 @@ where
             registry: JobRegistry::pintan(),
             queue: Vec::new(),
             dialog: DialogContext::default(),
+            dialog_status: HbciDialogStatus::default(),
         }
     }
 
@@ -54,6 +56,10 @@ where
 
     pub fn dialog_context(&self) -> &DialogContext {
         &self.dialog
+    }
+
+    pub fn dialog_status(&self) -> &HbciDialogStatus {
+        &self.dialog_status
     }
 
     pub fn new_job(&self, name: &str) -> HbciResult<HbciJob> {
@@ -108,7 +114,10 @@ where
         }
 
         let values = parse_dialog_init_response(&self.hbci_version, &response, &request_ref)?;
+        let init_status = message_status_from_values(&values, "DialogInitRes");
         self.dialog = dialog_context_from_init_values(&values)?;
+        self.dialog_status = HbciDialogStatus::new();
+        self.dialog_status.set_init_status(init_status);
         self.passport
             .update_parameter_data_from_values(&values, "DialogInitRes");
         self.passport
@@ -154,6 +163,10 @@ where
         } else {
             ParsedResponseStatus::default()
         };
+        let message_status = response_status.message_status();
+        if self.dialog_status.init_status.is_some() {
+            self.dialog_status.message_statuses.push(message_status);
+        }
         let raw_response = Some(String::from_utf8_lossy(&response.body).into_owned());
         let global_status = response_status.global_status();
 
@@ -177,14 +190,22 @@ where
         let success =
             http_success && response_status.global_is_ok() && results.iter().all(|job| job.success);
 
-        Ok(HbciExecStatus {
+        let mut exec_status = HbciExecStatus {
             success,
             job_results: results,
             messages: response_status.messages(),
             global_return_values: response_status.global_return_values,
             segment_return_values: response_status.segment_return_values,
             ..HbciExecStatus::default()
-        })
+        };
+        if self.dialog_status.init_status.is_some() {
+            exec_status.add_dialog_status(
+                self.customer_id_for_status(),
+                Some(self.dialog_status.clone()),
+            );
+        }
+
+        Ok(exec_status)
     }
 
     pub async fn close(&mut self) -> HbciResult<()> {
@@ -222,10 +243,21 @@ where
             ));
         }
 
-        let return_values = parse_dialog_end_response(&self.hbci_version, &response, &request_ref)?;
-        ensure_dialog_end_ok(&return_values)?;
+        let end_status = parse_dialog_end_response(&self.hbci_version, &response, &request_ref)?;
+        self.dialog_status.set_end_status(end_status.clone());
+        ensure_dialog_end_ok(&end_status)?;
         self.dialog.reset();
         Ok(())
+    }
+
+    fn customer_id_for_status(&self) -> String {
+        let passport = self.passport.data();
+        passport
+            .customer_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&passport.user_id)
+            .to_owned()
     }
 
     fn render_queued_jobs(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
@@ -511,6 +543,14 @@ impl ParsedResponseStatus {
         HbciStatus::from_return_values(self.global_return_values.clone())
     }
 
+    fn segment_status(&self) -> HbciStatus {
+        HbciStatus::from_return_values(self.segment_return_values.clone())
+    }
+
+    fn message_status(&self) -> HbciMsgStatus {
+        HbciMsgStatus::from_statuses(self.global_status(), self.segment_status())
+    }
+
     fn global_is_ok(&self) -> bool {
         self.global_status().is_ok()
     }
@@ -603,22 +643,12 @@ fn parse_dialog_end_response(
     hbci_version: &str,
     response: &CommResponse,
     request_ref: &MessageReference,
-) -> HbciResult<Vec<HbciReturnValue>> {
+) -> HbciResult<HbciMsgStatus> {
     let values = parse_response_values(hbci_version, response, "DialogEndRes")?;
     validate_response_message_reference(&values, "DialogEndRes", request_ref)?;
     validate_open_dialog_response_id(&values, "DialogEndRes", request_ref)?;
 
-    let mut return_values =
-        collect_return_values(&values, "DialogEndRes.RetGlob", ReturnValueScope::Global);
-    for prefix in counted_prefixes(&values, "DialogEndRes.RetSeg") {
-        return_values.extend(collect_return_values(
-            &values,
-            &prefix,
-            ReturnValueScope::Segment,
-        ));
-    }
-
-    Ok(return_values)
+    Ok(message_status_from_values(&values, "DialogEndRes"))
 }
 
 fn parse_response_values(
@@ -701,13 +731,16 @@ fn validate_open_dialog_response_id(
     ))
 }
 
-fn ensure_dialog_end_ok(return_values: &[HbciReturnValue]) -> HbciResult<()> {
-    if HbciStatus::from_return_values(return_values.to_vec()).is_ok() {
+fn ensure_dialog_end_ok(status: &HbciMsgStatus) -> HbciResult<()> {
+    if status.is_ok() {
         return Ok(());
     }
 
-    let message = return_values
+    let message = status
+        .global_status
+        .return_values
         .iter()
+        .chain(status.segment_status.return_values.iter())
         .map(HbciReturnValue::message)
         .collect::<Vec<_>>()
         .join(", ");
@@ -717,6 +750,30 @@ fn ensure_dialog_end_ok(return_values: &[HbciReturnValue]) -> HbciResult<()> {
         format!("FinTS dialog end failed: {message}")
     };
     Err(HbciError::new(HbciErrorKind::Protocol, message))
+}
+
+fn message_status_from_values(
+    values: &BTreeMap<String, String>,
+    message_name: &str,
+) -> HbciMsgStatus {
+    let global_status = HbciStatus::from_return_values(collect_return_values(
+        values,
+        &format!("{message_name}.RetGlob"),
+        ReturnValueScope::Global,
+    ));
+    let mut segment_return_values = Vec::new();
+    for prefix in counted_prefixes(values, &format!("{message_name}.RetSeg")) {
+        segment_return_values.extend(collect_return_values(
+            values,
+            &prefix,
+            ReturnValueScope::Segment,
+        ));
+    }
+
+    HbciMsgStatus::from_statuses(
+        global_status,
+        HbciStatus::from_return_values(segment_return_values),
+    )
 }
 
 fn dialog_context_from_init_values(values: &BTreeMap<String, String>) -> HbciResult<DialogContext> {
