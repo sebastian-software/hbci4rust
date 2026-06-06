@@ -1,4 +1,55 @@
+use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BankInfoRegistry {
+    banks: BTreeMap<String, BankInfo>,
+}
+
+impl BankInfoRegistry {
+    pub fn parse_properties(text: &str) -> Self {
+        let mut registry = Self::default();
+
+        for line in text.lines() {
+            let line = line.trim_end_matches('\r');
+            let line = line.trim_start();
+            if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+                continue;
+            }
+
+            let (blz, value) = split_property_line(line).unwrap_or((line, ""));
+            let blz = blz.trim_end();
+            if blz.is_empty() {
+                continue;
+            }
+
+            registry.banks.insert(
+                blz.to_owned(),
+                BankInfo::parse_property(blz, value.trim_start()),
+            );
+        }
+
+        registry
+    }
+
+    pub fn get_bank_info(&self, blz: &str) -> Option<&BankInfo> {
+        self.banks.get(blz)
+    }
+
+    pub fn name_for_blz(&self, blz: &str) -> &str {
+        self.get_bank_info(blz)
+            .and_then(BankInfo::name)
+            .unwrap_or("")
+    }
+
+    pub fn len(&self) -> usize {
+        self.banks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.banks.is_empty()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BankInfo {
@@ -164,4 +215,15 @@ fn java_property_columns(text: &str) -> Vec<&str> {
 
 fn column_value(columns: &[&str], index: usize) -> Option<String> {
     columns.get(index).map(|value| (*value).to_owned())
+}
+
+fn split_property_line(line: &str) -> Option<(&str, &str)> {
+    let separator = match (line.find('='), line.find(':')) {
+        (Some(equals), Some(colon)) => Some(equals.min(colon)),
+        (Some(equals), None) => Some(equals),
+        (None, Some(colon)) => Some(colon),
+        (None, None) => None,
+    }?;
+
+    Some((&line[..separator], &line[separator + 1..]))
 }

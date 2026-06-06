@@ -26,5 +26,7 @@ pub use gv_result::{
     GvrSaldoReq, GvrSaldoReqInfo, HbciExecStatus, HbciJobResult, HbciJobResultData,
     HbciReturnValue, Konto, Limit, Saldo, Value,
 };
-pub use manager::{BankInfo, HbciHandler, HbciVersion, done, get_param, init, set_param};
+pub use manager::{
+    BankInfo, BankInfoRegistry, HbciHandler, HbciVersion, done, get_param, init, set_param,
+};
 pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};

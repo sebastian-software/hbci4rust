@@ -1,4 +1,4 @@
-use hbci4rust::{BankInfo, HbciVersion};
+use hbci4rust::{BankInfo, BankInfoRegistry, HbciVersion};
 
 #[test]
 fn maps_hbci_versions_by_original_ids() {
@@ -53,4 +53,36 @@ fn empty_bank_info_matches_original_empty_object_shape() {
     assert_eq!(info.blz(), None);
     assert_eq!(info.name(), None);
     assert_eq!(info.to_string(), "null: null");
+}
+
+#[test]
+fn parses_bank_info_registry_from_properties_text() {
+    let registry = BankInfoRegistry::parse_properties(
+        "# ignored\n\
+         21070020=Deutsche Bank|Kiel|DEUTDEHH210|63||https://fints.deutsche-bank.de/||300|\n\
+         25440047:Commerzbank|Hameln|COBADEFF254|13|||||\n\
+         ! also ignored\n",
+    );
+
+    assert_eq!(registry.len(), 2);
+    assert_eq!(registry.name_for_blz("21070020"), "Deutsche Bank");
+    assert_eq!(registry.name_for_blz("00000000"), "");
+
+    let info = registry.get_bank_info("25440047").expect("bank info");
+    assert_eq!(info.blz(), Some("25440047"));
+    assert_eq!(info.name(), Some("Commerzbank"));
+    assert_eq!(info.rdh_address(), None);
+}
+
+#[test]
+fn registry_treats_property_without_separator_as_empty_value() {
+    let registry = BankInfoRegistry::parse_properties("12345678\n");
+
+    assert_eq!(registry.len(), 1);
+    assert_eq!(registry.name_for_blz("12345678"), "");
+
+    let info = registry.get_bank_info("12345678").expect("bank info");
+    assert_eq!(info.blz(), Some("12345678"));
+    assert_eq!(info.name(), None);
+    assert_eq!(info.to_string(), "12345678: null");
 }

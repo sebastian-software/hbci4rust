@@ -7,7 +7,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use crate::callback::HbciCallback;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
-pub use bank_info::{BankInfo, HbciVersion};
+pub use bank_info::{BankInfo, BankInfoRegistry, HbciVersion};
 pub use handler::HbciHandler;
 
 #[derive(Default)]
