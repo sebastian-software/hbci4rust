@@ -268,6 +268,76 @@ fn verify_constraints_resolves_frontend_params_and_defaults_like_original() {
 }
 
 #[test]
+fn verify_constraints_resolves_existing_lowlevel_params_like_original() {
+    let job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "SaldoReq",
+            "params": {},
+            "lowlevel_params": {
+                "Saldo7.KTV.iban": "DE02123456780000000000"
+            },
+            "constraints": [
+                {
+                    "frontend_name": "my.iban",
+                    "destination_name": "Saldo7.KTV.iban",
+                    "default_value": null,
+                    "indexed": false
+                },
+                {
+                    "frontend_name": "dummyall",
+                    "destination_name": "Saldo7.allaccounts",
+                    "default_value": "N",
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("job with lowlevel params");
+
+    let lowlevel = job.verify_constraints().expect("constraints resolve");
+
+    assert_eq!(
+        lowlevel.get("Saldo7.KTV.iban").map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        lowlevel.get("Saldo7.allaccounts").map(String::as_str),
+        Some("N")
+    );
+}
+
+#[test]
+fn verify_constraints_prefers_lowlevel_over_frontend_like_original() {
+    let job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "SaldoReq",
+            "params": {
+                "my.iban": "FRONTEND"
+            },
+            "lowlevel_params": {
+                "Saldo7.KTV.iban": "LOWLEVEL"
+            },
+            "constraints": [
+                {
+                    "frontend_name": "my.iban",
+                    "destination_name": "Saldo7.KTV.iban",
+                    "default_value": null,
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("job with frontend and lowlevel params");
+
+    let lowlevel = job.verify_constraints().expect("constraints resolve");
+
+    assert_eq!(
+        lowlevel.get("Saldo7.KTV.iban").map(String::as_str),
+        Some("LOWLEVEL")
+    );
+}
+
+#[test]
 fn verify_constraints_reports_missing_required_frontend_param() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);

@@ -210,9 +210,12 @@ impl HbciJob {
         constraint: &HbciJobConstraint,
     ) -> HbciResult<Option<String>> {
         let content = match self
-            .param(&constraint.frontend_name)
+            .lowlevel_param(&constraint.destination_name)
             .filter(|value| !value.is_empty())
-        {
+            .or_else(|| {
+                self.param(&constraint.frontend_name)
+                    .filter(|value| !value.is_empty())
+            }) {
             Some(value) => value.to_owned(),
             None => constraint.default_value.clone().ok_or_else(|| {
                 HbciError::new(
