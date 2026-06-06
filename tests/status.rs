@@ -6,8 +6,12 @@ fn return_value_display_matches_original_shape() {
     value.params = vec!["alpha".to_owned(), "beta".to_owned()];
     value.segment_ref = Some("4".to_owned());
     value.data_ref = Some("2".to_owned());
+    value.element = Some("CustomMsgRes.GVRes.SaldoRes7=ok".to_owned());
 
-    assert_eq!(value.to_string(), "3020:Hinweis p:alpha p:beta (4:2)");
+    assert_eq!(
+        value.to_string(),
+        "3020:Hinweis p:alpha p:beta (4:2: CustomMsgRes.GVRes.SaldoRes7=ok)"
+    );
     assert_eq!(value.message(), value.to_string());
 }
 
@@ -22,14 +26,24 @@ fn return_value_display_omits_absent_references_like_original() {
 }
 
 #[test]
+fn return_value_display_omits_element_without_segment_ref_like_original() {
+    let mut value = HbciReturnValue::new("3020", "Hinweis");
+    value.element = Some("CustomMsgRes.GVRes.SaldoRes7=ignored".to_owned());
+
+    assert_eq!(value.to_string(), "3020:Hinweis");
+}
+
+#[test]
 fn return_value_equality_matches_original_compared_fields() {
     let mut left = HbciReturnValue::new("3020", "Hinweis");
     left.segment_ref = Some("4".to_owned());
     left.data_ref = Some("2".to_owned());
     left.params = vec!["alpha".to_owned()];
+    left.element = Some("CustomMsgRes.GVRes.SaldoRes7=left".to_owned());
 
     let mut right = left.clone();
     right.params = vec!["beta".to_owned(), "gamma".to_owned()];
+    right.element = Some("CustomMsgRes.GVRes.SaldoRes7=right".to_owned());
 
     assert_eq!(left, right);
 

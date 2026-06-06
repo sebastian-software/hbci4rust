@@ -185,6 +185,8 @@ pub struct HbciReturnValue {
     pub data_ref: Option<String>,
     pub text: String,
     pub params: Vec<String>,
+    #[serde(default)]
+    pub element: Option<String>,
 }
 
 impl HbciReturnValue {
@@ -195,6 +197,7 @@ impl HbciReturnValue {
             data_ref: None,
             text: text.into(),
             params: Vec::new(),
+            element: None,
         }
     }
 
@@ -241,6 +244,9 @@ impl Display for HbciReturnValue {
             write!(formatter, " ({segment_ref}")?;
             if let Some(data_ref) = &self.data_ref {
                 write!(formatter, ":{data_ref}")?;
+            }
+            if let Some(element) = &self.element {
+                write!(formatter, ": {element}")?;
             }
             formatter.write_str(")")?;
         }
