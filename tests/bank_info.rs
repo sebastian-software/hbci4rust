@@ -86,3 +86,32 @@ fn registry_treats_property_without_separator_as_empty_value() {
     assert_eq!(info.name(), None);
     assert_eq!(info.to_string(), "12345678: null");
 }
+
+#[test]
+fn searches_bank_info_like_original() {
+    let registry = BankInfoRegistry::parse_properties(
+        "30000000=Alpha Bank|Berlin|ALPHDEFF300|00|||||\n\
+         10000000=Zeta Bank|Hamburg|ZZZDEHH100|00|||||\n\
+         20000000=Deutsche Bank|Kiel|DEUTDEHH200|00|||||\n",
+    );
+
+    assert_eq!(registry.search_bank_info("ba"), Vec::<&BankInfo>::new());
+    assert_eq!(registry.search_bank_info("  ").len(), 0);
+
+    assert_bank_codes(
+        registry.search_bank_info(" bank "),
+        &["10000000", "20000000", "30000000"],
+    );
+    assert_bank_codes(registry.search_bank_info("200"), &["20000000"]);
+    assert_bank_codes(registry.search_bank_info("deut"), &["20000000"]);
+    assert_bank_codes(registry.search_bank_info("KIE"), &["20000000"]);
+    assert_bank_codes(registry.search_bank_info("hamb"), &["10000000"]);
+}
+
+fn assert_bank_codes(infos: Vec<&BankInfo>, expected: &[&str]) {
+    let actual = infos
+        .into_iter()
+        .map(|info| info.blz().expect("bank info BLZ"))
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}

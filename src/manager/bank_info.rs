@@ -42,6 +42,19 @@ impl BankInfoRegistry {
             .unwrap_or("")
     }
 
+    pub fn search_bank_info(&self, query: &str) -> Vec<&BankInfo> {
+        let query = query.trim();
+        if query.chars().count() < 3 {
+            return Vec::new();
+        }
+
+        let query = query.to_lowercase();
+        self.banks
+            .values()
+            .filter(|info| bank_info_matches_query(info, &query))
+            .collect()
+    }
+
     pub fn len(&self) -> usize {
         self.banks.len()
     }
@@ -215,6 +228,19 @@ fn java_property_columns(text: &str) -> Vec<&str> {
 
 fn column_value(columns: &[&str], index: usize) -> Option<String> {
     columns.get(index).map(|value| (*value).to_owned())
+}
+
+fn bank_info_matches_query(info: &BankInfo, query: &str) -> bool {
+    info.blz().is_some_and(|blz| blz.starts_with(query))
+        || info
+            .bic()
+            .is_some_and(|bic| bic.to_lowercase().starts_with(query))
+        || info
+            .name()
+            .is_some_and(|name| name.to_lowercase().contains(query))
+        || info
+            .location()
+            .is_some_and(|location| location.to_lowercase().contains(query))
 }
 
 fn split_property_line(line: &str) -> Option<(&str, &str)> {
