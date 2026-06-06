@@ -422,6 +422,127 @@ fn indexed_value_param_helper_rejects_accepted_non_indexed_field() {
 }
 
 #[test]
+fn indexed_account_param_helper_sets_account_fields_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedAccountJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "acct.country",
+                    "destination_name": "AccountSeg.lines.KTV.country",
+                    "default_value": null,
+                    "indexed": true
+                },
+                {
+                    "frontend_name": "acct.blz",
+                    "destination_name": "AccountSeg.lines.KTV.blz",
+                    "default_value": null,
+                    "indexed": true
+                },
+                {
+                    "frontend_name": "acct.number",
+                    "destination_name": "AccountSeg.lines.KTV.number",
+                    "default_value": null,
+                    "indexed": true
+                },
+                {
+                    "frontend_name": "acct.iban",
+                    "destination_name": "AccountSeg.lines.KTV.iban",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed account job");
+
+    job.try_set_indexed_param_account("acct", 4, &giro_account())
+        .expect("indexed account parameter is accepted");
+
+    assert_eq!(job.param("acct.iban"), None);
+    assert_eq!(
+        job.lowlevel_param("AccountSeg.lines.KTV[4].country"),
+        Some("DE")
+    );
+    assert_eq!(
+        job.lowlevel_param("AccountSeg.lines.KTV[4].blz"),
+        Some("12345678")
+    );
+    assert_eq!(
+        job.lowlevel_param("AccountSeg.lines.KTV[4].number"),
+        Some("0001234567")
+    );
+    assert_eq!(
+        job.lowlevel_param("AccountSeg.lines.KTV[4].iban"),
+        Some("DE02123456780000000000")
+    );
+}
+
+#[test]
+fn indexed_account_param_helper_ignores_unaccepted_or_empty_fields_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedAccountJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "acct.number",
+                    "destination_name": "AccountSeg.lines.KTV.number",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed account job");
+    let mut account = giro_account();
+    account.iban = Some(String::new());
+
+    job.try_set_indexed_param_account("acct", 1, &account)
+        .expect("indexed account with unaccepted or empty fields is accepted");
+    job.try_set_indexed_param_account("other", 1, &giro_account())
+        .expect("unaccepted indexed account fields are ignored");
+
+    assert_eq!(
+        job.lowlevel_param("AccountSeg.lines.KTV[1].number"),
+        Some("0001234567")
+    );
+    assert_eq!(job.lowlevel_param("AccountSeg.lines.KTV[1].iban"), None);
+    assert!(job.params().is_empty());
+}
+
+#[test]
+fn indexed_account_param_helper_rejects_accepted_non_indexed_field() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedAccountJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "acct.iban",
+                    "destination_name": "AccountSeg.KTV.iban",
+                    "default_value": null,
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed account job");
+
+    let err = job
+        .try_set_indexed_param_account("acct", 0, &giro_account())
+        .expect_err("accepted non-indexed account field is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "job parameter acct.iban is not indexed by IndexedAccountJob"
+    );
+    assert!(job.lowlevel_params().is_empty());
+}
+
+#[test]
 fn saldo_job_sets_account_params_like_original_overload() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);

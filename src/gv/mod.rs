@@ -210,6 +210,47 @@ impl HbciJob {
         self.try_set_optional_indexed_structured_param(name, index, "curr", value.curr.as_deref())
     }
 
+    pub fn try_set_indexed_param_account(
+        &mut self,
+        name: &str,
+        index: usize,
+        account: &Konto,
+    ) -> HbciResult<()> {
+        self.try_set_optional_indexed_structured_param(
+            name,
+            index,
+            "country",
+            account.country.as_deref(),
+        )?;
+        self.try_set_optional_indexed_structured_param(name, index, "blz", account.blz.as_deref())?;
+        self.try_set_optional_indexed_structured_param(
+            name,
+            index,
+            "number",
+            account.number.as_deref(),
+        )?;
+        self.try_set_optional_indexed_structured_param(
+            name,
+            index,
+            "subnumber",
+            account.subnumber.as_deref(),
+        )?;
+        self.try_set_optional_indexed_structured_param(
+            name,
+            index,
+            "name",
+            account.name.as_deref(),
+        )?;
+        self.try_set_optional_indexed_structured_param(
+            name,
+            index,
+            "curr",
+            account.curr.as_deref(),
+        )?;
+        self.try_set_optional_indexed_structured_param(name, index, "bic", account.bic.as_deref())?;
+        self.try_set_optional_indexed_structured_param(name, index, "iban", account.iban.as_deref())
+    }
+
     pub fn set_param_account(&mut self, name: &str, account: &Konto) {
         self.set_optional_account_param(name, "country", account.country.as_deref());
         self.set_optional_account_param(name, "blz", account.blz.as_deref());
