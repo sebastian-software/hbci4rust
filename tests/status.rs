@@ -1,5 +1,10 @@
+use std::collections::BTreeMap;
+
 use hbci4rust::KnownReturncode;
-use hbci4rust::{HbciExecStatus, HbciJobResult, HbciReturnValue, HbciStatus, HbciStatusCode};
+use hbci4rust::{
+    HbciErrorKind, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciReturnValue, HbciStatus,
+    HbciStatusCode,
+};
 
 #[test]
 fn return_value_display_matches_original_shape() {
@@ -55,6 +60,44 @@ fn return_value_equality_matches_original_compared_fields() {
     let mut different_text = left.clone();
     different_text.text = "Anderer Hinweis".to_owned();
     assert_ne!(left, different_text);
+}
+
+#[test]
+fn inst_message_display_matches_original_shape() {
+    let message = HbciInstMessage::new("Wartung", Some("Am Wochenende".to_owned()));
+
+    assert_eq!(message.to_string(), "Wartung: Am Wochenende");
+}
+
+#[test]
+fn inst_message_display_renders_missing_text_like_java_null() {
+    let message = HbciInstMessage::new("Hinweis", None);
+
+    assert_eq!(message.to_string(), "Hinweis: null");
+}
+
+#[test]
+fn inst_message_from_values_matches_original_keys() {
+    let mut values = BTreeMap::new();
+    values.insert("KIMsg.betreff".to_owned(), "Wartung".to_owned());
+    values.insert("KIMsg.text".to_owned(), "Am Wochenende".to_owned());
+
+    let message = HbciInstMessage::from_values(&values, "KIMsg").expect("inst message parses");
+
+    assert_eq!(message.subject, "Wartung");
+    assert_eq!(message.text.as_deref(), Some("Am Wochenende"));
+    assert_eq!(message.to_string(), "Wartung: Am Wochenende");
+}
+
+#[test]
+fn inst_message_from_values_rejects_missing_subject_like_original() {
+    let values = BTreeMap::from([("KIMsg.text".to_owned(), "Am Wochenende".to_owned())]);
+
+    let err =
+        HbciInstMessage::from_values(&values, "KIMsg").expect_err("missing subject is rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::Protocol);
+    assert_eq!(err.message(), "institute message KIMsg has no subject");
 }
 
 #[test]

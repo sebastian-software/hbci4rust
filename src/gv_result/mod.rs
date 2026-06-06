@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
 use crate::dialog::KnownReturncode;
+use crate::error::{HbciError, HbciErrorKind, HbciResult};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HbciExecStatus {
@@ -218,6 +220,47 @@ impl Display for HbciStatus {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HbciInstMessage {
+    pub subject: String,
+    pub text: Option<String>,
+}
+
+impl HbciInstMessage {
+    pub fn new(subject: impl Into<String>, text: Option<String>) -> Self {
+        Self {
+            subject: subject.into(),
+            text,
+        }
+    }
+
+    pub fn from_values(values: &BTreeMap<String, String>, header: &str) -> HbciResult<Self> {
+        let subject = values
+            .get(&format!("{header}.betreff"))
+            .cloned()
+            .ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::Protocol,
+                    format!("institute message {header} has no subject"),
+                )
+            })?;
+        let text = values.get(&format!("{header}.text")).cloned();
+
+        Ok(Self::new(subject, text))
+    }
+}
+
+impl Display for HbciInstMessage {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}: {}",
+            self.subject,
+            self.text.as_deref().unwrap_or("null")
+        )
     }
 }
 
