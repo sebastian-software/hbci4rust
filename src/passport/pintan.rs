@@ -312,6 +312,7 @@ fn account_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Optio
         customer_id: optional_value(values, &format!("{prefix}.customerid")),
         name: optional_value(values, &format!("{prefix}.name1")),
         name2: optional_value(values, &format!("{prefix}.name2")),
+        creditorid: None,
         acctype: optional_value(values, &format!("{prefix}.acctype")),
         account_type: optional_value(values, &format!("{prefix}.konto")),
         curr: optional_value(values, &format!("{prefix}.cur")),

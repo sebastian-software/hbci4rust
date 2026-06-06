@@ -1,6 +1,6 @@
 use hbci4rust::sepa::{
-    CAMT_052_001_01_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN, CAMT_052_001_08_URN, SepaKind,
-    SepaVersion, parse_camt_report_shell,
+    CAMT_052_001_01_URN, CAMT_052_001_02_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN,
+    CAMT_052_001_08_URN, SepaKind, SepaVersion, parse_camt_report_shell,
 };
 
 fn camt_document(urn: &str) -> String {
@@ -308,4 +308,171 @@ fn camt_basic_entry_lines_map_debit_storno_and_date_fallback_like_original() {
     );
     assert_eq!(line.customerref.as_deref(), Some("REF-DEBIT"));
     assert_eq!(line.usage, vec!["LASTSCHRIFT"]);
+}
+
+#[test]
+fn camt_transaction_details_map_credit_debtor_side_like_original() {
+    let xml = format!(
+        r#"<Document xmlns="{CAMT_052_001_02_URN}">
+  <BkToCstmrAcctRpt>
+    <Rpt>
+      <Acct><Id><IBAN>DE12345678901234567890</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>ITBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">10</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <BookgDt><Dt>2018-07-20</Dt></BookgDt>
+        <AcctSvcrRef>ENTRY-REF</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <Prtry><Ref>TX-ID</Ref></Prtry>
+              <AcctSvcrRef>TX-SVCR</AcctSvcrRef>
+              <EndToEndId>E2E-123</EndToEndId>
+              <MndtId>MND-123</MndtId>
+            </Refs>
+            <RltdPties>
+              <Dbtr>
+                <Nm>Debtor Name</Nm>
+                <Id><PrvtId><Othr><Id>DE98ZZZ09999999999</Id></Othr></PrvtId></Id>
+              </Dbtr>
+              <DbtrAcct><Id><IBAN>DE02123456780000000000</IBAN></Id></DbtrAcct>
+              <UltmtDbtr><Nm>Ultimate Debtor</Nm></UltmtDbtr>
+              <Cdtr><Nm>Ignored Creditor</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>DE99999999999999999999</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RltdAgts>
+              <DbtrAgt><FinInstnId><BIC>DEBTBIC0</BIC></FinInstnId></DbtrAgt>
+              <CdtrAgt><FinInstnId><BIC>IGNORED0</BIC></FinInstnId></CdtrAgt>
+            </RltdAgts>
+            <RmtInf>
+              <Ustrd>Invoice 1</Ustrd>
+              <Ustrd>Invoice 2</Ustrd>
+            </RmtInf>
+            <Purp><Cd>GDDS</Cd></Purp>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>"#
+    );
+
+    let days =
+        parse_camt_report_shell(&xml, SepaVersion::CAMT_052_001_02).expect("CAMT details parse");
+    let line = &days[0].lines[0];
+
+    assert_eq!(line.customerref.as_deref(), Some("ENTRY-REF"));
+    assert_eq!(line.id.as_deref(), Some("TX-ID"));
+    assert_eq!(line.end_to_end_id.as_deref(), Some("E2E-123"));
+    assert_eq!(line.mandate_id.as_deref(), Some("MND-123"));
+    assert_eq!(line.usage, vec!["Invoice 1", "Invoice 2"]);
+    assert_eq!(line.purposecode.as_deref(), Some("GDDS"));
+
+    let other = line.other.as_ref().expect("counter account is present");
+    assert_eq!(other.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(other.name.as_deref(), Some("Debtor Name"));
+    assert_eq!(other.name2.as_deref(), Some("Ultimate Debtor"));
+    assert_eq!(other.bic.as_deref(), Some("DEBTBIC0"));
+    assert_eq!(other.creditorid.as_deref(), Some("DE98ZZZ09999999999"));
+}
+
+#[test]
+fn camt_transaction_details_map_debit_creditor_side_and_id_fallback_like_original() {
+    let xml = format!(
+        r#"<Document xmlns="{CAMT_052_001_02_URN}">
+  <BkToCstmrAcctRpt>
+    <Rpt>
+      <Acct><Id><IBAN>DE12345678901234567890</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>ITBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">5</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2018-07-20</Dt></BookgDt>
+        <AcctSvcrRef>ENTRY-REF</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <AcctSvcrRef>TX-SVCR</AcctSvcrRef>
+              <EndToEndId>NOTPROVIDED</EndToEndId>
+            </Refs>
+            <RltdPties>
+              <Dbtr><Nm>Ignored Debtor</Nm></Dbtr>
+              <DbtrAcct><Id><IBAN>DE99999999999999999999</IBAN></Id></DbtrAcct>
+              <Cdtr>
+                <Nm>Creditor Name</Nm>
+                <Id><PrvtId><Othr><Id>DE12ZZZ00000000000</Id></Othr></PrvtId></Id>
+              </Cdtr>
+              <CdtrAcct><Id><IBAN>DE03123456780000000000</IBAN></Id></CdtrAcct>
+              <UltmtCdtr><Nm>Ultimate Creditor</Nm></UltmtCdtr>
+            </RltdPties>
+            <RltdAgts>
+              <CdtrAgt><FinInstnId><BICFI>CRDTBIC0</BICFI></FinInstnId></CdtrAgt>
+            </RltdAgts>
+            <RmtInf><Ustrd>Debit Usage</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>"#
+    );
+
+    let days =
+        parse_camt_report_shell(&xml, SepaVersion::CAMT_052_001_02).expect("CAMT details parse");
+    let line = &days[0].lines[0];
+
+    assert_eq!(
+        line.value.as_ref().map(ToString::to_string).as_deref(),
+        Some("-5.00 EUR")
+    );
+    assert_eq!(line.id.as_deref(), Some("ENTRY-REF"));
+    assert_eq!(line.end_to_end_id.as_deref(), Some("NOTPROVIDED"));
+    assert_eq!(line.usage, vec!["Debit Usage"]);
+
+    let other = line.other.as_ref().expect("counter account is present");
+    assert_eq!(other.iban.as_deref(), Some("DE03123456780000000000"));
+    assert_eq!(other.name.as_deref(), Some("Creditor Name"));
+    assert_eq!(other.name2.as_deref(), Some("Ultimate Creditor"));
+    assert_eq!(other.bic.as_deref(), Some("CRDTBIC0"));
+    assert_eq!(other.creditorid.as_deref(), Some("DE12ZZZ00000000000"));
+}
+
+#[test]
+fn camt_transaction_details_skip_entry_when_first_detail_has_no_tx_like_original() {
+    let xml = format!(
+        r#"<Document xmlns="{CAMT_052_001_02_URN}">
+  <BkToCstmrAcctRpt>
+    <Rpt>
+      <Acct><Id><IBAN>DE12345678901234567890</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>ITBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">10</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <NtryDtls/>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>"#
+    );
+
+    let days =
+        parse_camt_report_shell(&xml, SepaVersion::CAMT_052_001_02).expect("CAMT details parse");
+
+    assert!(days[0].lines.is_empty());
 }

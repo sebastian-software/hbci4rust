@@ -165,6 +165,23 @@ struct CamtEntry {
     text: Option<String>,
     customer_ref: Option<String>,
     has_details: bool,
+    seen_detail: bool,
+    collecting_first_detail: bool,
+    seen_tx_details: bool,
+    collecting_first_tx: bool,
+    tx: CamtTxDetails,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CamtTxDetails {
+    id: Option<String>,
+    acct_svcr_ref: Option<String>,
+    end_to_end_id: Option<String>,
+    mandate_id: Option<String>,
+    debtor: Konto,
+    creditor: Konto,
+    usages: Vec<String>,
+    purpose_code: Option<String>,
 }
 
 impl From<CamtReport> for GvrKUmsBTag {
@@ -195,13 +212,14 @@ impl From<CamtReport> for GvrKUmsBTag {
             .or_else(|| tag.my.curr.clone());
 
         for entry in report.entries {
-            let line = camt_line_from_entry(entry, saldo, saldo_curr.as_deref());
-            saldo = line
-                .saldo
-                .as_ref()
-                .and_then(|saldo| decimal_amount_to_cents(&saldo.value.value))
-                .unwrap_or(saldo);
-            tag.lines.push(line);
+            if let Some(line) = camt_line_from_entry(entry, saldo, saldo_curr.as_deref()) {
+                saldo = line
+                    .saldo
+                    .as_ref()
+                    .and_then(|saldo| decimal_amount_to_cents(&saldo.value.value))
+                    .unwrap_or(saldo);
+                tag.lines.push(line);
+            }
         }
 
         tag
@@ -269,6 +287,25 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
                 } else if entry.is_some() && name == "NtryDtls" {
                     if let Some(entry) = &mut entry {
                         entry.has_details = true;
+                        if !entry.seen_detail {
+                            entry.seen_detail = true;
+                            entry.collecting_first_detail = true;
+                        } else {
+                            entry.collecting_first_detail = false;
+                        }
+                    }
+                } else if name == "TxDtls"
+                    && entry
+                        .as_ref()
+                        .is_some_and(|entry| entry.collecting_first_detail)
+                {
+                    if let Some(entry) = &mut entry {
+                        if !entry.seen_tx_details {
+                            entry.seen_tx_details = true;
+                            entry.collecting_first_tx = true;
+                        } else {
+                            entry.collecting_first_tx = false;
+                        }
                     }
                 } else if balance.is_some()
                     && name == "Amt"
@@ -288,7 +325,26 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
             }
             Ok(Event::Empty(event)) => {
                 let name = local_name(event.name().as_ref());
-                if balance.is_some()
+                if entry.is_some() && name == "NtryDtls" {
+                    if let Some(entry) = &mut entry {
+                        entry.has_details = true;
+                        if !entry.seen_detail {
+                            entry.seen_detail = true;
+                        }
+                        entry.collecting_first_detail = false;
+                    }
+                } else if name == "TxDtls"
+                    && entry
+                        .as_ref()
+                        .is_some_and(|entry| entry.collecting_first_detail)
+                {
+                    if let Some(entry) = &mut entry {
+                        if !entry.seen_tx_details {
+                            entry.seen_tx_details = true;
+                        }
+                        entry.collecting_first_tx = false;
+                    }
+                } else if balance.is_some()
                     && name == "Amt"
                     && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
                     && let Some(balance) = &mut balance
@@ -318,7 +374,15 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
             }
             Ok(Event::End(event)) => {
                 let name = local_name(event.name().as_ref());
-                if name == "Bal" {
+                if name == "TxDtls" {
+                    if let Some(entry) = &mut entry {
+                        entry.collecting_first_tx = false;
+                    }
+                } else if name == "NtryDtls" {
+                    if let Some(entry) = &mut entry {
+                        entry.collecting_first_detail = false;
+                    }
+                } else if name == "Bal" {
                     if let (Some(report), Some(balance)) = (&mut report, balance.take()) {
                         report.balances.push(balance);
                     }
@@ -389,6 +453,10 @@ fn collect_camt_text(
         } else if path_ends_with(stack, &["Rpt", "Ntry", "AcctSvcrRef"]) {
             entry.customer_ref = Some(text.to_owned());
         }
+
+        if entry.collecting_first_tx {
+            collect_camt_tx_text(stack, text, &mut entry.tx);
+        }
     }
 
     let Some(balance) = balance else {
@@ -408,11 +476,151 @@ fn collect_camt_text(
     }
 }
 
+fn collect_camt_tx_text(stack: &[String], text: &str, tx: &mut CamtTxDetails) {
+    if path_ends_with(stack, &["NtryDtls", "TxDtls", "Refs", "Prtry", "Ref"]) {
+        tx.id = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "Refs", "AcctSvcrRef"]) {
+        tx.acct_svcr_ref = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "Refs", "EndToEndId"]) {
+        tx.end_to_end_id = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "Refs", "MndtId"]) {
+        tx.mandate_id = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &["NtryDtls", "TxDtls", "RltdPties", "DbtrAcct", "Id", "IBAN"],
+    ) {
+        tx.debtor.iban = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &["NtryDtls", "TxDtls", "RltdPties", "CdtrAcct", "Id", "IBAN"],
+    ) {
+        tx.creditor.iban = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RltdPties", "Dbtr", "Nm"]) {
+        tx.debtor.name = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RltdPties", "Cdtr", "Nm"]) {
+        tx.creditor.name = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &["NtryDtls", "TxDtls", "RltdPties", "UltmtDbtr", "Nm"],
+    ) {
+        tx.debtor.name2 = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &["NtryDtls", "TxDtls", "RltdPties", "UltmtCdtr", "Nm"],
+    ) {
+        tx.creditor.name2 = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Dbtr",
+            "Id",
+            "PrvtId",
+            "Othr",
+            "Id",
+        ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Dbtr",
+            "Id",
+            "PrvtId",
+            "OthrId",
+            "Id",
+        ],
+    ) {
+        tx.debtor.creditorid = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Cdtr",
+            "Id",
+            "PrvtId",
+            "Othr",
+            "Id",
+        ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdPties",
+            "Cdtr",
+            "Id",
+            "PrvtId",
+            "OthrId",
+            "Id",
+        ],
+    ) {
+        tx.creditor.creditorid = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdAgts",
+            "DbtrAgt",
+            "FinInstnId",
+            "BIC",
+        ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdAgts",
+            "DbtrAgt",
+            "FinInstnId",
+            "BICFI",
+        ],
+    ) {
+        tx.debtor.bic = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdAgts",
+            "CdtrAgt",
+            "FinInstnId",
+            "BIC",
+        ],
+    ) || path_ends_with(
+        stack,
+        &[
+            "NtryDtls",
+            "TxDtls",
+            "RltdAgts",
+            "CdtrAgt",
+            "FinInstnId",
+            "BICFI",
+        ],
+    ) {
+        tx.creditor.bic = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RmtInf", "Ustrd"]) {
+        tx.usages.push(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "Purp", "Cd"]) {
+        tx.purpose_code = Some(text.to_owned());
+    }
+}
+
 fn camt_line_from_entry(
     entry: CamtEntry,
     current_saldo: i64,
     saldo_curr: Option<&str>,
-) -> GvrKUmsLine {
+) -> Option<GvrKUmsLine> {
+    if entry.has_details && !entry.seen_tx_details {
+        return None;
+    }
+
     let value = Value {
         value: camt_signed_amount(
             entry.amount.as_deref().unwrap_or("0"),
@@ -448,7 +656,7 @@ fn camt_line_from_entry(
             date: bdate,
             time: None,
         }),
-        customerref: entry.customer_ref,
+        customerref: entry.customer_ref.clone(),
         text: entry.text.clone(),
         other: Some(Konto::default()),
         is_sepa: true,
@@ -460,9 +668,27 @@ fn camt_line_from_entry(
         && let Some(text) = entry.text
     {
         line.add_usage(Some(text));
+    } else if entry.has_details {
+        let use_debtor = entry.credit_debit.as_deref() == Some("CRDT");
+        let tx = entry.tx;
+        let other = if use_debtor {
+            tx.debtor.clone()
+        } else {
+            tx.creditor.clone()
+        };
+
+        line.id = tx
+            .id
+            .or_else(|| entry.customer_ref.clone())
+            .or(tx.acct_svcr_ref);
+        line.end_to_end_id = tx.end_to_end_id;
+        line.mandate_id = tx.mandate_id;
+        line.other = Some(other);
+        line.usage.extend(tx.usages);
+        line.purposecode = tx.purpose_code;
     }
 
-    line
+    Some(line)
 }
 
 fn attr_value(

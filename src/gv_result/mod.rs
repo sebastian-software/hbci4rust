@@ -1420,6 +1420,7 @@ pub struct Konto {
     pub customer_id: Option<String>,
     pub name: Option<String>,
     pub name2: Option<String>,
+    pub creditorid: Option<String>,
     pub acctype: Option<String>,
     #[serde(rename = "type")]
     pub account_type: Option<String>,
@@ -1442,6 +1443,7 @@ impl Default for Konto {
             customer_id: None,
             name: None,
             name2: None,
+            creditorid: None,
             acctype: None,
             account_type: None,
             curr: Some("EUR".to_owned()),

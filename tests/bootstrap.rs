@@ -148,6 +148,7 @@ fn giro_account() -> Konto {
         customer_id: Some("customer".to_owned()),
         name: Some("Max Mustermann".to_owned()),
         name2: None,
+        creditorid: None,
         acctype: Some("1".to_owned()),
         account_type: Some("Girokonto".to_owned()),
         curr: Some("EUR".to_owned()),
