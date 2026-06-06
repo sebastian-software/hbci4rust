@@ -699,3 +699,94 @@ fn camt_transaction_details_skip_entry_when_first_detail_has_no_tx_like_original
 
     assert!(days[0].lines.is_empty());
 }
+
+#[test]
+fn camt_upstream_05200102_fixture_matches_original_test004_observable_fields() {
+    let xml = include_str!("fixtures/hbci4java/sepa/test-camt-parse-05200102.xml");
+
+    let version = SepaVersion::autodetect(xml)
+        .expect("valid upstream fixture")
+        .expect("known CAMT version");
+    assert_eq!(version, SepaVersion::CAMT_052_001_02);
+
+    let days = parse_camt_report_shell(xml, version).expect("upstream CAMT fixture parses");
+
+    assert_eq!(days.len(), 1);
+    let day = &days[0];
+    assert_eq!(day.lines.len(), 2);
+    assert_eq!(
+        day.start.as_ref().map(ToString::to_string).as_deref(),
+        Some("2018-07-20 100.00 EUR")
+    );
+    assert_eq!(
+        day.end.as_ref().map(ToString::to_string).as_deref(),
+        Some("2018-07-20 110.50 EUR")
+    );
+    assert_eq!(day.my.iban.as_deref(), Some("DE12345678901234567890"));
+    assert_eq!(day.my.bic.as_deref(), Some("ABCDEFG1ABC"));
+    assert_eq!(day.my.curr.as_deref(), Some("EUR"));
+    assert_eq!(day.start_type, 'F');
+    assert_eq!(day.end_type, 'F');
+
+    let first = &day.lines[0];
+    assert_eq!(first.additional, None);
+    assert_eq!(first.addkey.as_deref(), Some("000"));
+    assert_eq!(first.bdate.as_deref(), Some("2018-07-20"));
+    assert_eq!(first.charge_value, None);
+    assert_eq!(first.customerref.as_deref(), Some("NONREF"));
+    assert_eq!(first.gvcode.as_deref(), Some("152"));
+    assert_eq!(first.id.as_deref(), Some("2018-07-20-07.51.25.370057"));
+    assert_eq!(first.instref, None);
+    assert!(first.is_camt);
+    assert!(first.is_sepa);
+    assert!(!first.is_storno);
+    assert_eq!(first.orig_value, None);
+    assert_eq!(first.primanota.as_deref(), Some("9201"));
+    assert_eq!(first.purposecode.as_deref(), Some("RINP"));
+    assert_eq!(first.text.as_deref(), Some("DAUERAUFTRAG"));
+    assert_eq!(first.usage, vec!["Verwendungszweck 1"]);
+    assert_eq!(first.valuta.as_deref(), Some("2018-07-21"));
+    assert_eq!(
+        first.value.as_ref().map(ToString::to_string).as_deref(),
+        Some("10.00 EUR")
+    );
+    assert_eq!(
+        first.saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("2018-07-20 110.00 EUR")
+    );
+    let first_other = first.other.as_ref().expect("first counter account");
+    assert_eq!(first_other.iban.as_deref(), Some("DE12345678901234567891"));
+    assert_eq!(first_other.bic.as_deref(), Some("ABCDEFG2ABC"));
+    assert_eq!(first_other.name.as_deref(), Some("Max Mustermann"));
+
+    let second = &day.lines[1];
+    assert_eq!(second.additional, None);
+    assert_eq!(second.addkey.as_deref(), Some("000"));
+    assert_eq!(second.bdate.as_deref(), Some("2018-07-20"));
+    assert_eq!(second.charge_value, None);
+    assert_eq!(second.customerref.as_deref(), Some("NONREF"));
+    assert_eq!(second.gvcode.as_deref(), Some("152"));
+    assert_eq!(second.id.as_deref(), Some("2018-07-20-07.51.28.370057"));
+    assert_eq!(second.instref, None);
+    assert!(second.is_camt);
+    assert!(second.is_sepa);
+    assert!(!second.is_storno);
+    assert_eq!(second.orig_value, None);
+    assert_eq!(second.primanota.as_deref(), Some("9201"));
+    assert_eq!(second.purposecode.as_deref(), Some("DEPT"));
+    assert_eq!(second.text.as_deref(), Some("EINZAHLUNG"));
+    assert_eq!(second.usage, vec!["Verwendungszweck 2"]);
+    assert_eq!(second.valuta.as_deref(), Some("2018-07-22"));
+    assert_eq!(
+        second.value.as_ref().map(ToString::to_string).as_deref(),
+        Some("0.50 EUR")
+    );
+    assert_eq!(
+        second.saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("2018-07-20 110.50 EUR")
+    );
+    let second_other = second.other.as_ref().expect("second counter account");
+    assert_eq!(second_other.iban.as_deref(), Some("DE12345678901234567892"));
+    assert_eq!(second_other.bic.as_deref(), Some("ABCDEFG3ABC"));
+    assert_eq!(second_other.name.as_deref(), Some("Bert Bezahler"));
+}
