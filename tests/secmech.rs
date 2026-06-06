@@ -1,7 +1,9 @@
 use hbci4rust::{
-    FlickerCode, FlickerCodeVersion, FlickerRenderer, HhdVersion, HhdVersionType, MatrixCode,
-    Properties, QrCode,
+    ChallengeHhdVersion, ChallengeInfo, FlickerCode, FlickerCodeVersion, FlickerRenderer,
+    HhdVersion, HhdVersionType, MatrixCode, Properties, QrCode,
 };
+
+const CHALLENGE_DATA: &str = include_str!("fixtures/hbci4java/secmech/challengedata.xml");
 
 #[test]
 fn qr_code_extracts_embedded_png_and_message_like_original_test001() {
@@ -140,11 +142,184 @@ fn hhd_version_matches_upstream_test_hhd_version_cases() {
     assert_eq!(HhdVersion::Decoupled.challenge_version(), None);
 }
 
+#[test]
+fn challenge_info_unknown_job_returns_none_like_original_test_invalid() {
+    let info = challenge_info();
+    assert!(
+        info.get_data("UNDEF")
+            .and_then(|job| job.hhd_version(HhdVersion::Hhd14))
+            .is_none()
+    );
+}
+
+#[test]
+fn challenge_info_missing_params_matches_original_test_missing() {
+    let info = challenge_info();
+    let version = challenge_version(&info, "HKDTE", HhdVersion::Hhd14);
+    assert_eq!(version.params().len(), 0);
+}
+
+#[test]
+fn challenge_info_classes_match_original_test_klass() {
+    let info = challenge_info();
+
+    assert_eq!(
+        challenge_version(&info, "HKAOM", HhdVersion::Hhd12).klass(),
+        "20"
+    );
+    assert_eq!(
+        challenge_version(&info, "HKAOM", HhdVersion::Hhd13).klass(),
+        "20"
+    );
+    assert_eq!(
+        challenge_version(&info, "HKAOM", HhdVersion::Hhd14).klass(),
+        "10"
+    );
+
+    assert_eq!(
+        challenge_version(&info, "HKCCS", HhdVersion::Hhd12).klass(),
+        "22"
+    );
+    assert_eq!(
+        challenge_version(&info, "HKCCS", HhdVersion::Hhd13).klass(),
+        "22"
+    );
+    assert_eq!(
+        challenge_version(&info, "HKCCS", HhdVersion::Hhd14).klass(),
+        "09"
+    );
+}
+
+#[test]
+fn challenge_info_formats_wrt_like_original_test_wrt() {
+    let info = challenge_info();
+
+    assert_wrt_param(
+        &challenge_version(&info, "HKAOM", HhdVersion::Hhd12).params()[1],
+        "BTG.value",
+    );
+    assert_wrt_param(
+        &challenge_version(&info, "HKAOM", HhdVersion::Hhd13).params()[2],
+        "BTG.value",
+    );
+    assert_wrt_param(
+        &challenge_version(&info, "HKAOM", HhdVersion::Hhd14).params()[0],
+        "BTG.value",
+    );
+}
+
+#[test]
+fn challenge_info_formats_blank_type_without_escaping_like_original_test_an() {
+    let info = challenge_info();
+
+    assert_blank_type_param(
+        &challenge_version(&info, "HKAOM", HhdVersion::Hhd12).params()[0],
+        "Other.number",
+    );
+    assert_blank_type_param(
+        &challenge_version(&info, "HKAOM", HhdVersion::Hhd13).params()[1],
+        "Other.number",
+    );
+    assert_blank_type_param(
+        &challenge_version(&info, "HKAOM", HhdVersion::Hhd14).params()[3],
+        "Other.number",
+    );
+}
+
+#[test]
+fn challenge_info_formats_date_like_original_test_date() {
+    let info = challenge_info();
+    let param = &challenge_version(&info, "HKTUE", HhdVersion::Hhd14).params()[3];
+
+    assert_eq!(param.path(), Some("date"));
+    assert_eq!(param.param_type(), "Date");
+    assert_eq!(
+        param.format(Some("2011-05-20")).expect("date"),
+        Some("20110520".to_owned())
+    );
+    assert_eq!(param.format(None).expect("none"), None);
+    assert!(param.format(Some("invalid-date")).is_err());
+}
+
+#[test]
+fn challenge_info_conditions_match_original_tests_condition_and_condition2() {
+    let info = challenge_info();
+    let no_challenge_value = properties(&[("needchallengevalue", "N")]);
+    let need_challenge_value = properties(&[("needchallengevalue", "J")]);
+
+    for version in [HhdVersion::Hhd12, HhdVersion::Hhd13] {
+        for param in challenge_version(&info, "HKAOM", version).params() {
+            if param.path() == Some("BTG.value") {
+                assert!(!param.is_complied(&no_challenge_value));
+            }
+        }
+    }
+    for param in challenge_version(&info, "HKAOM", HhdVersion::Hhd14).params() {
+        if param.path() == Some("BTG.value") {
+            assert!(param.is_complied(&no_challenge_value));
+        }
+    }
+
+    for version in [HhdVersion::Hhd12, HhdVersion::Hhd13, HhdVersion::Hhd14] {
+        for param in challenge_version(&info, "HKCCS", version).params() {
+            if param.path() == Some("sepa.btg.value") {
+                assert!(param.is_complied(&need_challenge_value));
+            }
+        }
+    }
+}
+
 fn properties(values: &[(&str, &str)]) -> Properties {
     values
         .iter()
         .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
         .collect()
+}
+
+fn challenge_info() -> ChallengeInfo {
+    ChallengeInfo::parse_xml(CHALLENGE_DATA).expect("challenge info")
+}
+
+fn challenge_version<'a>(
+    info: &'a ChallengeInfo,
+    code: &str,
+    version: HhdVersion,
+) -> &'a ChallengeHhdVersion {
+    info.get_data(code)
+        .and_then(|job| job.hhd_version(version))
+        .expect("challenge version")
+}
+
+fn assert_wrt_param(param: &hbci4rust::ChallengeParam, path: &str) {
+    assert_eq!(param.path(), Some(path));
+    assert_eq!(param.param_type(), "Wrt");
+    assert_eq!(
+        param.format(Some("100")).expect("wrt"),
+        Some("100,".to_owned())
+    );
+    assert_eq!(
+        param.format(Some("100.50")).expect("wrt"),
+        Some("100,5".to_owned())
+    );
+    assert_eq!(
+        param.format(Some("100.99")).expect("wrt"),
+        Some("100,99".to_owned())
+    );
+    assert_eq!(param.format(None).expect("none"), None);
+}
+
+fn assert_blank_type_param(param: &hbci4rust::ChallengeParam, path: &str) {
+    assert_eq!(param.path(), Some(path));
+    assert_eq!(param.param_type(), "");
+    assert_eq!(
+        param.format(Some("AaBb")).expect("an"),
+        Some("AaBb".to_owned())
+    );
+    assert_eq!(
+        param.format(Some("+:'@")).expect("an"),
+        Some("+:'@".to_owned())
+    );
+    assert_eq!(param.format(None).expect("none"), None);
 }
 
 fn latin1_string(bytes: &[u8]) -> String {

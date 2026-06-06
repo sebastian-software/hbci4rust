@@ -1,6 +1,11 @@
+use std::collections::BTreeMap;
+
 use base64::Engine;
+use quick_xml::XmlVersion;
+use quick_xml::events::{BytesStart, Event};
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
+use crate::protocol::normalize_iso_date;
 use crate::tools::Properties;
 
 const FLICKER_LC_LENGTH_HHD14: usize = 3;
@@ -252,6 +257,283 @@ pub enum HhdVersionType {
     PhotoTan,
     QrCode,
     Decoupled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChallengeInfo {
+    jobs: BTreeMap<String, ChallengeJob>,
+}
+
+impl ChallengeInfo {
+    pub fn parse_xml(xml: &str) -> HbciResult<Self> {
+        ChallengeInfoParser::default().parse(xml)
+    }
+
+    pub fn get_data(&self, code: &str) -> Option<&ChallengeJob> {
+        self.jobs.get(code)
+    }
+
+    pub fn jobs(&self) -> &BTreeMap<String, ChallengeJob> {
+        &self.jobs
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChallengeJob {
+    versions: BTreeMap<String, ChallengeHhdVersion>,
+}
+
+impl ChallengeJob {
+    pub fn version(&self, version: &str) -> Option<&ChallengeHhdVersion> {
+        self.versions.get(version)
+    }
+
+    pub fn hhd_version(&self, version: HhdVersion) -> Option<&ChallengeHhdVersion> {
+        version
+            .challenge_version()
+            .and_then(|version| self.version(version))
+    }
+
+    pub fn versions(&self) -> &BTreeMap<String, ChallengeHhdVersion> {
+        &self.versions
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChallengeHhdVersion {
+    klass: String,
+    params: Vec<ChallengeParam>,
+}
+
+impl ChallengeHhdVersion {
+    pub fn klass(&self) -> &str {
+        &self.klass
+    }
+
+    pub fn params(&self) -> &[ChallengeParam] {
+        &self.params
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChallengeParam {
+    param_type: String,
+    path: Option<String>,
+    condition_name: Option<String>,
+    condition_value: Option<String>,
+}
+
+impl ChallengeParam {
+    pub fn param_type(&self) -> &str {
+        &self.param_type
+    }
+
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    pub fn condition_name(&self) -> Option<&str> {
+        self.condition_name.as_deref()
+    }
+
+    pub fn condition_value(&self) -> Option<&str> {
+        self.condition_value.as_deref()
+    }
+
+    pub fn is_complied(&self, secmech: &Properties) -> bool {
+        let Some(condition_name) = self.condition_name.as_deref() else {
+            return true;
+        };
+        let expected = self.condition_value.as_deref().unwrap_or_default();
+        property(secmech, condition_name).unwrap_or_default() == expected
+    }
+
+    pub fn format(&self, value: Option<&str>) -> HbciResult<Option<String>> {
+        let Some(value) = value else {
+            return Ok(None);
+        };
+        if value.trim().is_empty() {
+            return Ok(None);
+        }
+        if self.param_type.trim().is_empty() {
+            return Ok(Some(value.to_owned()));
+        }
+
+        let formatted = match self.param_type.as_str() {
+            "Wrt" => format_challenge_wrt(value)?,
+            "Date" => format_challenge_date(value)?,
+            param_type => {
+                return Err(HbciError::new(
+                    HbciErrorKind::Unsupported,
+                    format!("unsupported challenge parameter type: {param_type}"),
+                ));
+            }
+        };
+        Ok(Some(formatted))
+    }
+}
+
+#[derive(Debug, Default)]
+struct ChallengeInfoParser {
+    info: ChallengeInfo,
+    current_job_code: Option<String>,
+    current_job: Option<ChallengeJob>,
+    current_spec: Option<String>,
+    current_hhd: Option<ChallengeHhdVersion>,
+    current_param: Option<ChallengeParam>,
+    text_capture: Option<ChallengeTextCapture>,
+}
+
+impl ChallengeInfoParser {
+    fn parse(mut self, xml: &str) -> HbciResult<ChallengeInfo> {
+        let mut reader = quick_xml::Reader::from_str(xml);
+        reader.config_mut().trim_text(false);
+
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(event)) => self.handle_start(&reader, event)?,
+                Ok(Event::Empty(event)) => self.handle_empty(&reader, event)?,
+                Ok(Event::Text(event)) => {
+                    if let Some(capture) = &mut self.text_capture {
+                        let text = event.decode().map_err(|err| {
+                            HbciError::with_source(
+                                HbciErrorKind::Protocol,
+                                "failed to decode challenge info text",
+                                err,
+                            )
+                        })?;
+                        capture.push_str(&text);
+                    }
+                }
+                Ok(Event::End(event)) => self.handle_end(event.name().as_ref())?,
+                Ok(Event::Eof) => break,
+                Ok(_) => {}
+                Err(err) => {
+                    return Err(HbciError::with_source(
+                        HbciErrorKind::Protocol,
+                        "failed to parse challenge info XML",
+                        err,
+                    ));
+                }
+            }
+        }
+
+        Ok(self.info)
+    }
+
+    fn handle_start(
+        &mut self,
+        reader: &quick_xml::Reader<&[u8]>,
+        event: BytesStart<'_>,
+    ) -> HbciResult<()> {
+        match event.name().as_ref() {
+            b"job" => {
+                self.current_job_code = Some(challenge_required_attr(reader, &event, b"code")?);
+                self.current_job = Some(ChallengeJob::default());
+            }
+            b"challengeinfo" => {
+                self.current_spec = Some(challenge_required_attr(reader, &event, b"spec")?);
+                self.current_hhd = Some(ChallengeHhdVersion::default());
+            }
+            b"klass" => {
+                self.text_capture = Some(ChallengeTextCapture::Klass(String::new()));
+            }
+            b"param" => {
+                self.current_param = Some(parse_challenge_param(reader, &event)?);
+                self.text_capture = Some(ChallengeTextCapture::Param(String::new()));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_empty(
+        &mut self,
+        reader: &quick_xml::Reader<&[u8]>,
+        event: BytesStart<'_>,
+    ) -> HbciResult<()> {
+        if event.name().as_ref() == b"param" {
+            let param = parse_challenge_param(reader, &event)?;
+            self.current_hhd
+                .as_mut()
+                .ok_or_else(challenge_info_stack_underflow)?
+                .params
+                .push(param);
+        }
+        Ok(())
+    }
+
+    fn handle_end(&mut self, name: &[u8]) -> HbciResult<()> {
+        match name {
+            b"klass" => {
+                let Some(ChallengeTextCapture::Klass(klass)) = self.text_capture.take() else {
+                    return Ok(());
+                };
+                self.current_hhd
+                    .as_mut()
+                    .ok_or_else(challenge_info_stack_underflow)?
+                    .klass = klass;
+            }
+            b"param" => {
+                let mut param = self
+                    .current_param
+                    .take()
+                    .ok_or_else(challenge_info_stack_underflow)?;
+                if let Some(ChallengeTextCapture::Param(path)) = self.text_capture.take()
+                    && !path.is_empty()
+                {
+                    param.path = Some(path);
+                }
+                self.current_hhd
+                    .as_mut()
+                    .ok_or_else(challenge_info_stack_underflow)?
+                    .params
+                    .push(param);
+            }
+            b"challengeinfo" => {
+                let spec = self
+                    .current_spec
+                    .take()
+                    .ok_or_else(challenge_info_stack_underflow)?;
+                let hhd = self
+                    .current_hhd
+                    .take()
+                    .ok_or_else(challenge_info_stack_underflow)?;
+                self.current_job
+                    .as_mut()
+                    .ok_or_else(challenge_info_stack_underflow)?
+                    .versions
+                    .insert(spec, hhd);
+            }
+            b"job" => {
+                let code = self
+                    .current_job_code
+                    .take()
+                    .ok_or_else(challenge_info_stack_underflow)?;
+                let job = self
+                    .current_job
+                    .take()
+                    .ok_or_else(challenge_info_stack_underflow)?;
+                self.info.jobs.insert(code, job);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+enum ChallengeTextCapture {
+    Klass(String),
+    Param(String),
+}
+
+impl ChallengeTextCapture {
+    fn push_str(&mut self, text: &str) {
+        match self {
+            Self::Klass(value) | Self::Param(value) => value.push_str(text),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -633,6 +915,94 @@ fn parse_image_payload(data: &[u8]) -> HbciResult<ImagePayload> {
     Ok(ImagePayload { mimetype, image })
 }
 
+fn parse_challenge_param(
+    reader: &quick_xml::Reader<&[u8]>,
+    event: &BytesStart<'_>,
+) -> HbciResult<ChallengeParam> {
+    Ok(ChallengeParam {
+        param_type: challenge_attr(reader, event, b"type")?.unwrap_or_default(),
+        path: None,
+        condition_name: challenge_attr(reader, event, b"condition-name")?,
+        condition_value: challenge_attr(reader, event, b"condition-value")?,
+    })
+}
+
+fn challenge_required_attr(
+    reader: &quick_xml::Reader<&[u8]>,
+    event: &BytesStart<'_>,
+    name: &[u8],
+) -> HbciResult<String> {
+    challenge_attr(reader, event, name)?.ok_or_else(|| {
+        HbciError::new(
+            HbciErrorKind::Protocol,
+            format!(
+                "challenge info element {} is missing required {} attribute",
+                String::from_utf8_lossy(event.name().as_ref()),
+                String::from_utf8_lossy(name)
+            ),
+        )
+    })
+}
+
+fn challenge_attr(
+    reader: &quick_xml::Reader<&[u8]>,
+    event: &BytesStart<'_>,
+    name: &[u8],
+) -> HbciResult<Option<String>> {
+    for attr in event.attributes().with_checks(false) {
+        let attr = attr.map_err(|err| {
+            HbciError::with_source(
+                HbciErrorKind::Protocol,
+                "failed to parse challenge info XML attribute",
+                err,
+            )
+        })?;
+        if attr.key.as_ref() == name {
+            let value = attr
+                .decoded_and_normalized_value(XmlVersion::Explicit1_0, reader.decoder())
+                .map_err(|err| {
+                    HbciError::with_source(
+                        HbciErrorKind::Protocol,
+                        "failed to decode challenge info XML attribute",
+                        err,
+                    )
+                })?;
+            return Ok(Some(value.into_owned()));
+        }
+    }
+    Ok(None)
+}
+
+fn format_challenge_wrt(value: &str) -> HbciResult<String> {
+    let value = value.trim().replace(',', ".");
+    let parsed = value.parse::<f64>().map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid Wrt challenge parameter value: {value}"),
+            err,
+        )
+    })?;
+
+    if !parsed.is_finite() {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid Wrt challenge parameter value: {value}"),
+        ));
+    }
+
+    let rounded = (parsed * 100.0).round() / 100.0;
+    let mut rendered = format!("{rounded:.2}");
+    while rendered.ends_with('0') {
+        rendered.pop();
+    }
+    Ok(rendered.replace('.', ","))
+}
+
+fn format_challenge_date(value: &str) -> HbciResult<String> {
+    let date = normalize_iso_date(value)?;
+    Ok(date.replace('-', ""))
+}
+
 fn decode_decimal_len(bytes: &[u8]) -> HbciResult<usize> {
     let value = bytes
         .iter()
@@ -788,4 +1158,11 @@ fn invalid_qr_code() -> HbciError {
 
 fn invalid_flicker_code() -> HbciError {
     HbciError::new(HbciErrorKind::InvalidArgument, "invalid flicker code")
+}
+
+fn challenge_info_stack_underflow() -> HbciError {
+    HbciError::new(
+        HbciErrorKind::Protocol,
+        "challenge info XML parser stack underflow",
+    )
 }
