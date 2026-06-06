@@ -76,6 +76,17 @@ where
         Ok(())
     }
 
+    pub async fn try_add_to_queue_with_account_checks(
+        &mut self,
+        mut job: HbciJob,
+    ) -> HbciResult<()> {
+        job.verify_constraints()?;
+        let callback = super::callback();
+        job.verify_account_checks(callback.as_deref()).await?;
+        self.queue.push(job);
+        Ok(())
+    }
+
     pub fn queued_jobs(&self) -> &[HbciJob] {
         &self.queue
     }

@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallback};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::Konto;
 
@@ -252,6 +253,16 @@ impl HbciJob {
         Ok(lowlevel_params)
     }
 
+    pub(crate) async fn verify_account_checks(
+        &mut self,
+        callback: Option<&dyn HbciCallback>,
+    ) -> HbciResult<()> {
+        match self.name.as_str() {
+            "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
+            _ => Ok(()),
+        }
+    }
+
     fn resolved_constraint_value(
         &self,
         constraint: &HbciJobConstraint,
@@ -276,6 +287,64 @@ impl HbciJob {
         };
 
         Ok((!content.is_empty()).then_some(content))
+    }
+
+    async fn check_account_crc(
+        &mut self,
+        frontend_base: &str,
+        callback: Option<&dyn HbciCallback>,
+    ) -> HbciResult<()> {
+        self.check_iban_crc(frontend_base, callback).await
+    }
+
+    async fn check_iban_crc(
+        &mut self,
+        frontend_base: &str,
+        callback: Option<&dyn HbciCallback>,
+    ) -> HbciResult<()> {
+        let frontend_name = format!("{frontend_base}.iban");
+        let Some(mut iban) = self.resolved_frontend_value(&frontend_name) else {
+            return Ok(());
+        };
+        if iban.is_empty() || iban_crc_ok(&iban) {
+            return Ok(());
+        }
+
+        let original_iban = iban.clone();
+        let Some(callback) = callback else {
+            return Ok(());
+        };
+
+        loop {
+            let old_iban = iban.clone();
+            let response = callback
+                .handle(CallbackEvent {
+                    reason: CallbackReason::HaveIbanError,
+                    message: "CALLB_HAVE_IBAN_ERROR".to_owned(),
+                    data_type: CallbackDataType::Text,
+                    current_value: Some(iban.clone()),
+                })
+                .await?;
+
+            iban = response.value.unwrap_or_else(|| old_iban.clone());
+            if iban == old_iban || iban_crc_ok(&iban) {
+                break;
+            }
+        }
+
+        if iban != original_iban {
+            self.set_frontend_and_lowlevel_param(frontend_name, iban);
+        }
+        Ok(())
+    }
+
+    fn resolved_frontend_value(&self, frontend_name: &str) -> Option<String> {
+        self.constraint(frontend_name).and_then(|constraint| {
+            self.lowlevel_param(&constraint.destination_name)
+                .or_else(|| self.param(frontend_name))
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
     }
 
     fn set_optional_account_param(&mut self, base: &str, field: &str, value: Option<&str>) {
@@ -329,6 +398,14 @@ impl HbciJob {
             self.lowlevel_params.insert(destination, value.to_owned());
         }
     }
+}
+
+fn iban_crc_ok(iban: &str) -> bool {
+    Konto {
+        iban: Some(iban.to_owned()),
+        ..Konto::default()
+    }
+    .check_iban()
 }
 
 fn indexed_destination_name(destination: &str, index: usize) -> String {
@@ -402,4 +479,111 @@ fn saldo_req_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("dummyall", "Saldo7.allaccounts", Some("N")),
         HbciJobConstraint::new("maxentries", "Saldo7.maxentries", Some("")),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::callback::CallbackResponse;
+
+    #[derive(Debug)]
+    struct ScriptedCallback {
+        events: Arc<Mutex<Vec<CallbackEvent>>>,
+        responses: Arc<Mutex<VecDeque<CallbackResponse>>>,
+    }
+
+    #[async_trait]
+    impl HbciCallback for ScriptedCallback {
+        async fn handle(&self, event: CallbackEvent) -> HbciResult<CallbackResponse> {
+            self.events.lock().expect("callback event lock").push(event);
+            Ok(self
+                .responses
+                .lock()
+                .expect("callback response lock")
+                .pop_front()
+                .unwrap_or_else(CallbackResponse::empty))
+        }
+    }
+
+    #[tokio::test]
+    async fn account_checks_correct_invalid_iban_through_callback_loop() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let responses = Arc::new(Mutex::new(VecDeque::from([
+            CallbackResponse::value("DE89370400440532013002"),
+            CallbackResponse::value("DE89370400440532013000"),
+        ])));
+        let callback = ScriptedCallback {
+            events: events.clone(),
+            responses,
+        };
+        let mut job = saldo_req_with_iban("DE89370400440532013001");
+
+        job.verify_constraints().expect("constraints resolve");
+        job.verify_account_checks(Some(&callback))
+            .await
+            .expect("account checks complete");
+
+        assert_eq!(job.param("my.iban"), Some("DE89370400440532013000"));
+        assert_eq!(
+            job.lowlevel_param("Saldo7.KTV.iban"),
+            Some("DE89370400440532013000")
+        );
+
+        let events = events.lock().expect("callback event lock");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].reason, CallbackReason::HaveIbanError);
+        assert_eq!(events[0].data_type, CallbackDataType::Text);
+        assert_eq!(
+            events[0].current_value.as_deref(),
+            Some("DE89370400440532013001")
+        );
+        assert_eq!(
+            events[1].current_value.as_deref(),
+            Some("DE89370400440532013002")
+        );
+    }
+
+    #[tokio::test]
+    async fn account_checks_accept_unchanged_invalid_iban_like_original() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let responses = Arc::new(Mutex::new(VecDeque::new()));
+        let callback = ScriptedCallback {
+            events: events.clone(),
+            responses,
+        };
+        let mut job = saldo_req_with_iban("DE89370400440532013001");
+
+        job.verify_constraints().expect("constraints resolve");
+        job.verify_account_checks(Some(&callback))
+            .await
+            .expect("account checks complete");
+
+        assert_eq!(job.param("my.iban"), Some("DE89370400440532013001"));
+        assert_eq!(
+            job.lowlevel_param("Saldo7.KTV.iban"),
+            Some("DE89370400440532013001")
+        );
+        assert_eq!(events.lock().expect("callback event lock").len(), 1);
+    }
+
+    fn saldo_req_with_iban(iban: &str) -> HbciJob {
+        let mut job = HbciJob::new("SaldoReq");
+        job.set_param_account(
+            "my",
+            &Konto {
+                country: Some("DE".to_owned()),
+                blz: Some("37040044".to_owned()),
+                number: Some("0532013000".to_owned()),
+                bic: Some("COBADEFFXXX".to_owned()),
+                iban: Some(iban.to_owned()),
+                ..Konto::default()
+            },
+        );
+        job
+    }
 }
