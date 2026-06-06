@@ -790,3 +790,57 @@ fn camt_upstream_05200102_fixture_matches_original_test004_observable_fields() {
     assert_eq!(second_other.bic.as_deref(), Some("ABCDEFG3ABC"));
     assert_eq!(second_other.name.as_deref(), Some("Bert Bezahler"));
 }
+
+#[test]
+fn camt_upstream_return_fixture_matches_original_test005_observable_fields() {
+    let xml = include_str!("fixtures/hbci4java/sepa/test-camt-ruecklastschrift.xml");
+
+    let version = SepaVersion::autodetect(xml)
+        .expect("valid upstream fixture")
+        .expect("known CAMT version");
+    assert_eq!(version, SepaVersion::CAMT_052_001_02);
+
+    let days = parse_camt_report_shell(xml, version).expect("upstream CAMT return fixture parses");
+
+    assert_eq!(days.len(), 1);
+    let day = &days[0];
+    assert_eq!(day.lines.len(), 1);
+    assert_eq!(
+        day.start.as_ref().map(ToString::to_string).as_deref(),
+        Some("2021-03-26 100.00 EUR")
+    );
+    assert_eq!(
+        day.end.as_ref().map(ToString::to_string).as_deref(),
+        Some("2021-03-26 100.00 EUR")
+    );
+
+    let line = &day.lines[0];
+    assert_eq!(
+        line.value.as_ref().map(ToString::to_string).as_deref(),
+        Some("-53.00 EUR")
+    );
+    assert_eq!(
+        line.saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("2021-03-26 47.00 EUR")
+    );
+    assert_eq!(
+        line.orig_value.as_ref().map(ToString::to_string).as_deref(),
+        Some("50.00 EUR")
+    );
+    assert_eq!(
+        line.additional.as_deref(),
+        Some("RUECKLASTSCHRIFT Sonstige Gruende")
+    );
+    assert_eq!(line.mandate_id.as_deref(), Some("TEST1234"));
+    assert_eq!(line.id.as_deref(), Some("2021-03-26-09-12345"));
+    assert_eq!(line.customerref.as_deref(), Some("NONREF"));
+    assert_eq!(line.text.as_deref(), Some("LS RUECKBELASTUNG"));
+    assert_eq!(line.usage, vec!["RUECKLASTSCHRIFT Sonstige Gruende"]);
+    assert_eq!(line.bdate.as_deref(), Some("2021-03-26"));
+    assert_eq!(line.valuta.as_deref(), Some("2021-03-26"));
+
+    let other = line.other.as_ref().expect("return counter account");
+    assert_eq!(other.iban.as_deref(), Some("DES1234567890"));
+    assert_eq!(other.bic.as_deref(), Some("TESTS1234"));
+    assert_eq!(other.name.as_deref(), Some("Sven Schuldner"));
+}
