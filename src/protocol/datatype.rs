@@ -263,7 +263,7 @@ fn parse_currency(value: &str) -> HbciResult<String> {
     Ok(value.to_owned())
 }
 
-fn render_date(value: &str) -> HbciResult<String> {
+pub(crate) fn normalize_iso_date(value: &str) -> HbciResult<String> {
     let value = value.trim();
     let Some((year, month_day)) = value.split_once('-') else {
         return Err(HbciError::new(
@@ -290,7 +290,15 @@ fn render_date(value: &str) -> HbciResult<String> {
 
     let month_num = parse_bounded_usize("Date month", month, 1, 12)?;
     let day_num = parse_bounded_usize("Date day", day, 1, days_in_month(year, month_num)?)?;
-    Ok(format!("{year}{month_num:02}{day_num:02}"))
+    Ok(format!("{year}-{month_num:02}-{day_num:02}"))
+}
+
+fn render_date(value: &str) -> HbciResult<String> {
+    let date = normalize_iso_date(value)?;
+    let year = &date[0..4];
+    let month = &date[5..7];
+    let day = &date[8..10];
+    Ok(format!("{year}{month}{day}"))
 }
 
 fn parse_date(value: &str) -> HbciResult<String> {

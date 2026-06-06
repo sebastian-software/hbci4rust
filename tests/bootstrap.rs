@@ -249,6 +249,61 @@ fn checked_integer_param_setter_rejects_unaccepted_param_like_original() {
 }
 
 #[test]
+fn checked_date_param_setter_uses_original_iso_shape() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "DateJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "range.startdate",
+                    "destination_name": "DateSeg.range.startdate",
+                    "default_value": null,
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("date job");
+
+    job.try_set_param_date("range.startdate", " 2024-02-29 ")
+        .expect("date parameter is accepted");
+
+    assert_eq!(job.param("range.startdate"), Some("2024-02-29"));
+    assert_eq!(
+        job.lowlevel_param("DateSeg.range.startdate"),
+        Some("2024-02-29")
+    );
+}
+
+#[test]
+fn checked_date_param_setter_rejects_invalid_iso_date() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "DateJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "range.startdate",
+                    "destination_name": "DateSeg.range.startdate",
+                    "default_value": null,
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("date job");
+
+    let err = job
+        .try_set_param_date("range.startdate", "2023-02-29")
+        .expect_err("invalid date is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert!(err.message().contains("Date day"));
+    assert!(job.lowlevel_params().is_empty());
+}
+
+#[test]
 fn indexed_job_param_setter_inserts_index_like_original() {
     let mut job: hbci4rust::HbciJob = serde_json::from_str(
         r#"{
@@ -274,6 +329,61 @@ fn indexed_job_param_setter_inserts_index_like_original() {
         Some("hello")
     );
     assert_eq!(job.param("line.value"), None);
+}
+
+#[test]
+fn indexed_date_param_setter_inserts_index_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedDateJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "range.startdate",
+                    "destination_name": "DateSeg.ranges.date",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed date job");
+
+    job.try_set_indexed_param_date("range.startdate", 2, "2026-06-06")
+        .expect("indexed date parameter is accepted");
+
+    assert_eq!(
+        job.lowlevel_param("DateSeg.ranges.date[2]"),
+        Some("2026-06-06")
+    );
+    assert_eq!(job.param("range.startdate"), None);
+}
+
+#[test]
+fn indexed_date_param_setter_rejects_invalid_iso_date_before_writing() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "IndexedDateJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "range.startdate",
+                    "destination_name": "DateSeg.ranges.date",
+                    "default_value": null,
+                    "indexed": true
+                }
+            ]
+        }"#,
+    )
+    .expect("indexed date job");
+
+    let err = job
+        .try_set_indexed_param_date("range.startdate", 2, "2026-13-06")
+        .expect_err("invalid indexed date is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert!(err.message().contains("Date month"));
+    assert!(job.lowlevel_params().is_empty());
 }
 
 #[test]

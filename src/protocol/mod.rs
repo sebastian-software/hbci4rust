@@ -3,6 +3,7 @@ mod message;
 mod model;
 mod wire;
 
+pub(crate) use datatype::normalize_iso_date;
 pub use message::{HbciMessage, SyntaxElement, SyntaxElementKind};
 pub use model::{
     DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition, SyntaxEntity,

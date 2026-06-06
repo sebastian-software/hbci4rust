@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallback};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::{Konto, Value};
+use crate::protocol::normalize_iso_date;
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
@@ -161,6 +162,14 @@ impl HbciJob {
         self.try_set_param(name, value.to_string())
     }
 
+    pub fn try_set_param_date(
+        &mut self,
+        name: impl Into<String>,
+        date: impl AsRef<str>,
+    ) -> HbciResult<()> {
+        self.try_set_param(name, normalize_iso_date(date.as_ref())?)
+    }
+
     pub fn try_set_indexed_param(
         &mut self,
         name: impl Into<String>,
@@ -193,6 +202,15 @@ impl HbciJob {
 
         self.set_indexed_lowlevel_params_for_frontend(&name, index, &value);
         Ok(())
+    }
+
+    pub fn try_set_indexed_param_date(
+        &mut self,
+        name: impl Into<String>,
+        index: usize,
+        date: impl AsRef<str>,
+    ) -> HbciResult<()> {
+        self.try_set_indexed_param(name, index, normalize_iso_date(date.as_ref())?)
     }
 
     pub fn try_set_indexed_param_value(
