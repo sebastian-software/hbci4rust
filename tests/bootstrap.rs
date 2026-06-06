@@ -116,6 +116,22 @@ fn konto_reports_sepa_account_when_bic_and_iban_are_present() {
 }
 
 #[test]
+fn konto_checks_iban_crc_with_original_uppercase_input_boundary() {
+    let mut account = giro_account();
+    account.iban = Some("DE89370400440532013000".to_owned());
+    assert!(account.check_iban());
+
+    account.iban = Some("DE89370400440532013001".to_owned());
+    assert!(!account.check_iban());
+
+    account.iban = Some("de89370400440532013000".to_owned());
+    assert!(!account.check_iban());
+
+    account.iban = None;
+    assert!(!account.check_iban());
+}
+
+#[test]
 fn passport_account_by_number_returns_cached_account() {
     let passport = PinTanPassport::new(PinTanPassportData {
         accounts: vec![giro_account()],

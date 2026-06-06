@@ -117,10 +117,35 @@ pub struct Konto {
 }
 
 impl Konto {
+    pub fn check_iban(&self) -> bool {
+        self.iban.as_deref().is_some_and(check_iban_crc)
+    }
+
     pub fn is_sepa_account(&self) -> bool {
         self.bic.as_deref().is_some_and(|value| !value.is_empty())
             && self.iban.as_deref().is_some_and(|value| !value.is_empty())
     }
+}
+
+fn check_iban_crc(iban: &str) -> bool {
+    if iban.len() < 4 {
+        return false;
+    }
+
+    let mut remainder = 0u32;
+    for byte in iban.as_bytes()[4..].iter().chain(&iban.as_bytes()[..4]) {
+        match byte {
+            b'0'..=b'9' => {
+                remainder = (remainder * 10 + u32::from(byte - b'0')) % 97;
+            }
+            b'A'..=b'Z' => {
+                remainder = (remainder * 100 + u32::from(byte - b'A' + 10)) % 97;
+            }
+            _ => return false,
+        }
+    }
+
+    remainder == 1
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
