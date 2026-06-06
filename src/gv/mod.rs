@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
+use crate::gv_result::Konto;
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
@@ -122,6 +123,17 @@ impl HbciJob {
         self.params.insert(name.into(), value.into());
     }
 
+    pub fn set_param_account(&mut self, name: &str, account: &Konto) {
+        self.set_optional_account_param(name, "country", account.country.as_deref());
+        self.set_optional_account_param(name, "blz", account.blz.as_deref());
+        self.set_optional_account_param(name, "number", account.number.as_deref());
+        self.set_optional_account_param(name, "subnumber", account.subnumber.as_deref());
+        self.set_optional_account_param(name, "name", account.name.as_deref());
+        self.set_optional_account_param(name, "curr", account.curr.as_deref());
+        self.set_optional_account_param(name, "bic", account.bic.as_deref());
+        self.set_optional_account_param(name, "iban", account.iban.as_deref());
+    }
+
     pub fn param(&self, name: &str) -> Option<&str> {
         self.params.get(name).map(String::as_str)
     }
@@ -138,6 +150,19 @@ impl HbciJob {
         self.constraints
             .iter()
             .find(|constraint| constraint.frontend_name == frontend_name)
+    }
+
+    pub fn accepts_param(&self, frontend_name: &str) -> bool {
+        self.constraint(frontend_name).is_some()
+    }
+
+    fn set_optional_account_param(&mut self, base: &str, field: &str, value: Option<&str>) {
+        let name = format!("{base}.{field}");
+        if self.accepts_param(&name)
+            && let Some(value) = value.filter(|value| !value.is_empty())
+        {
+            self.set_param(name, value);
+        }
     }
 }
 

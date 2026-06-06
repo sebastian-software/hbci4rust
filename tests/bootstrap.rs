@@ -125,6 +125,43 @@ fn saldo_jobs_expose_original_near_constraints() {
 }
 
 #[test]
+fn saldo_job_sets_account_params_like_original_overload() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let account = giro_account();
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    saldo.set_param_account("my", &account);
+
+    assert_eq!(saldo.param("my.country"), Some("DE"));
+    assert_eq!(saldo.param("my.blz"), Some("12345678"));
+    assert_eq!(saldo.param("my.number"), Some("0001234567"));
+    assert_eq!(saldo.param("my.bic"), Some("MARKDEF1100"));
+    assert_eq!(saldo.param("my.iban"), Some("DE02123456780000000000"));
+    assert_eq!(saldo.param("my.name"), None);
+    assert_eq!(saldo.param("my.curr"), None);
+}
+
+#[test]
+fn account_param_helper_ignores_unaccepted_or_empty_fields_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut account = giro_account();
+    account.iban = Some(String::new());
+    account.subnumber = Some(String::new());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    let mut saldo_all = handler.new_job("SaldoReqAll").expect("job is in registry");
+
+    saldo.set_param_account("my", &account);
+    saldo_all.set_param_account("my", &account);
+
+    assert_eq!(saldo.param("my.iban"), None);
+    assert_eq!(saldo.param("my.subnumber"), None);
+    assert_eq!(saldo.param("my.number"), Some("0001234567"));
+    assert!(saldo_all.params().is_empty());
+}
+
+#[test]
 fn rejects_out_of_scope_job() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
