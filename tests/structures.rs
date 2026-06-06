@@ -228,9 +228,9 @@ fn kums_mt940_parser_reads_lines_with_explicit_booking_date_like_original() {
         "\r\n:28C:1",
         "\r\n:60F:C230209EUR100,00",
         "\r\n:61:2302090209CR2,00NTRF2023-02-09-08.37.18.054696",
-        "\r\n:86:152?00GUTSCHRIFT UEBERWEISUNG?109245?20Test 1",
+        "\r\n:86:152?00GUTSCHRIFT UEBERWEISUNG?109245?20Test 1?32Max Mustermann?34000",
         "\r\n:61:2302090209CR1,00NTRF2023-02-09-08.37.18.552784",
-        "\r\n:86:152?00GUTSCHRIFT UEBERWEISUNG?109245?20Test 2",
+        "\r\n:86:152?00GUTSCHRIFT UEBERWEISUNG?109245?20Test 2?32Max Mustermann?34000",
         "\r\n:62F:C230209EUR103,00",
         "\r\n-"
     ));
@@ -252,6 +252,19 @@ fn kums_mt940_parser_reads_lines_with_explicit_booking_date_like_original() {
         Some("2023-02-09-08.37.18.054696")
     );
     assert_eq!(lines[0].instref.as_deref(), Some(""));
+    assert_eq!(lines[0].gvcode.as_deref(), Some("152"));
+    assert!(lines[0].is_sepa);
+    assert_eq!(lines[0].text.as_deref(), Some("GUTSCHRIFT UEBERWEISUNG"));
+    assert_eq!(lines[0].primanota.as_deref(), Some("9245"));
+    assert_eq!(lines[0].usage, vec!["Test 1"]);
+    assert_eq!(
+        lines[0]
+            .other
+            .as_ref()
+            .and_then(|konto| konto.name.as_deref()),
+        Some("Max Mustermann")
+    );
+    assert_eq!(lines[0].addkey.as_deref(), Some("000"));
     assert_eq!(
         lines[1].value.as_ref().map(ToString::to_string).as_deref(),
         Some("1.00 EUR")
@@ -323,6 +336,62 @@ fn kums_mt940_parser_extracts_debit_refs_and_optional_values_like_original() {
             .as_deref(),
         Some("0.56 EUR")
     );
+}
+
+#[test]
+fn kums_mt940_parser_maps_sepa_counter_account_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:60F:C260601EUR100,00",
+        "\r\n:61:2606020602C10,50NMSCREF",
+        "\r\n:86:152?00SEPA CREDIT?20Usage 1?21Usage 2",
+        "?30GENODEF1S06 SVWZ+ ja?31DE02123456780000000000",
+        "?32Max Mustermann?33Firma GmbH?34EREF?60Add usage",
+        "\r\n:62F:C260602EUR110,50",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 1);
+    let line = lines[0];
+    assert_eq!(line.gvcode.as_deref(), Some("152"));
+    assert!(line.is_sepa);
+    assert_eq!(line.text.as_deref(), Some("SEPA CREDIT"));
+    assert_eq!(line.usage, vec!["Usage 1", "Usage 2", "Add usage"]);
+    let other = line.other.as_ref().expect("counter account is present");
+    assert_eq!(other.blz.as_deref(), Some("GENODEF1S06"));
+    assert_eq!(other.bic.as_deref(), Some("GENODEF1S06"));
+    assert_eq!(other.number.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(other.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(other.name.as_deref(), Some("Max Mustermann"));
+    assert_eq!(other.name2.as_deref(), Some("Firma GmbH"));
+    assert_eq!(line.addkey.as_deref(), Some("EREF"));
+}
+
+#[test]
+fn kums_mt940_parser_keeps_unknown_999_multitag_as_additional_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:60F:C260601EUR100,00",
+        "\r\n:61:2606020602C10,50NMSCREF",
+        "\r\n:86:999RAW\r\n?00NOT STRUCTURED",
+        "\r\n:62F:C260602EUR110,50",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 1);
+    let line = lines[0];
+    assert_eq!(line.gvcode.as_deref(), Some("999"));
+    assert_eq!(line.additional.as_deref(), Some("RAW?00NOT STRUCTURED"));
+    assert_eq!(line.text, None);
+    assert!(line.usage.is_empty());
+    assert_eq!(line.other, None);
+    assert!(!line.is_sepa);
 }
 
 #[test]

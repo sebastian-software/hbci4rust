@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dialog::KnownReturncode;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
-use crate::swift::{get_one_block, get_tag_value};
+use crate::swift::{get_multi_tag_value, get_one_block, get_tag_value, pack_multi};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HbciExecStatus {
@@ -826,7 +826,10 @@ fn kums_btag_from_block(block: &str) -> GvrKUmsBTag {
         .unwrap_or_default();
     let mut ums_counter = 0;
     while let Some(st_ums) = get_tag_value(block, "61", ums_counter) {
-        if let Some(line) = kums_line_from_mt940(&st_ums, btag.start.as_ref(), &mut saldo) {
+        if let Some(mut line) = kums_line_from_mt940(&st_ums, btag.start.as_ref(), &mut saldo) {
+            if let Some(st_multi) = get_tag_value(block, "86", ums_counter) {
+                kums_apply_mt940_multitag(&mut line, &st_multi);
+            }
             btag.add_line(line);
         }
         ums_counter += 1;
@@ -943,6 +946,76 @@ fn kums_line_from_mt940(
     }
 
     Some(line)
+}
+
+fn kums_apply_mt940_multitag(line: &mut GvrKUmsLine, input: &str) {
+    let Some(gvcode) = input.get(0..3) else {
+        return;
+    };
+    line.gvcode = Some(gvcode.to_owned());
+    let st_multi = pack_multi(input.get(3..).unwrap_or_default());
+
+    if gvcode == "999" {
+        line.additional = Some(st_multi);
+        return;
+    }
+
+    line.is_sepa = gvcode.starts_with('1');
+    line.text = get_multi_tag_value(&st_multi, "00");
+    line.primanota = get_multi_tag_value(&st_multi, "10");
+    for index in 20..30 {
+        line.add_usage(get_multi_tag_value(&st_multi, &index.to_string()));
+    }
+
+    line.other = kums_other_account_from_multitag(&st_multi, line.is_sepa);
+    line.addkey = get_multi_tag_value(&st_multi, "34");
+    for index in 60..64 {
+        line.add_usage(get_multi_tag_value(&st_multi, &index.to_string()));
+    }
+}
+
+fn kums_other_account_from_multitag(input: &str, is_sepa: bool) -> Option<Konto> {
+    let mut blz = get_multi_tag_value(input, "30").map(trim_after_first_space);
+    let mut number = get_multi_tag_value(input, "31");
+    let mut name = get_multi_tag_value(input, "32");
+    let name2 = get_multi_tag_value(input, "33");
+
+    let has_account_data = blz.is_some() || number.is_some() || name.is_some() || name2.is_some();
+    if !has_account_data {
+        return None;
+    }
+
+    if blz.is_none() {
+        blz = Some(String::new());
+    }
+    if number.is_none() {
+        number = Some(String::new());
+    }
+    if name.is_none() {
+        name = Some(String::new());
+    }
+
+    let mut account = Konto {
+        blz,
+        number,
+        name,
+        name2,
+        ..Konto::default()
+    };
+
+    if is_sepa {
+        account.bic = account.blz.clone();
+        account.iban = account.number.clone();
+    }
+
+    Some(account)
+}
+
+fn trim_after_first_space(input: String) -> String {
+    input
+        .split_once(' ')
+        .map(|(prefix, _)| prefix.to_owned())
+        .unwrap_or(input)
 }
 
 fn kums_account_from_info(konto_info: Option<&str>) -> Konto {
