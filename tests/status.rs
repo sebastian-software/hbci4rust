@@ -1,4 +1,4 @@
-use hbci4rust::{HbciReturnValue, HbciStatus, HbciStatusCode};
+use hbci4rust::{HbciExecStatus, HbciJobResult, HbciReturnValue, HbciStatus, HbciStatusCode};
 
 #[test]
 fn return_value_display_matches_original_shape() {
@@ -65,4 +65,56 @@ fn status_code_matches_original_ok_unknown_error_order() {
     warning_status.add_return_value(HbciReturnValue::new("3020", "Warnung"));
     assert_eq!(warning_status.status_code(), HbciStatusCode::Ok);
     assert!(warning_status.is_ok());
+}
+
+#[test]
+fn exec_and_job_status_helpers_group_existing_return_values() {
+    let exec_status = HbciExecStatus {
+        global_return_values: vec![HbciReturnValue::new("0010", "Dialog OK")],
+        segment_return_values: vec![HbciReturnValue::new("9010", "Segmentfehler")],
+        job_results: vec![job_result(
+            "SaldoReq",
+            vec![HbciReturnValue::new("3020", "Warnung")],
+        )],
+        ..HbciExecStatus::default()
+    };
+
+    let global_status = exec_status.global_status();
+    assert_eq!(global_status.status_code(), HbciStatusCode::Ok);
+    assert_eq!(global_status.successes()[0].text, "Dialog OK");
+
+    let segment_status = exec_status.segment_status();
+    assert_eq!(segment_status.status_code(), HbciStatusCode::Error);
+    assert_eq!(segment_status.errors()[0].text, "Segmentfehler");
+
+    let job = &exec_status.job_results[0];
+    assert_eq!(job.job_status().status_code(), HbciStatusCode::Ok);
+    assert!(job.is_ok_with_global_status(&global_status));
+}
+
+#[test]
+fn job_status_ok_with_global_status_matches_original_rule() {
+    let ok_global = HbciStatus::from_return_values([HbciReturnValue::new("0010", "OK")]);
+    let unknown_global = HbciStatus::new();
+    let error_global = HbciStatus::from_return_values([HbciReturnValue::new("9010", "Fehler")]);
+
+    let unknown_job = job_result("SaldoReq", Vec::new());
+    let warning_job = job_result("SaldoReq", vec![HbciReturnValue::new("3020", "Warnung")]);
+    let error_job = job_result("SaldoReq", vec![HbciReturnValue::new("9010", "Fehler")]);
+
+    assert!(unknown_job.is_ok_with_global_status(&ok_global));
+    assert!(warning_job.is_ok_with_global_status(&unknown_global));
+    assert!(!unknown_job.is_ok_with_global_status(&unknown_global));
+    assert!(!warning_job.is_ok_with_global_status(&error_global));
+    assert!(!error_job.is_ok_with_global_status(&ok_global));
+}
+
+fn job_result(name: &str, return_values: Vec<HbciReturnValue>) -> HbciJobResult {
+    HbciJobResult {
+        job_name: name.to_owned(),
+        success: false,
+        raw_response: None,
+        return_values,
+        result: None,
+    }
 }

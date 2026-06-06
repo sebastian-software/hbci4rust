@@ -11,6 +11,16 @@ pub struct HbciExecStatus {
     pub segment_return_values: Vec<HbciReturnValue>,
 }
 
+impl HbciExecStatus {
+    pub fn global_status(&self) -> HbciStatus {
+        HbciStatus::from_return_values(self.global_return_values.clone())
+    }
+
+    pub fn segment_status(&self) -> HbciStatus {
+        HbciStatus::from_return_values(self.segment_return_values.clone())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HbciStatusCode {
     Ok,
@@ -41,6 +51,16 @@ pub struct HbciStatus {
 impl HbciStatus {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn from_return_values<I>(values: I) -> Self
+    where
+        I: IntoIterator<Item = HbciReturnValue>,
+    {
+        Self {
+            return_values: values.into_iter().collect(),
+            exception_messages: Vec::new(),
+        }
     }
 
     pub fn add_return_value(&mut self, value: HbciReturnValue) {
@@ -137,6 +157,20 @@ pub struct HbciJobResult {
     pub raw_response: Option<String>,
     pub return_values: Vec<HbciReturnValue>,
     pub result: Option<HbciJobResultData>,
+}
+
+impl HbciJobResult {
+    pub fn job_status(&self) -> HbciStatus {
+        HbciStatus::from_return_values(self.return_values.clone())
+    }
+
+    pub fn is_ok_with_global_status(&self, global_status: &HbciStatus) -> bool {
+        let job_status = self.job_status();
+        global_status.status_code() != HbciStatusCode::Error
+            && job_status.status_code() != HbciStatusCode::Error
+            && (global_status.status_code() != HbciStatusCode::Unknown
+                || job_status.status_code() != HbciStatusCode::Unknown)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
