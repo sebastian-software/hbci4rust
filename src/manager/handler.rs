@@ -7,7 +7,7 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrSaldoReq, GvrSaldoReqInfo, HbciExecStatus, HbciJobResult, HbciJobResultData,
-    HbciReturnValue, Konto, Saldo, Value,
+    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::PinTanPassport;
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
@@ -146,6 +146,7 @@ where
             ParsedResponseStatus::default()
         };
         let raw_response = Some(String::from_utf8_lossy(&response.body).into_owned());
+        let global_status = response_status.global_status();
 
         let results = self
             .queue
@@ -153,13 +154,15 @@ where
             .enumerate()
             .map(|(index, job)| {
                 let segment_sequence = queued_job_segment_sequence(index);
-                HbciJobResult {
+                let mut result = HbciJobResult {
                     job_name: job.name().to_owned(),
-                    success: http_success && response_status.job_is_ok(segment_sequence),
                     raw_response: raw_response.clone(),
                     return_values: response_status.return_values_for_segment(segment_sequence),
                     result: response_status.result_for_job(&job, index, &self.passport),
-                }
+                    success: false,
+                };
+                result.success = http_success && result.is_ok_with_global_status(&global_status);
+                result
             })
             .collect::<Vec<_>>();
         let success =
@@ -494,20 +497,12 @@ impl ParsedResponseStatus {
             .collect()
     }
 
-    fn global_is_ok(&self) -> bool {
-        status_is_ok(&self.global_return_values)
+    fn global_status(&self) -> HbciStatus {
+        HbciStatus::from_return_values(self.global_return_values.clone())
     }
 
-    fn job_is_ok(&self, segment_sequence: usize) -> bool {
-        let segment_sequence = segment_sequence.to_string();
-        let job_return_values = self
-            .segment_return_values
-            .iter()
-            .filter(|value| value.segment_ref.as_deref() == Some(segment_sequence.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        status_pair_is_ok(&self.global_return_values, &job_return_values)
+    fn global_is_ok(&self) -> bool {
+        self.global_status().is_ok()
     }
 
     fn return_values_for_segment(&self, segment_sequence: usize) -> Vec<HbciReturnValue> {
@@ -697,7 +692,7 @@ fn validate_open_dialog_response_id(
 }
 
 fn ensure_dialog_end_ok(return_values: &[HbciReturnValue]) -> HbciResult<()> {
-    if status_is_ok(return_values) {
+    if HbciStatus::from_return_values(return_values.to_vec()).is_ok() {
         return Ok(());
     }
 
@@ -910,16 +905,4 @@ fn required_message_value<'a>(
 
 fn queued_job_segment_sequence(index: usize) -> usize {
     index + 2
-}
-
-fn status_is_ok(values: &[HbciReturnValue]) -> bool {
-    !values.iter().any(HbciReturnValue::is_error)
-        && values.iter().any(HbciReturnValue::is_known_status)
-}
-
-fn status_pair_is_ok(global_values: &[HbciReturnValue], job_values: &[HbciReturnValue]) -> bool {
-    !global_values.iter().any(HbciReturnValue::is_error)
-        && !job_values.iter().any(HbciReturnValue::is_error)
-        && (global_values.iter().any(HbciReturnValue::is_known_status)
-            || job_values.iter().any(HbciReturnValue::is_known_status))
 }
