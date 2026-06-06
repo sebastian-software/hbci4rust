@@ -104,6 +104,33 @@ fn status_code_matches_original_ok_unknown_error_order() {
 }
 
 #[test]
+fn status_searches_return_values_for_known_code_like_original() {
+    let status = HbciStatus::from_return_values([
+        HbciReturnValue::new("3920", "TAN-Verfahren"),
+        HbciReturnValue::new("3920", "Weiteres TAN-Verfahren"),
+        HbciReturnValue::new("0010", "OK"),
+    ]);
+
+    let values = status.return_values_for_code(KnownReturncode::W3920);
+
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].text, "TAN-Verfahren");
+    assert_eq!(values[1].text, "Weiteres TAN-Verfahren");
+    assert_eq!(
+        status
+            .return_value_for_code(KnownReturncode::W3920)
+            .unwrap()
+            .text,
+        "TAN-Verfahren"
+    );
+    assert!(
+        status
+            .return_value_for_code(KnownReturncode::E9391)
+            .is_none()
+    );
+}
+
+#[test]
 fn exec_and_job_status_helpers_group_existing_return_values() {
     let exec_status = HbciExecStatus {
         global_return_values: vec![HbciReturnValue::new("0010", "Dialog OK")],
@@ -181,6 +208,36 @@ fn known_returncode_auth_fail_list_matches_original() {
         "3920",
         &KnownReturncode::LIST_AUTH_FAIL
     ));
+}
+
+#[test]
+fn exec_status_searches_known_return_codes_across_global_and_segment_values() {
+    let exec_status = HbciExecStatus {
+        global_return_values: vec![
+            HbciReturnValue::new("3920", "Globale TAN-Liste"),
+            HbciReturnValue::new("0010", "OK"),
+        ],
+        segment_return_values: vec![HbciReturnValue::new("3920", "Segment-TAN-Liste")],
+        ..HbciExecStatus::default()
+    };
+
+    let values = exec_status.return_values_for_code(KnownReturncode::W3920);
+
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].text, "Globale TAN-Liste");
+    assert_eq!(values[1].text, "Segment-TAN-Liste");
+    assert_eq!(
+        exec_status
+            .return_value_for_code(KnownReturncode::W3920)
+            .unwrap()
+            .text,
+        "Globale TAN-Liste"
+    );
+    assert!(
+        exec_status
+            .return_value_for_code(KnownReturncode::E9391)
+            .is_none()
+    );
 }
 
 #[test]

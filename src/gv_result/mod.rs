@@ -34,6 +34,29 @@ impl HbciExecStatus {
     }
 
     pub fn invalid_pin_code(&self) -> Option<&HbciReturnValue> {
+        self.error_return_values_for_any_code(&KnownReturncode::LIST_AUTH_FAIL)
+            .into_iter()
+            .next()
+    }
+
+    pub fn return_values_for_code(&self, code: KnownReturncode) -> Vec<&HbciReturnValue> {
+        self.all_return_values()
+            .filter(|value| code.is(value.code.as_str()))
+            .collect()
+    }
+
+    pub fn return_value_for_code(&self, code: KnownReturncode) -> Option<&HbciReturnValue> {
+        self.all_return_values()
+            .find(|value| code.is(value.code.as_str()))
+    }
+
+    fn all_return_values(&self) -> impl Iterator<Item = &HbciReturnValue> {
+        self.global_return_values
+            .iter()
+            .chain(self.segment_return_values.iter())
+    }
+
+    fn error_return_values_for_any_code(&self, codes: &[KnownReturncode]) -> Vec<&HbciReturnValue> {
         self.global_return_values
             .iter()
             .filter(|value| value.is_error())
@@ -42,9 +65,8 @@ impl HbciExecStatus {
                     .iter()
                     .filter(|value| value.is_error()),
             )
-            .find(|value| {
-                KnownReturncode::contains(value.code.as_str(), &KnownReturncode::LIST_AUTH_FAIL)
-            })
+            .filter(|value| KnownReturncode::contains(value.code.as_str(), codes))
+            .collect()
     }
 }
 
@@ -162,6 +184,19 @@ impl HbciStatus {
         let mut lines = self.exception_messages.clone();
         lines.extend(self.errors().into_iter().map(ToString::to_string));
         lines.join("\n")
+    }
+
+    pub fn return_values_for_code(&self, code: KnownReturncode) -> Vec<&HbciReturnValue> {
+        self.return_values
+            .iter()
+            .filter(|value| code.is(value.code.as_str()))
+            .collect()
+    }
+
+    pub fn return_value_for_code(&self, code: KnownReturncode) -> Option<&HbciReturnValue> {
+        self.return_values
+            .iter()
+            .find(|value| code.is(value.code.as_str()))
     }
 }
 
