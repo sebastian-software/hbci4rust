@@ -2,6 +2,7 @@ use quick_xml::events::Event;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
+use crate::gv_result::{GvrKUmsBTag, Konto, Saldo, Value};
 
 pub const DATE_FORMAT: &str = "%Y-%m-%d";
 pub const DATE_UNDEFINED: &str = "1999-01-01";
@@ -123,6 +124,302 @@ impl SepaVersion {
 
         Ok(data_version.or(descriptor_version))
     }
+}
+
+pub fn parse_camt_report_shell(xml: &str, version: SepaVersion) -> HbciResult<Vec<GvrKUmsBTag>> {
+    if version.kind != SepaKind::Camt052 {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "CAMT report shell parser requires a CAMT.052 version",
+        ));
+    }
+
+    let reports = parse_camt_reports(xml)?;
+    Ok(reports.into_iter().map(GvrKUmsBTag::from).collect())
+}
+
+#[derive(Debug, Clone, Default)]
+struct CamtReport {
+    account: Konto,
+    balances: Vec<CamtBalance>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CamtBalance {
+    code: Option<String>,
+    amount: Option<String>,
+    currency: Option<String>,
+    credit_debit: Option<String>,
+    date: Option<String>,
+}
+
+impl From<CamtReport> for GvrKUmsBTag {
+    fn from(report: CamtReport) -> Self {
+        let mut tag = GvrKUmsBTag {
+            my: report.account,
+            start_type: 'F',
+            end_type: 'F',
+            ..GvrKUmsBTag::default()
+        };
+
+        if let Some(start) = report.balances.first().and_then(camt_start_balance) {
+            tag.start = Some(start);
+        }
+        if let Some(end) = report.balances.get(1).and_then(camt_end_balance) {
+            tag.end = Some(end);
+        }
+
+        tag
+    }
+}
+
+fn camt_start_balance(balance: &CamtBalance) -> Option<Saldo> {
+    let code = balance.code.as_deref()?;
+    if !matches!(code, "PRCD" | "ITBD" | "OPBD") {
+        return None;
+    }
+
+    let date = if code == "PRCD" {
+        balance.date.as_deref().and_then(add_one_iso_day)
+    } else {
+        balance.date.clone()
+    };
+
+    Some(camt_saldo_from_balance(balance, date))
+}
+
+fn camt_end_balance(balance: &CamtBalance) -> Option<Saldo> {
+    let code = balance.code.as_deref()?;
+    if !matches!(code, "CLBD" | "ITBD") {
+        return None;
+    }
+
+    Some(camt_saldo_from_balance(balance, balance.date.clone()))
+}
+
+fn camt_saldo_from_balance(balance: &CamtBalance, date: Option<String>) -> Saldo {
+    Saldo {
+        value: Value {
+            value: camt_signed_amount(
+                balance.amount.as_deref().unwrap_or("0"),
+                balance.credit_debit.as_deref(),
+            ),
+            curr: balance.currency.clone(),
+        },
+        date,
+        time: None,
+    }
+}
+
+fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+
+    let mut stack = Vec::new();
+    let mut reports = Vec::new();
+    let mut report = None::<CamtReport>;
+    let mut balance = None::<CamtBalance>;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(event)) => {
+                let name = local_name(event.name().as_ref());
+                if name == "Rpt" {
+                    report = Some(CamtReport::default());
+                } else if report.is_some() && name == "Bal" {
+                    balance = Some(CamtBalance::default());
+                } else if balance.is_some()
+                    && name == "Amt"
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(balance) = &mut balance
+                {
+                    balance.currency = Some(currency);
+                }
+                stack.push(name);
+            }
+            Ok(Event::Empty(event)) => {
+                let name = local_name(event.name().as_ref());
+                if balance.is_some()
+                    && name == "Amt"
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(balance) = &mut balance
+                {
+                    balance.currency = Some(currency);
+                }
+            }
+            Ok(Event::Text(event)) => {
+                let text = event.decode().map_err(|err| {
+                    HbciError::with_source(
+                        HbciErrorKind::Protocol,
+                        "failed to decode XML text",
+                        err,
+                    )
+                })?;
+                let text = text.trim();
+                if !text.is_empty() {
+                    collect_camt_text(&stack, text, &mut report, &mut balance);
+                }
+            }
+            Ok(Event::End(event)) => {
+                let name = local_name(event.name().as_ref());
+                if name == "Bal" {
+                    if let (Some(report), Some(balance)) = (&mut report, balance.take()) {
+                        report.balances.push(balance);
+                    }
+                } else if name == "Rpt"
+                    && let Some(report) = report.take()
+                {
+                    reports.push(report);
+                }
+                stack.pop();
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(err) => {
+                return Err(HbciError::with_source(
+                    HbciErrorKind::Protocol,
+                    "failed to parse CAMT document",
+                    err,
+                ));
+            }
+        }
+    }
+
+    Ok(reports)
+}
+
+fn collect_camt_text(
+    stack: &[String],
+    text: &str,
+    report: &mut Option<CamtReport>,
+    balance: &mut Option<CamtBalance>,
+) {
+    let Some(report) = report else {
+        return;
+    };
+
+    if path_ends_with(stack, &["Rpt", "Acct", "Id", "IBAN"]) {
+        report.account.iban = Some(text.to_owned());
+    } else if path_ends_with(stack, &["Rpt", "Acct", "Ccy"]) {
+        report.account.curr = Some(text.to_owned());
+    } else if path_ends_with(stack, &["Rpt", "Acct", "Svcr", "FinInstnId", "BIC"])
+        || path_ends_with(stack, &["Rpt", "Acct", "Svcr", "FinInstnId", "BICFI"])
+    {
+        report.account.bic = Some(text.to_owned());
+    }
+
+    let Some(balance) = balance else {
+        return;
+    };
+
+    if path_ends_with(stack, &["Bal", "Tp", "CdOrPrtry", "Cd"]) {
+        balance.code = Some(text.to_owned());
+    } else if path_ends_with(stack, &["Bal", "Amt"]) {
+        balance.amount = Some(text.to_owned());
+    } else if path_ends_with(stack, &["Bal", "CdtDbtInd"]) {
+        balance.credit_debit = Some(text.to_owned());
+    } else if path_ends_with(stack, &["Bal", "Dt", "Dt"])
+        || path_ends_with(stack, &["Bal", "Dt", "DtTm"])
+    {
+        balance.date = Some(text.chars().take(10).collect());
+    }
+}
+
+fn attr_value(
+    reader: &quick_xml::Reader<&[u8]>,
+    event: &quick_xml::events::BytesStart<'_>,
+    key: &[u8],
+) -> HbciResult<Option<String>> {
+    for attr in event.attributes() {
+        let attr = attr.map_err(|err| {
+            HbciError::with_source(HbciErrorKind::Protocol, "failed to read XML attribute", err)
+        })?;
+        if attr.key.as_ref() == key {
+            let value = attr
+                .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())
+                .map_err(|err| {
+                    HbciError::with_source(
+                        HbciErrorKind::Protocol,
+                        "failed to decode XML attribute",
+                        err,
+                    )
+                })?;
+            return Ok(Some(value.into_owned()));
+        }
+    }
+
+    Ok(None)
+}
+
+fn path_ends_with(stack: &[String], suffix: &[&str]) -> bool {
+    stack.len() >= suffix.len()
+        && stack[stack.len() - suffix.len()..]
+            .iter()
+            .map(String::as_str)
+            .eq(suffix.iter().copied())
+}
+
+fn local_name(name: &[u8]) -> String {
+    let name = String::from_utf8_lossy(name);
+    name.rsplit(':').next().unwrap_or(&name).to_owned()
+}
+
+fn camt_signed_amount(amount: &str, credit_debit: Option<&str>) -> String {
+    let mut amount = normalize_decimal_amount(amount);
+    if credit_debit == Some("DBIT") && amount != "0.00" && !amount.starts_with('-') {
+        amount.insert(0, '-');
+    }
+    amount
+}
+
+fn normalize_decimal_amount(amount: &str) -> String {
+    let trimmed = amount.trim().replace(',', ".");
+    let (integer, fraction) = trimmed.split_once('.').unwrap_or((trimmed.as_str(), ""));
+    let mut fraction = fraction.chars().take(2).collect::<String>();
+    while fraction.len() < 2 {
+        fraction.push('0');
+    }
+
+    format!("{}.{}", integer.trim_start_matches('+'), fraction)
+}
+
+fn add_one_iso_day(date: &str) -> Option<String> {
+    let (year, month, day) = parse_iso_date(date)?;
+    civil_from_days(days_from_civil(year, month, day) + 1)
+}
+
+fn parse_iso_date(date: &str) -> Option<(i32, u32, u32)> {
+    let mut parts = date.split('-');
+    let year = parts.next()?.parse().ok()?;
+    let month = parts.next()?.parse().ok()?;
+    let day = parts.next()?.parse().ok()?;
+    Some((year, month, day))
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> i32 {
+    let year = year - (month <= 2) as i32;
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = year - era * 400;
+    let month = month as i32;
+    let day = day as i32;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn civil_from_days(days: i32) -> Option<String> {
+    let days = days + 719468;
+    let era = if days >= 0 { days } else { days - 146096 } / 146097;
+    let doe = days - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = year + (month <= 2) as i32;
+
+    Some(format!("{year:04}-{month:02}-{day:02}"))
 }
 
 fn root_namespace(xml: &str) -> HbciResult<Option<String>> {
