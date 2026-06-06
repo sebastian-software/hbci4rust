@@ -110,7 +110,12 @@ impl SepaVersion {
 
     pub fn autodetect(xml: &str) -> HbciResult<Option<Self>> {
         let namespace = root_namespace(xml)?;
-        Ok(namespace.and_then(|namespace| Self::by_urn(&namespace)))
+        match namespace {
+            None => Ok(None),
+            Some(namespace) => Self::by_urn(&namespace)
+                .map(Some)
+                .ok_or_else(|| invalid_sepa_namespace(namespace)),
+        }
     }
 
     pub fn choose(descriptor: Option<&str>, data: Option<&str>) -> HbciResult<Option<Self>> {
@@ -124,6 +129,13 @@ impl SepaVersion {
 
         Ok(data_version.or(descriptor_version))
     }
+}
+
+fn invalid_sepa_namespace(namespace: String) -> HbciError {
+    HbciError::new(
+        HbciErrorKind::InvalidArgument,
+        format!("invalid sepa-version: {namespace}"),
+    )
 }
 
 pub fn parse_camt_report_shell(xml: &str, version: SepaVersion) -> HbciResult<Vec<GvrKUmsBTag>> {

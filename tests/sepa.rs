@@ -1,3 +1,4 @@
+use hbci4rust::HbciErrorKind;
 use hbci4rust::sepa::{
     CAMT_052_001_01_URN, CAMT_052_001_02_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN,
     CAMT_052_001_08_URN, SepaKind, SepaVersion, parse_camt_report_shell,
@@ -75,6 +76,25 @@ fn camt_version_autodetects_root_namespace() {
     let version = SepaVersion::autodetect(&camt_document(CAMT_052_001_08_URN)).expect("valid XML");
 
     assert_eq!(version, Some(SepaVersion::CAMT_052_001_08));
+}
+
+#[test]
+fn camt_version_autodetects_no_namespace_as_none_like_original_test002() {
+    let xml = include_str!("fixtures/hbci4java/sepa/test-camt-parse-none.xml");
+
+    let version = SepaVersion::autodetect(xml).expect("valid upstream fixture");
+
+    assert_eq!(version, None);
+}
+
+#[test]
+fn camt_version_autodetect_rejects_invalid_namespace_like_original_test003() {
+    let xml = include_str!("fixtures/hbci4java/sepa/test-camt-parse-invalid.xml");
+
+    let err = SepaVersion::autodetect(xml).expect_err("invalid namespace is rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::InvalidArgument);
+    assert!(err.message().contains("invalid sepa-version"));
 }
 
 #[test]
