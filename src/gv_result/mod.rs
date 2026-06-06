@@ -11,6 +11,125 @@ pub struct HbciExecStatus {
     pub segment_return_values: Vec<HbciReturnValue>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HbciStatusCode {
+    Ok,
+    Unknown,
+    Error,
+}
+
+impl HbciStatusCode {
+    pub const STATUS_OK: i32 = 0;
+    pub const STATUS_UNKNOWN: i32 = 1;
+    pub const STATUS_ERR: i32 = 2;
+
+    pub fn original_code(&self) -> i32 {
+        match self {
+            Self::Ok => Self::STATUS_OK,
+            Self::Unknown => Self::STATUS_UNKNOWN,
+            Self::Error => Self::STATUS_ERR,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HbciStatus {
+    pub return_values: Vec<HbciReturnValue>,
+    pub exception_messages: Vec<String>,
+}
+
+impl HbciStatus {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_return_value(&mut self, value: HbciReturnValue) {
+        self.return_values.push(value);
+    }
+
+    pub fn add_exception_message(&mut self, message: impl Into<String>) {
+        self.exception_messages.push(message.into());
+    }
+
+    pub fn has_exceptions(&self) -> bool {
+        !self.exception_messages.is_empty()
+    }
+
+    pub fn has_errors(&self) -> bool {
+        self.return_values.iter().any(HbciReturnValue::is_error)
+    }
+
+    pub fn has_warnings(&self) -> bool {
+        self.return_values.iter().any(HbciReturnValue::is_warning)
+    }
+
+    pub fn has_success(&self) -> bool {
+        self.return_values.iter().any(HbciReturnValue::is_success)
+    }
+
+    pub fn errors(&self) -> Vec<&HbciReturnValue> {
+        self.return_values
+            .iter()
+            .filter(|value| value.is_error())
+            .collect()
+    }
+
+    pub fn warnings(&self) -> Vec<&HbciReturnValue> {
+        self.return_values
+            .iter()
+            .filter(|value| value.is_warning())
+            .collect()
+    }
+
+    pub fn successes(&self) -> Vec<&HbciReturnValue> {
+        self.return_values
+            .iter()
+            .filter(|value| value.is_success())
+            .collect()
+    }
+
+    pub fn status_code(&self) -> HbciStatusCode {
+        if self.has_exceptions() || self.has_errors() {
+            HbciStatusCode::Error
+        } else if self.has_success() || self.has_warnings() {
+            HbciStatusCode::Ok
+        } else {
+            HbciStatusCode::Unknown
+        }
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.status_code() == HbciStatusCode::Ok
+    }
+
+    pub fn error_string(&self) -> String {
+        let mut lines = self.exception_messages.clone();
+        lines.extend(self.errors().into_iter().map(ToString::to_string));
+        lines.join("\n")
+    }
+}
+
+impl Display for HbciStatus {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+
+        for message in &self.exception_messages {
+            write_status_line(formatter, &mut first, message)?;
+        }
+        for value in self.errors() {
+            write_status_line(formatter, &mut first, &value.to_string())?;
+        }
+        for value in self.warnings() {
+            write_status_line(formatter, &mut first, &value.to_string())?;
+        }
+        for value in self.successes() {
+            write_status_line(formatter, &mut first, &value.to_string())?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HbciJobResult {
     pub job_name: String,
@@ -83,6 +202,15 @@ impl Display for HbciReturnValue {
 
         Ok(())
     }
+}
+
+fn write_status_line(formatter: &mut Formatter<'_>, first: &mut bool, line: &str) -> fmt::Result {
+    if !*first {
+        formatter.write_str("\n")?;
+    }
+    formatter.write_str(line)?;
+    *first = false;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

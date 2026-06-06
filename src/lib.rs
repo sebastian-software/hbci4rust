@@ -24,7 +24,7 @@ pub use error::{HbciError, HbciErrorKind, HbciResult};
 pub use gv::{HbciJob, JobRegistry, PINTAN_JOB_NAMES};
 pub use gv_result::{
     GvrSaldoReq, GvrSaldoReqInfo, HbciExecStatus, HbciJobResult, HbciJobResultData,
-    HbciReturnValue, Konto, Limit, Saldo, Value,
+    HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit, Saldo, Value,
 };
 pub use manager::{
     BankInfo, BankInfoRegistry, HbciHandler, HbciVersion, done, get_param, init, set_param,
