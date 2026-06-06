@@ -147,6 +147,14 @@ fn konto_equality_matches_original_compared_fields() {
 }
 
 #[test]
+fn konto_display_matches_original_field_order_without_bank_info() {
+    assert_eq!(
+        giro_account().to_string(),
+        "Girokonto Max Mustermann 0001234567 BLZ 12345678 () BIC MARKDEF1100 IBAN DE02123456780000000000 [DE] (EUR)"
+    );
+}
+
+#[test]
 fn passport_account_by_number_returns_cached_account() {
     let passport = PinTanPassport::new(PinTanPassportData {
         accounts: vec![giro_account()],

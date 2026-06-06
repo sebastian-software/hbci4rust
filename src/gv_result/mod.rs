@@ -1,3 +1,5 @@
+use std::fmt::{self, Display, Formatter};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,6 +135,46 @@ impl PartialEq for Konto {
 }
 
 impl Eq for Konto {}
+
+impl Display for Konto {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        if let Some(account_type) = &self.account_type {
+            write!(formatter, "{account_type} ")?;
+        }
+        if let Some(name) = &self.name {
+            write!(formatter, "{name} ")?;
+        }
+        if let Some(name2) = &self.name2 {
+            write!(formatter, "{name2} ")?;
+        }
+        if let Some(number) = &self.number {
+            write!(formatter, "{number}")?;
+        }
+        if let Some(subnumber) = &self.subnumber {
+            write!(formatter, "/{subnumber}")?;
+        }
+
+        write!(formatter, " ")?;
+
+        if let Some(blz) = &self.blz {
+            write!(formatter, "BLZ {blz} () ")?;
+        }
+        if let Some(bic) = &self.bic {
+            write!(formatter, "BIC {bic} ")?;
+        }
+        if let Some(iban) = &self.iban {
+            write!(formatter, "IBAN {iban} ")?;
+        }
+        if let Some(country) = &self.country {
+            write!(formatter, "[{country}] ")?;
+        }
+        if let Some(curr) = &self.curr {
+            write!(formatter, "({curr})")?;
+        }
+
+        Ok(())
+    }
+}
 
 impl Konto {
     pub fn check_iban(&self) -> bool {
