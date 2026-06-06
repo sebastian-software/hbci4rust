@@ -819,6 +819,19 @@ fn kums_btag_from_block(block: &str) -> GvrKUmsBTag {
         btag.start_type = 'M';
     }
 
+    let mut saldo = btag
+        .start
+        .as_ref()
+        .and_then(|saldo| decimal_to_cents(&saldo.value.value))
+        .unwrap_or_default();
+    let mut ums_counter = 0;
+    while let Some(st_ums) = get_tag_value(block, "61", ums_counter) {
+        if let Some(line) = kums_line_from_mt940(&st_ums, btag.start.as_ref(), &mut saldo) {
+            btag.add_line(line);
+        }
+        ums_counter += 1;
+    }
+
     btag.end_type = 'F';
     if let Some(end) = get_tag_value(block, "62F", 0) {
         btag.end = kums_saldo_from_mt940(&end);
@@ -829,6 +842,107 @@ fn kums_btag_from_block(block: &str) -> GvrKUmsBTag {
     }
 
     btag
+}
+
+fn kums_line_from_mt940(
+    input: &str,
+    start: Option<&Saldo>,
+    saldo: &mut i64,
+) -> Option<GvrKUmsLine> {
+    let valuta = input.get(0..6)?.to_owned();
+    let bytes = input.as_bytes();
+    let mut next;
+    let bdate;
+
+    if *bytes.get(6)? > b'9' {
+        bdate = start
+            .and_then(|saldo| saldo.date.clone())
+            .unwrap_or_else(|| valuta.clone());
+        next = 6;
+    } else {
+        bdate = corrected_mt940_booking_date(&valuta, input.get(6..10)?);
+        next = 10;
+    }
+
+    let is_storno;
+    let cd;
+    match bytes.get(next).copied()? {
+        b'C' | b'D' => {
+            is_storno = false;
+            cd = bytes[next] as char;
+            next += 1;
+        }
+        _ => {
+            is_storno = true;
+            cd = *bytes.get(next + 1)? as char;
+            next += 2;
+        }
+    }
+
+    if *bytes.get(next)? > b'9' {
+        next += 1;
+    }
+
+    let npos = find_from_absolute(input, "N", next)?;
+    let raw_amount = input.get(next..npos)?.replace(',', ".");
+    let neg_value_indicator = if is_storno { 'C' } else { 'D' };
+    let amount = if cd == neg_value_indicator {
+        format!("-{raw_amount}")
+    } else {
+        raw_amount
+    };
+    let line_value = decimal_to_cents(&amount)?;
+    let curr = start
+        .and_then(|saldo| saldo.value.curr.clone())
+        .unwrap_or_else(|| "EUR".to_owned());
+    let value = Value {
+        value: cents_to_decimal(line_value),
+        curr: Some(curr.clone()),
+    };
+    next = npos + 4;
+
+    *saldo += line_value;
+    let line_saldo = Saldo {
+        value: Value {
+            value: cents_to_decimal(*saldo),
+            curr: Some(curr),
+        },
+        date: Some(bdate.clone()),
+        time: None,
+    };
+
+    let customer_end = find_from_absolute(input, "//", next)
+        .or_else(|| find_from_absolute(input, "\r\n", next))
+        .unwrap_or(input.len());
+    let customerref = input.get(next..customer_end).unwrap_or_default().to_owned();
+    next = customer_end;
+
+    let mut instref = String::new();
+    if input.get(next..next + 2) == Some("//") {
+        next += 2;
+        let inst_end = find_from_absolute(input, "\r\n", next).unwrap_or(input.len());
+        instref = input.get(next..inst_end).unwrap_or_default().to_owned();
+        next = inst_end + 2;
+    }
+
+    let mut line = GvrKUmsLine {
+        valuta: Some(valuta),
+        bdate: Some(bdate),
+        value: Some(value),
+        is_storno,
+        saldo: Some(line_saldo),
+        customerref: Some(customerref),
+        instref: Some(instref),
+        ..GvrKUmsLine::default()
+    };
+
+    if input.as_bytes().get(next) == Some(&b'\r') {
+        next += 2;
+        line.orig_value = kums_optional_tagged_value(input, "/OCMT/", next);
+        line.charge_value = kums_optional_tagged_value(input, "/CHGS/", next);
+    }
+
+    Some(line)
 }
 
 fn kums_account_from_info(konto_info: Option<&str>) -> Konto {
@@ -895,6 +1009,121 @@ fn kums_saldo_from_mt940(input: &str) -> Option<Saldo> {
         date: Some(date.to_owned()),
         time: None,
     })
+}
+
+fn kums_optional_tagged_value(input: &str, marker: &str, start: usize) -> Option<Value> {
+    let pos = find_from_absolute(input, marker, start)?;
+    let curr = input.get(pos + 6..pos + 9)?;
+    let amount_start = pos + 9;
+    let slashpos = find_from_absolute(input, "/", amount_start).unwrap_or(input.len());
+    let amount = input.get(amount_start..slashpos)?.replace(',', ".");
+    if amount.is_empty() || decimal_to_cents(&amount).is_none() {
+        return None;
+    }
+
+    Some(Value {
+        value: amount,
+        curr: Some(curr.to_owned()),
+    })
+}
+
+fn find_from_absolute(input: &str, pattern: &str, start: usize) -> Option<usize> {
+    input
+        .get(start..)?
+        .find(pattern)
+        .map(|relative| start + relative)
+}
+
+fn corrected_mt940_booking_date(valuta: &str, booking_month_day: &str) -> String {
+    let Some(valuta_year) = valuta.get(0..2).and_then(|value| value.parse::<i32>().ok()) else {
+        return format!(
+            "{}{}",
+            valuta.get(0..2).unwrap_or_default(),
+            booking_month_day
+        );
+    };
+    let Some(valuta_month) = valuta.get(2..4).and_then(|value| value.parse::<u32>().ok()) else {
+        return format!("{valuta_year:02}{booking_month_day}");
+    };
+    let Some(valuta_day) = valuta.get(4..6).and_then(|value| value.parse::<u32>().ok()) else {
+        return format!("{valuta_year:02}{booking_month_day}");
+    };
+    let Some(booking_month) = booking_month_day
+        .get(0..2)
+        .and_then(|value| value.parse::<u32>().ok())
+    else {
+        return format!("{valuta_year:02}{booking_month_day}");
+    };
+    let Some(booking_day) = booking_month_day
+        .get(2..4)
+        .and_then(|value| value.parse::<u32>().ok())
+    else {
+        return format!("{valuta_year:02}{booking_month_day}");
+    };
+
+    let valuta_days = days_from_civil(2000 + valuta_year, valuta_month, valuta_day);
+    let mut booking_year = valuta_year;
+    let mut booking_days = days_from_civil(2000 + booking_year, booking_month, booking_day);
+    if (booking_days - valuta_days).abs() > 180 {
+        if booking_days < valuta_days {
+            booking_year += 1;
+        } else {
+            booking_year -= 1;
+        }
+        booking_days = days_from_civil(2000 + booking_year, booking_month, booking_day);
+    }
+
+    if (booking_days - valuta_days).abs() > 366 {
+        return format!("{valuta_year:02}{booking_month_day}");
+    }
+
+    format!(
+        "{:02}{booking_month:02}{booking_day:02}",
+        booking_year.rem_euclid(100)
+    )
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> i32 {
+    let year = year - i32::from(month <= 2);
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = year - era * 400;
+    let month = month as i32;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day as i32 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn decimal_to_cents(input: &str) -> Option<i64> {
+    let input = input.trim();
+    let negative = input.starts_with('-');
+    let unsigned = input.strip_prefix(['-', '+']).unwrap_or(input);
+    let (integer, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    if integer.is_empty() || !integer.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    if fraction.len() > 2 || !fraction.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+
+    let integer = integer.parse::<i64>().ok()?;
+    let mut cents = integer * 100;
+    if !fraction.is_empty() {
+        let mut padded = fraction.to_owned();
+        while padded.len() < 2 {
+            padded.push('0');
+        }
+        cents += padded.parse::<i64>().ok()?;
+    }
+
+    Some(if negative { -cents } else { cents })
+}
+
+fn cents_to_decimal(cents: i64) -> String {
+    let negative = cents < 0;
+    let unsigned = cents.abs();
+    let prefix = if negative { "-" } else { "" };
+
+    format!("{prefix}{}.{:02}", unsigned / 100, unsigned % 100)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

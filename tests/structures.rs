@@ -220,6 +220,159 @@ fn kums_mt942_shell_keeps_unbooked_data_separate_like_original() {
 }
 
 #[test]
+fn kums_mt940_parser_reads_lines_with_explicit_booking_date_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:28C:1",
+        "\r\n:60F:C230209EUR100,00",
+        "\r\n:61:2302090209CR2,00NTRF2023-02-09-08.37.18.054696",
+        "\r\n:86:152?00GUTSCHRIFT UEBERWEISUNG?109245?20Test 1",
+        "\r\n:61:2302090209CR1,00NTRF2023-02-09-08.37.18.552784",
+        "\r\n:86:152?00GUTSCHRIFT UEBERWEISUNG?109245?20Test 2",
+        "\r\n:62F:C230209EUR103,00",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].valuta.as_deref(), Some("230209"));
+    assert_eq!(lines[0].bdate.as_deref(), Some("230209"));
+    assert_eq!(
+        lines[0].value.as_ref().map(ToString::to_string).as_deref(),
+        Some("2.00 EUR")
+    );
+    assert_eq!(
+        lines[0].saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("230209 102.00 EUR")
+    );
+    assert_eq!(
+        lines[0].customerref.as_deref(),
+        Some("2023-02-09-08.37.18.054696")
+    );
+    assert_eq!(lines[0].instref.as_deref(), Some(""));
+    assert_eq!(
+        lines[1].value.as_ref().map(ToString::to_string).as_deref(),
+        Some("1.00 EUR")
+    );
+    assert_eq!(
+        lines[1].saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("230209 103.00 EUR")
+    );
+}
+
+#[test]
+fn kums_mt940_parser_uses_start_date_when_booking_date_is_missing_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:60F:C230209EUR100,00",
+        "\r\n:61:230209CR2,00NTRFNOBOOKINGDATE",
+        "\r\n:62F:C230209EUR102,00",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].valuta.as_deref(), Some("230209"));
+    assert_eq!(lines[0].bdate.as_deref(), Some("230209"));
+    assert_eq!(
+        lines[0].saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("230209 102.00 EUR")
+    );
+}
+
+#[test]
+fn kums_mt940_parser_extracts_debit_refs_and_optional_values_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:60F:C260601EUR100,00",
+        "\r\n:61:2606020602D10,50NMSCREF",
+        "\r\n/OCMT/USD12,34/CHGS/EUR0,56",
+        "\r\n:62F:C260602EUR89,50",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 1);
+    let line = lines[0];
+    assert_eq!(line.valuta.as_deref(), Some("260602"));
+    assert_eq!(line.bdate.as_deref(), Some("260602"));
+    assert_eq!(
+        line.value.as_ref().map(ToString::to_string).as_deref(),
+        Some("-10.50 EUR")
+    );
+    assert_eq!(
+        line.saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("260602 89.50 EUR")
+    );
+    assert_eq!(line.customerref.as_deref(), Some("REF"));
+    assert_eq!(line.instref.as_deref(), Some(""));
+    assert_eq!(
+        line.orig_value.as_ref().map(ToString::to_string).as_deref(),
+        Some("12.34 USD")
+    );
+    assert_eq!(
+        line.charge_value
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("0.56 EUR")
+    );
+}
+
+#[test]
+fn kums_mt940_parser_extracts_institution_reference_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:60F:C260601EUR100,00",
+        "\r\n:61:2606020602C10,50NMSCREF//INSTREF",
+        "\r\n:62F:C260602EUR110,50",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].customerref.as_deref(), Some("REF"));
+    assert_eq!(lines[0].instref.as_deref(), Some("INSTREF"));
+    assert_eq!(lines[0].orig_value, None);
+    assert_eq!(lines[0].charge_value, None);
+}
+
+#[test]
+fn kums_mt940_parser_handles_storno_and_year_correction_like_original() {
+    let mut result = GvrKUms::new();
+    result.append_mt940_data(concat!(
+        "\r\n:20:STARTUMS",
+        "\r\n:25:12345678/1234567890",
+        "\r\n:60F:C231231EUR100,00",
+        "\r\n:61:2401021231RC5,00NMSCSTORNO",
+        "\r\n:62F:C240102EUR95,00",
+        "\r\n-"
+    ));
+
+    let lines = result.get_flat_data();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].valuta.as_deref(), Some("240102"));
+    assert_eq!(lines[0].bdate.as_deref(), Some("231231"));
+    assert!(lines[0].is_storno);
+    assert_eq!(
+        lines[0].value.as_ref().map(ToString::to_string).as_deref(),
+        Some("-5.00 EUR")
+    );
+    assert_eq!(
+        lines[0].saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("231231 95.00 EUR")
+    );
+}
+
+#[test]
 fn kums_line_add_usage_skips_absent_values_like_original() {
     let mut line = GvrKUmsLine::default();
 
