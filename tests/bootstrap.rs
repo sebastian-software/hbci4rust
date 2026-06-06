@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -8,6 +8,8 @@ use hbci4rust::{
     PinTanPassportData, ReplayCommClient, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
 };
+
+static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug)]
 struct RecordingCallback {
@@ -19,6 +21,25 @@ impl HbciCallback for RecordingCallback {
     async fn handle(&self, event: CallbackEvent) -> HbciResult<CallbackResponse> {
         self.events.lock().expect("callback event lock").push(event);
         Ok(CallbackResponse::empty())
+    }
+}
+
+#[derive(Debug)]
+struct ScriptedCallback {
+    events: Arc<Mutex<Vec<CallbackEvent>>>,
+    responses: Arc<Mutex<VecDeque<CallbackResponse>>>,
+}
+
+#[async_trait]
+impl HbciCallback for ScriptedCallback {
+    async fn handle(&self, event: CallbackEvent) -> HbciResult<CallbackResponse> {
+        self.events.lock().expect("callback event lock").push(event);
+        Ok(self
+            .responses
+            .lock()
+            .expect("callback response lock")
+            .pop_front()
+            .unwrap_or_else(CallbackResponse::empty))
     }
 }
 
@@ -460,6 +481,57 @@ fn checked_queue_add_verifies_constraints_like_original_add_task() {
     assert_eq!(queued.lowlevel_param("Saldo7.maxentries"), None);
 }
 
+#[tokio::test]
+async fn async_checked_queue_add_corrects_invalid_iban_through_global_callback() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let responses = Arc::new(Mutex::new(VecDeque::from([CallbackResponse::value(
+        "DE89370400440532013000",
+    )])));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(ScriptedCallback {
+            events: events.clone(),
+            responses,
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+    let mut account = giro_account();
+    account.blz = Some("37040044".to_owned());
+    account.number = Some("0532013000".to_owned());
+    account.bic = Some("COBADEFFXXX".to_owned());
+    account.iban = Some("DE89370400440532013001".to_owned());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &account);
+
+    handler
+        .try_add_to_queue_with_account_checks(saldo)
+        .await
+        .expect("account-checked job is queued");
+
+    let queued = &handler.queued_jobs()[0];
+    assert_eq!(
+        queued.lowlevel_param("Saldo7.KTV.iban"),
+        Some("DE89370400440532013000")
+    );
+    assert_eq!(queued.param("my.iban"), Some("DE89370400440532013000"));
+
+    let events = events.lock().expect("callback event lock");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].reason, CallbackReason::HaveIbanError);
+    assert_eq!(events[0].data_type, CallbackDataType::Text);
+    assert_eq!(
+        events[0].current_value.as_deref(),
+        Some("DE89370400440532013001")
+    );
+    drop(events);
+    done().expect("runtime reset");
+}
+
 #[test]
 fn checked_queue_add_rejects_missing_required_job_data() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
@@ -793,6 +865,7 @@ async fn handler_init_uses_cached_bpd_and_upd_versions() {
 
 #[tokio::test]
 async fn handler_init_emits_institute_message_callbacks() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
     done().expect("runtime reset");
     let events = Arc::new(Mutex::new(Vec::new()));
     init(
