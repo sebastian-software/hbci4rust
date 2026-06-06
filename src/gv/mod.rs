@@ -127,6 +127,10 @@ impl HbciJob {
         self.params.insert(name.into(), value.into());
     }
 
+    pub fn set_param_int(&mut self, name: impl Into<String>, value: i32) {
+        self.set_param(name, value.to_string());
+    }
+
     pub fn try_set_param(
         &mut self,
         name: impl Into<String>,
@@ -151,6 +155,10 @@ impl HbciJob {
 
         self.set_frontend_and_lowlevel_param(name, value);
         Ok(())
+    }
+
+    pub fn try_set_param_int(&mut self, name: impl Into<String>, value: i32) -> HbciResult<()> {
+        self.try_set_param(name, value.to_string())
     }
 
     pub fn try_set_indexed_param(

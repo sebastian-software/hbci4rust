@@ -205,6 +205,50 @@ fn checked_job_param_setter_rejects_empty_value_like_original() {
 }
 
 #[test]
+fn integer_param_setter_wraps_permissive_string_param() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    saldo.set_param_int("custom.count", -7);
+
+    assert_eq!(saldo.param("custom.count"), Some("-7"));
+    assert!(saldo.lowlevel_params().is_empty());
+}
+
+#[test]
+fn checked_integer_param_setter_uses_original_string_shape() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    saldo
+        .try_set_param_int("maxentries", 25)
+        .expect("integer parameter is accepted");
+
+    assert_eq!(saldo.param("maxentries"), Some("25"));
+    assert_eq!(saldo.lowlevel_param("Saldo7.maxentries"), Some("25"));
+}
+
+#[test]
+fn checked_integer_param_setter_rejects_unaccepted_param_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+
+    let err = saldo
+        .try_set_param_int("custom.count", 25)
+        .expect_err("unknown integer parameter is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "job parameter custom.count is not accepted by SaldoReq"
+    );
+    assert!(saldo.params().is_empty());
+}
+
+#[test]
 fn indexed_job_param_setter_inserts_index_like_original() {
     let mut job: hbci4rust::HbciJob = serde_json::from_str(
         r#"{
