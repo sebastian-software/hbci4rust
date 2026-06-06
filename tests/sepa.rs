@@ -449,6 +449,84 @@ fn camt_transaction_details_map_debit_creditor_side_and_id_fallback_like_origina
 }
 
 #[test]
+fn camt_transaction_details_return_info_flips_counterparty_and_maps_original_amount_like_original()
+{
+    let xml = format!(
+        r#"<Document xmlns="{CAMT_052_001_02_URN}">
+  <BkToCstmrAcctRpt>
+    <Rpt>
+      <Acct><Id><IBAN>DE12345678901234567890</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>ITBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2018-07-20</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">10</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <BookgDt><Dt>2018-07-20</Dt></BookgDt>
+        <AcctSvcrRef>ENTRY-REF</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <AmtDtls>
+              <InstdAmt><Amt Ccy="USD">42.424</Amt></InstdAmt>
+            </AmtDtls>
+            <RltdPties>
+              <Dbtr><Nm>Original Debtor</Nm></Dbtr>
+              <DbtrAcct><Id><IBAN>DE02123456780000000000</IBAN></Id></DbtrAcct>
+              <Cdtr><Nm>Returned Creditor</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>DE03123456780000000000</IBAN></Id></CdtrAcct>
+              <UltmtCdtr><Nm>Ultimate Returned Creditor</Nm></UltmtCdtr>
+            </RltdPties>
+            <RltdAgts>
+              <DbtrAgt><FinInstnId><BIC>DEBTBIC0</BIC></FinInstnId></DbtrAgt>
+              <CdtrAgt><FinInstnId><BIC>CRETDBIC</BIC></FinInstnId></CdtrAgt>
+            </RltdAgts>
+            <RtrInf>
+              <Rsn><Cd>AC01</Cd></Rsn>
+              <AddtlInf>Wrong account</AddtlInf>
+              <AddtlInf>Returned by bank</AddtlInf>
+            </RtrInf>
+            <RmtInf><Ustrd>Return Usage</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>"#
+    );
+
+    let days =
+        parse_camt_report_shell(&xml, SepaVersion::CAMT_052_001_02).expect("CAMT return parses");
+    let line = &days[0].lines[0];
+
+    assert_eq!(
+        line.value.as_ref().map(ToString::to_string).as_deref(),
+        Some("10.00 EUR")
+    );
+    assert_eq!(
+        line.saldo.as_ref().map(ToString::to_string).as_deref(),
+        Some("2018-07-20 60.00 EUR")
+    );
+    assert_eq!(
+        line.orig_value.as_ref().map(ToString::to_string).as_deref(),
+        Some("42.42 USD")
+    );
+    assert_eq!(
+        line.additional.as_deref(),
+        Some("Wrong account,Returned by bank")
+    );
+    assert_eq!(line.usage, vec!["Return Usage"]);
+
+    let other = line.other.as_ref().expect("counter account is present");
+    assert_eq!(other.iban.as_deref(), Some("DE03123456780000000000"));
+    assert_eq!(other.name.as_deref(), Some("Returned Creditor"));
+    assert_eq!(other.name2.as_deref(), Some("Ultimate Returned Creditor"));
+    assert_eq!(other.bic.as_deref(), Some("CRETDBIC"));
+}
+
+#[test]
 fn camt_transaction_details_skip_entry_when_first_detail_has_no_tx_like_original() {
     let xml = format!(
         r#"<Document xmlns="{CAMT_052_001_02_URN}">

@@ -182,6 +182,10 @@ struct CamtTxDetails {
     creditor: Konto,
     usages: Vec<String>,
     purpose_code: Option<String>,
+    return_reason_code: Option<String>,
+    return_additional: Vec<String>,
+    instructed_amount: Option<String>,
+    instructed_amount_currency: Option<String>,
 }
 
 impl From<CamtReport> for GvrKUmsBTag {
@@ -320,6 +324,15 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
                     && let Some(entry) = &mut entry
                 {
                     entry.currency = Some(currency);
+                } else if entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.collecting_first_tx)
+                    && name == "Amt"
+                    && path_ends_with(&stack, &["NtryDtls", "TxDtls", "AmtDtls", "InstdAmt"])
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(entry) = &mut entry
+                {
+                    entry.tx.instructed_amount_currency = Some(currency);
                 }
                 stack.push(name);
             }
@@ -357,6 +370,15 @@ fn parse_camt_reports(xml: &str) -> HbciResult<Vec<CamtReport>> {
                     && let Some(entry) = &mut entry
                 {
                     entry.currency = Some(currency);
+                } else if entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.collecting_first_tx)
+                    && name == "Amt"
+                    && path_ends_with(&stack, &["NtryDtls", "TxDtls", "AmtDtls", "InstdAmt"])
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(entry) = &mut entry
+                {
+                    entry.tx.instructed_amount_currency = Some(currency);
                 }
             }
             Ok(Event::Text(event)) => {
@@ -609,6 +631,12 @@ fn collect_camt_tx_text(stack: &[String], text: &str, tx: &mut CamtTxDetails) {
         tx.usages.push(text.to_owned());
     } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "Purp", "Cd"]) {
         tx.purpose_code = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RtrInf", "Rsn", "Cd"]) {
+        tx.return_reason_code = Some(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "RtrInf", "AddtlInf"]) {
+        tx.return_additional.push(text.to_owned());
+    } else if path_ends_with(stack, &["NtryDtls", "TxDtls", "AmtDtls", "InstdAmt", "Amt"]) {
+        tx.instructed_amount = Some(text.to_owned());
     }
 }
 
@@ -669,8 +697,15 @@ fn camt_line_from_entry(
     {
         line.add_usage(Some(text));
     } else if entry.has_details {
-        let use_debtor = entry.credit_debit.as_deref() == Some("CRDT");
         let tx = entry.tx;
+        let is_return = tx
+            .return_reason_code
+            .as_deref()
+            .is_some_and(|code| !code.is_empty());
+        let mut use_debtor = entry.credit_debit.as_deref() == Some("CRDT");
+        if is_return {
+            use_debtor = !use_debtor;
+        }
         let other = if use_debtor {
             tx.debtor.clone()
         } else {
@@ -686,6 +721,19 @@ fn camt_line_from_entry(
         line.other = Some(other);
         line.usage.extend(tx.usages);
         line.purposecode = tx.purpose_code;
+
+        if is_return {
+            if let Some(instructed_amount) = tx.instructed_amount {
+                line.orig_value = Some(Value {
+                    value: normalize_decimal_amount(&instructed_amount),
+                    curr: tx.instructed_amount_currency,
+                });
+            }
+
+            if !tx.return_additional.is_empty() {
+                line.additional = Some(tx.return_additional.join(","));
+            }
+        }
     }
 
     Some(line)
