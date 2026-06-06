@@ -2,6 +2,8 @@ use std::fmt::{self, Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
+use crate::dialog::KnownReturncode;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HbciExecStatus {
     pub success: bool,
@@ -25,6 +27,24 @@ impl HbciExecStatus {
             self.global_status().error_string(),
             self.segment_status().error_string(),
         ])
+    }
+
+    pub fn is_invalid_pin(&self) -> bool {
+        self.invalid_pin_code().is_some()
+    }
+
+    pub fn invalid_pin_code(&self) -> Option<&HbciReturnValue> {
+        self.global_return_values
+            .iter()
+            .filter(|value| value.is_error())
+            .chain(
+                self.segment_return_values
+                    .iter()
+                    .filter(|value| value.is_error()),
+            )
+            .find(|value| {
+                KnownReturncode::contains(value.code.as_str(), &KnownReturncode::LIST_AUTH_FAIL)
+            })
     }
 }
 

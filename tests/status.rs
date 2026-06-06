@@ -1,3 +1,4 @@
+use hbci4rust::KnownReturncode;
 use hbci4rust::{HbciExecStatus, HbciJobResult, HbciReturnValue, HbciStatus, HbciStatusCode};
 
 #[test]
@@ -154,6 +155,59 @@ fn exec_status_error_string_trims_empty_global_or_segment_status() {
 
     assert_eq!(exec_status.error_string(), "9010:Segmentfehler");
     assert_eq!(exec_status.to_string(), "9010:Segmentfehler");
+}
+
+#[test]
+fn known_returncode_auth_fail_list_matches_original() {
+    let codes = KnownReturncode::LIST_AUTH_FAIL
+        .iter()
+        .map(|code| code.code())
+        .collect::<Vec<_>>();
+
+    assert_eq!(codes, vec!["9340", "9930", "9931", "9942"]);
+    assert_eq!(
+        KnownReturncode::find("9930", &KnownReturncode::LIST_AUTH_FAIL),
+        Some(KnownReturncode::E9930)
+    );
+    assert!(KnownReturncode::contains(
+        "9942",
+        &KnownReturncode::LIST_AUTH_FAIL
+    ));
+    assert!(!KnownReturncode::contains(
+        "",
+        &KnownReturncode::LIST_AUTH_FAIL
+    ));
+    assert!(!KnownReturncode::contains(
+        "3920",
+        &KnownReturncode::LIST_AUTH_FAIL
+    ));
+}
+
+#[test]
+fn exec_status_detects_invalid_pin_code_like_message_status() {
+    let exec_status = HbciExecStatus {
+        global_return_values: vec![
+            HbciReturnValue::new("9010", "Anderer Fehler"),
+            HbciReturnValue::new("9930", "PIN gesperrt"),
+        ],
+        segment_return_values: vec![HbciReturnValue::new("9942", "PIN falsch")],
+        ..HbciExecStatus::default()
+    };
+
+    assert!(exec_status.is_invalid_pin());
+    assert_eq!(exec_status.invalid_pin_code().unwrap().code, "9930");
+}
+
+#[test]
+fn exec_status_ignores_non_auth_fail_errors_for_invalid_pin() {
+    let exec_status = HbciExecStatus {
+        global_return_values: vec![HbciReturnValue::new("9010", "Anderer Fehler")],
+        segment_return_values: vec![HbciReturnValue::new("9000", "Noch ein Fehler")],
+        ..HbciExecStatus::default()
+    };
+
+    assert!(!exec_status.is_invalid_pin());
+    assert!(exec_status.invalid_pin_code().is_none());
 }
 
 #[test]
