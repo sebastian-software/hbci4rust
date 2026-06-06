@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use hbci4rust::KnownReturncode;
 use hbci4rust::{
-    HbciErrorKind, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciMsgStatus, HbciReturnValue,
-    HbciStatus, HbciStatusCode,
+    HbciDialogStatus, HbciErrorKind, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciMsgStatus,
+    HbciReturnValue, HbciStatus, HbciStatusCode,
 };
 
 #[test]
@@ -296,6 +296,72 @@ fn msg_status_searches_return_codes_and_invalid_pin_like_original() {
 }
 
 #[test]
+fn dialog_status_is_ok_requires_init_messages_and_end_like_original() {
+    let mut dialog_status = HbciDialogStatus::new();
+    dialog_status.set_init_status(ok_msg_status("Init OK"));
+    dialog_status.set_message_statuses([msg_status_with_segment_error(
+        "Nutzdaten OK",
+        "Segmentfehler",
+    )]);
+    dialog_status.set_end_status(ok_msg_status("Ende OK"));
+
+    assert!(dialog_status.is_ok());
+
+    let mut missing_end = HbciDialogStatus::new();
+    missing_end.set_init_status(ok_msg_status("Init OK"));
+
+    assert!(!missing_end.is_ok());
+
+    dialog_status.set_message_statuses([global_error_msg_status("Dialogfehler")]);
+
+    assert!(!dialog_status.is_ok());
+}
+
+#[test]
+fn dialog_status_error_string_joins_parts_without_original_labels() {
+    let mut dialog_status = HbciDialogStatus::new();
+    dialog_status.set_init_status(global_error_msg_status("Initfehler"));
+    dialog_status.set_message_statuses([msg_status_with_segment_error(
+        "Nutzdaten OK",
+        "Segmentfehler",
+    )]);
+    dialog_status.set_end_status(global_error_msg_status("Endefehler"));
+
+    assert_eq!(
+        dialog_status.error_string(),
+        "9010:Initfehler\n9010:Segmentfehler\n9010:Endefehler"
+    );
+}
+
+#[test]
+fn dialog_status_has_exceptions_across_message_parts_like_original() {
+    let mut message_global = HbciStatus::new();
+    message_global.add_exception_message("Transportfehler");
+    let message_status = HbciMsgStatus::from_statuses(message_global, HbciStatus::new());
+    let mut dialog_status = HbciDialogStatus::new();
+    dialog_status.set_init_status(ok_msg_status("Init OK"));
+    dialog_status.set_message_statuses([message_status]);
+    dialog_status.set_end_status(ok_msg_status("Ende OK"));
+
+    assert!(dialog_status.has_exceptions());
+}
+
+#[test]
+fn dialog_status_display_matches_original_sections() {
+    let mut dialog_status = HbciDialogStatus::new();
+    dialog_status.set_init_status(ok_msg_status("Init OK"));
+    dialog_status.set_message_statuses([msg_status_with_segment_error(
+        "Nutzdaten OK",
+        "Segmentfehler",
+    )]);
+
+    assert_eq!(
+        dialog_status.to_string(),
+        "DIALOG-INIT:\n0010:Init OK\nDIALOG-MSG #1:\n0010:Nutzdaten OK\n9010:Segmentfehler\nDIALOG-END:\n(not status information available)"
+    );
+}
+
+#[test]
 fn exec_and_job_status_helpers_group_existing_return_values() {
     let exec_status = HbciExecStatus {
         global_return_values: vec![HbciReturnValue::new("0010", "Dialog OK")],
@@ -467,4 +533,25 @@ fn job_result(name: &str, return_values: Vec<HbciReturnValue>) -> HbciJobResult 
         return_values,
         result: None,
     }
+}
+
+fn ok_msg_status(text: &str) -> HbciMsgStatus {
+    HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([HbciReturnValue::new("0010", text)]),
+        HbciStatus::new(),
+    )
+}
+
+fn global_error_msg_status(text: &str) -> HbciMsgStatus {
+    HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([HbciReturnValue::new("9010", text)]),
+        HbciStatus::new(),
+    )
+}
+
+fn msg_status_with_segment_error(global_text: &str, segment_error_text: &str) -> HbciMsgStatus {
+    HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([HbciReturnValue::new("0010", global_text)]),
+        HbciStatus::from_return_values([HbciReturnValue::new("9010", segment_error_text)]),
+    )
 }

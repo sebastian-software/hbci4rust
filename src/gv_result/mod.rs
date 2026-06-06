@@ -83,6 +83,90 @@ impl Display for HbciExecStatus {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HbciDialogStatus {
+    pub message_statuses: Vec<HbciMsgStatus>,
+    pub init_status: Option<HbciMsgStatus>,
+    pub end_status: Option<HbciMsgStatus>,
+}
+
+impl HbciDialogStatus {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_init_status(&mut self, status: HbciMsgStatus) {
+        self.init_status = Some(status);
+    }
+
+    pub fn set_message_statuses<I>(&mut self, statuses: I)
+    where
+        I: IntoIterator<Item = HbciMsgStatus>,
+    {
+        self.message_statuses = statuses.into_iter().collect();
+    }
+
+    pub fn set_end_status(&mut self, status: HbciMsgStatus) {
+        self.end_status = Some(status);
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.init_status.as_ref().is_some_and(HbciMsgStatus::is_ok)
+            && self.message_statuses.iter().all(HbciMsgStatus::is_ok)
+            && self.end_status.as_ref().is_some_and(HbciMsgStatus::is_ok)
+    }
+
+    pub fn has_exceptions(&self) -> bool {
+        self.init_status
+            .as_ref()
+            .is_some_and(HbciMsgStatus::has_exceptions)
+            || self
+                .message_statuses
+                .iter()
+                .any(HbciMsgStatus::has_exceptions)
+            || self
+                .end_status
+                .as_ref()
+                .is_some_and(HbciMsgStatus::has_exceptions)
+    }
+
+    pub fn error_string(&self) -> String {
+        let parts = self
+            .init_status
+            .iter()
+            .chain(self.message_statuses.iter())
+            .chain(self.end_status.iter())
+            .map(HbciMsgStatus::error_string);
+
+        joined_status_strings(parts)
+    }
+}
+
+impl Display for HbciDialogStatus {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let mut sections = Vec::with_capacity(self.message_statuses.len() + 2);
+
+        sections.push(format!(
+            "{STAT_INIT_LABEL}:\n{}",
+            dialog_status_display(self.init_status.as_ref())
+        ));
+
+        sections.extend(
+            self.message_statuses
+                .iter()
+                .enumerate()
+                .map(|(index, status)| format!("{STAT_MSG_LABEL} #{}:\n{status}", index + 1)),
+        );
+
+        sections.push(format!(
+            "{STAT_END_LABEL}:\n{}",
+            dialog_status_display(self.end_status.as_ref())
+        ));
+
+        formatter.write_str(&sections.join("\n"))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HbciMsgStatus {
     pub global_status: HbciStatus,
     pub segment_status: HbciStatus,
@@ -477,6 +561,17 @@ where
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+const STAT_INIT_LABEL: &str = "DIALOG-INIT";
+const STAT_MSG_LABEL: &str = "DIALOG-MSG";
+const STAT_END_LABEL: &str = "DIALOG-END";
+const STATUS_INFO_UNAVAILABLE: &str = "(not status information available)";
+
+fn dialog_status_display(status: Option<&HbciMsgStatus>) -> String {
+    status
+        .map(ToString::to_string)
+        .unwrap_or_else(|| STATUS_INFO_UNAVAILABLE.to_owned())
 }
 
 fn counted_header(base: &str, index: usize) -> String {
