@@ -183,6 +183,7 @@ where
             messages: response_status.messages(),
             global_return_values: response_status.global_return_values,
             segment_return_values: response_status.segment_return_values,
+            ..HbciExecStatus::default()
         })
     }
 

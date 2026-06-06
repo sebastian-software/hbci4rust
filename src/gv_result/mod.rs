@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
 
 use serde::{Deserialize, Serialize};
@@ -13,9 +13,82 @@ pub struct HbciExecStatus {
     pub messages: Vec<String>,
     pub global_return_values: Vec<HbciReturnValue>,
     pub segment_return_values: Vec<HbciReturnValue>,
+    pub dialog_statuses: BTreeMap<String, HbciDialogStatus>,
+    pub exception_messages: BTreeMap<String, Vec<String>>,
 }
 
 impl HbciExecStatus {
+    pub fn customer_ids(&self) -> Vec<String> {
+        let mut ids = BTreeSet::new();
+        ids.extend(self.dialog_statuses.keys().cloned());
+        ids.extend(self.exception_messages.keys().cloned());
+        ids.into_iter().collect()
+    }
+
+    pub fn add_dialog_status(
+        &mut self,
+        customer_id: impl Into<String>,
+        status: Option<HbciDialogStatus>,
+    ) {
+        let customer_id = customer_id.into();
+        if let Some(status) = status {
+            self.dialog_statuses.insert(customer_id, status);
+        } else {
+            self.dialog_statuses.remove(&customer_id);
+        }
+    }
+
+    pub fn dialog_status(&self, customer_id: &str) -> Option<&HbciDialogStatus> {
+        self.dialog_statuses.get(customer_id)
+    }
+
+    pub fn dialog_status_list(&self) -> Vec<&HbciDialogStatus> {
+        self.dialog_statuses.values().collect()
+    }
+
+    pub fn add_exception_message(
+        &mut self,
+        customer_id: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.exception_messages
+            .entry(customer_id.into())
+            .or_default()
+            .push(message.into());
+    }
+
+    pub fn exception_messages(&self, customer_id: &str) -> Option<&[String]> {
+        self.exception_messages.get(customer_id).map(Vec::as_slice)
+    }
+
+    pub fn is_ok(&self) -> bool {
+        if self.has_dialog_data() {
+            self.customer_ids()
+                .iter()
+                .all(|customer_id| self.is_ok_for_customer(customer_id))
+        } else {
+            self.success
+        }
+    }
+
+    pub fn is_ok_for_customer(&self, customer_id: &str) -> bool {
+        !self.exception_messages.contains_key(customer_id)
+            && self
+                .dialog_status(customer_id)
+                .is_some_and(HbciDialogStatus::is_ok)
+    }
+
+    pub fn to_string_for_customer(&self, customer_id: &str) -> String {
+        let exception_messages = self
+            .exception_messages(customer_id)
+            .into_iter()
+            .flatten()
+            .cloned();
+        let status = self.dialog_status(customer_id).map(ToString::to_string);
+
+        joined_status_strings(exception_messages.chain(status))
+    }
+
     pub fn global_status(&self) -> HbciStatus {
         HbciStatus::from_return_values(self.global_return_values.clone())
     }
@@ -32,7 +105,11 @@ impl HbciExecStatus {
     }
 
     pub fn error_string(&self) -> String {
-        self.message_status().error_string()
+        if self.has_dialog_data() {
+            self.dialog_error_string()
+        } else {
+            self.message_status().error_string()
+        }
     }
 
     pub fn is_invalid_pin(&self) -> bool {
@@ -62,6 +139,38 @@ impl HbciExecStatus {
             .chain(self.segment_return_values.iter())
     }
 
+    fn has_dialog_data(&self) -> bool {
+        !self.dialog_statuses.is_empty() || !self.exception_messages.is_empty()
+    }
+
+    fn dialog_error_string(&self) -> String {
+        let customer_ids = self.customer_ids();
+        let has_multiple_customer_ids = customer_ids.len() > 1;
+        let mut lines = Vec::new();
+
+        for customer_id in customer_ids {
+            let mut customer_lines = Vec::new();
+            if let Some(exception_messages) = self.exception_messages(&customer_id) {
+                customer_lines.extend(exception_messages.iter().cloned());
+            }
+            if let Some(status) = self.dialog_status(&customer_id) {
+                let error_string = status.error_string();
+                if !error_string.is_empty() {
+                    customer_lines.push(error_string);
+                }
+            }
+
+            if !customer_lines.is_empty() {
+                if has_multiple_customer_ids {
+                    lines.push(format!("Dialog for '{customer_id}':"));
+                }
+                lines.extend(customer_lines);
+            }
+        }
+
+        lines.join("\n")
+    }
+
     fn error_return_values_for_any_code(&self, codes: &[KnownReturncode]) -> Vec<&HbciReturnValue> {
         self.global_return_values
             .iter()
@@ -78,7 +187,23 @@ impl HbciExecStatus {
 
 impl Display for HbciExecStatus {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.message_status(), formatter)
+        if !self.has_dialog_data() {
+            return Display::fmt(&self.message_status(), formatter);
+        }
+
+        formatter.write_str(
+            &self
+                .customer_ids()
+                .into_iter()
+                .map(|customer_id| {
+                    format!(
+                        "Dialog for '{customer_id}':\n{}",
+                        self.to_string_for_customer(&customer_id)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
     }
 }
 

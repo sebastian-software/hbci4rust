@@ -426,6 +426,70 @@ fn exec_status_error_string_trims_empty_global_or_segment_status() {
 }
 
 #[test]
+fn exec_status_collects_customer_ids_from_dialogs_and_exceptions_like_original() {
+    let mut exec_status = HbciExecStatus::default();
+    exec_status.add_dialog_status("cust-b", Some(ok_dialog_status()));
+    exec_status.add_exception_message("cust-a", "Planungsfehler");
+
+    assert_eq!(exec_status.customer_ids(), vec!["cust-a", "cust-b"]);
+    assert_eq!(exec_status.dialog_status_list().len(), 1);
+    assert!(exec_status.dialog_status("cust-b").unwrap().is_ok());
+    assert_eq!(
+        exec_status.exception_messages("cust-a").unwrap()[0],
+        "Planungsfehler"
+    );
+
+    exec_status.add_dialog_status("cust-b", None);
+
+    assert!(exec_status.dialog_status("cust-b").is_none());
+}
+
+#[test]
+fn exec_status_error_string_groups_multiple_customers_like_original() {
+    let mut exec_status = HbciExecStatus::default();
+    exec_status.add_exception_message("cust-a", "Planungsfehler");
+    exec_status.add_dialog_status("cust-a", Some(dialog_status_with_init_error("Initfehler")));
+    exec_status.add_dialog_status("cust-b", Some(dialog_status_with_end_error("Endefehler")));
+    exec_status.add_dialog_status("cust-c", Some(ok_dialog_status()));
+
+    assert_eq!(
+        exec_status.error_string(),
+        "Dialog for 'cust-a':\nPlanungsfehler\n9010:Initfehler\nDialog for 'cust-b':\n9010:Endefehler"
+    );
+}
+
+#[test]
+fn exec_status_display_for_customer_and_all_dialogs_matches_original_shape() {
+    let mut exec_status = HbciExecStatus::default();
+    exec_status.add_exception_message("cust-a", "Planungsfehler");
+    exec_status.add_dialog_status("cust-a", Some(ok_dialog_status()));
+
+    assert_eq!(
+        exec_status.to_string_for_customer("cust-a"),
+        "Planungsfehler\nDIALOG-INIT:\n0010:Init OK\nDIALOG-END:\n0010:Ende OK"
+    );
+    assert_eq!(
+        exec_status.to_string(),
+        "Dialog for 'cust-a':\nPlanungsfehler\nDIALOG-INIT:\n0010:Init OK\nDIALOG-END:\n0010:Ende OK"
+    );
+}
+
+#[test]
+fn exec_status_is_ok_uses_dialog_status_and_exceptions_like_original() {
+    let mut exec_status = HbciExecStatus::default();
+    exec_status.add_dialog_status("cust-a", Some(ok_dialog_status()));
+
+    assert!(exec_status.is_ok_for_customer("cust-a"));
+    assert!(exec_status.is_ok());
+    assert!(!exec_status.is_ok_for_customer("missing"));
+
+    exec_status.add_exception_message("cust-a", "Planungsfehler");
+
+    assert!(!exec_status.is_ok_for_customer("cust-a"));
+    assert!(!exec_status.is_ok());
+}
+
+#[test]
 fn known_returncode_auth_fail_list_matches_original() {
     let codes = KnownReturncode::LIST_AUTH_FAIL
         .iter()
@@ -554,4 +618,23 @@ fn msg_status_with_segment_error(global_text: &str, segment_error_text: &str) ->
         HbciStatus::from_return_values([HbciReturnValue::new("0010", global_text)]),
         HbciStatus::from_return_values([HbciReturnValue::new("9010", segment_error_text)]),
     )
+}
+
+fn ok_dialog_status() -> HbciDialogStatus {
+    let mut dialog_status = HbciDialogStatus::new();
+    dialog_status.set_init_status(ok_msg_status("Init OK"));
+    dialog_status.set_end_status(ok_msg_status("Ende OK"));
+    dialog_status
+}
+
+fn dialog_status_with_init_error(text: &str) -> HbciDialogStatus {
+    let mut dialog_status = ok_dialog_status();
+    dialog_status.set_init_status(global_error_msg_status(text));
+    dialog_status
+}
+
+fn dialog_status_with_end_error(text: &str) -> HbciDialogStatus {
+    let mut dialog_status = ok_dialog_status();
+    dialog_status.set_end_status(global_error_msg_status(text));
+    dialog_status
 }
