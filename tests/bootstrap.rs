@@ -307,6 +307,83 @@ fn account_param_helper_ignores_unaccepted_or_empty_fields_like_original() {
 }
 
 #[test]
+fn value_param_helper_sets_amount_and_currency_like_original_overload() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "ValueJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "btg.value",
+                    "destination_name": "ValueSeg.BTG.value",
+                    "default_value": null,
+                    "indexed": false
+                },
+                {
+                    "frontend_name": "btg.curr",
+                    "destination_name": "ValueSeg.BTG.curr",
+                    "default_value": null,
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("value job");
+
+    job.set_param_value(
+        "btg",
+        &Value {
+            value: "123.45".to_owned(),
+            curr: Some("EUR".to_owned()),
+        },
+    );
+
+    assert_eq!(job.param("btg.value"), Some("123.45"));
+    assert_eq!(job.param("btg.curr"), Some("EUR"));
+    assert_eq!(job.lowlevel_param("ValueSeg.BTG.value"), Some("123.45"));
+    assert_eq!(job.lowlevel_param("ValueSeg.BTG.curr"), Some("EUR"));
+}
+
+#[test]
+fn value_param_helper_ignores_unaccepted_or_empty_fields_like_original() {
+    let mut job: hbci4rust::HbciJob = serde_json::from_str(
+        r#"{
+            "name": "ValueJob",
+            "params": {},
+            "constraints": [
+                {
+                    "frontend_name": "btg.value",
+                    "destination_name": "ValueSeg.BTG.value",
+                    "default_value": null,
+                    "indexed": false
+                }
+            ]
+        }"#,
+    )
+    .expect("value job");
+
+    job.set_param_value(
+        "btg",
+        &Value {
+            value: "50.00".to_owned(),
+            curr: Some(String::new()),
+        },
+    );
+    job.set_param_value(
+        "fee",
+        &Value {
+            value: "1.00".to_owned(),
+            curr: Some("EUR".to_owned()),
+        },
+    );
+
+    assert_eq!(job.param("btg.value"), Some("50.00"));
+    assert_eq!(job.param("btg.curr"), None);
+    assert_eq!(job.param("fee.value"), None);
+    assert_eq!(job.lowlevel_param("ValueSeg.BTG.value"), Some("50.00"));
+}
+
+#[test]
 fn verify_constraints_resolves_frontend_params_and_defaults_like_original() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);

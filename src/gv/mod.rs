@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallback};
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
-use crate::gv_result::Konto;
+use crate::gv_result::{Konto, Value};
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
@@ -198,6 +198,11 @@ impl HbciJob {
         self.set_optional_account_param(name, "iban", account.iban.as_deref());
     }
 
+    pub fn set_param_value(&mut self, name: &str, value: &Value) {
+        self.set_optional_structured_param(name, "value", Some(value.value.as_str()));
+        self.set_optional_structured_param(name, "curr", value.curr.as_deref());
+    }
+
     pub fn param(&self, name: &str) -> Option<&str> {
         self.params.get(name).map(String::as_str)
     }
@@ -348,6 +353,10 @@ impl HbciJob {
     }
 
     fn set_optional_account_param(&mut self, base: &str, field: &str, value: Option<&str>) {
+        self.set_optional_structured_param(base, field, value);
+    }
+
+    fn set_optional_structured_param(&mut self, base: &str, field: &str, value: Option<&str>) {
         let name = format!("{base}.{field}");
         if self.accepts_param(&name)
             && let Some(value) = value.filter(|value| !value.is_empty())
