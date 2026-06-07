@@ -59,12 +59,19 @@ The following hbci4java high-level jobs are deliberately absent from the v1
 public registry:
 
 - `LastCOR1SEPA`;
-- `MultiLastCOR1SEPA`.
+- `MultiLastCOR1SEPA`;
+- `MultiLast`;
+- `MultiUeb`.
 
-They were compatibility-carried SEPA `COR1` direct-debit variants. EPC guidance
-states that `COR1` is no longer relevant for new SDD Core collections from
-20 November 2016. Use the modern CORE or B2B SEPA direct-debit jobs instead:
-`LastSEPA`, `MultiLastSEPA`, `LastB2BSEPA`, or `MultiLastB2BSEPA`.
+`LastCOR1SEPA` and `MultiLastCOR1SEPA` were compatibility-carried SEPA `COR1`
+direct-debit variants. EPC guidance states that `COR1` is no longer relevant
+for new SDD Core collections from 20 November 2016. Use the modern CORE or B2B
+SEPA direct-debit jobs instead: `LastSEPA`, `MultiLastSEPA`, `LastB2BSEPA`, or
+`MultiLastB2BSEPA`.
+
+`MultiLast` and `MultiUeb` were compatibility-carried DTAUS bulk jobs over the
+old national payment rails. Use the modern SEPA bulk jobs instead:
+`MultiUebSEPA`, `MultiLastSEPA`, or `MultiLastB2BSEPA`.
 
 ## Dynamic Lowlevel Boundary
 
@@ -82,8 +89,9 @@ class. It is not treated as permission to construct arbitrary lowlevel jobs.
 available for original-near rendering, result inspection, and tests. They do
 not widen v1 into a dynamic lowlevel API.
 
-The current job coverage audit therefore allows exactly three missing upstream
-`GV*.java` classes: `LastCOR1SEPA`, `MultiLastCOR1SEPA`, and `Template`.
+The current job coverage audit therefore allows exactly five missing upstream
+`GV*.java` classes: `LastCOR1SEPA`, `MultiLast`,
+`MultiLastCOR1SEPA`, `MultiUeb`, and `Template`.
 
 ## Typed Result Boundary
 
@@ -172,3 +180,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0261: Security Media Scope Evidence
 - ADR 0262: Non-Legacy Publication Scope
 - ADR 0265: Remove COR1 Public Jobs
+- ADR 0266: Remove DTAUS Bulk Public Jobs

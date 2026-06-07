@@ -81,7 +81,6 @@ A detailed per-job current-relevance audit lives in
 | Classic scheduled transfers | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList` | They are the non-SEPA counterparts to the SEPA scheduled-transfer jobs. |
 | Classic standing orders | `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | They are the non-SEPA counterparts to the SEPA standing-order jobs. |
 | Classic direct debit and objection jobs | `Last`, `StornoLast` | They predate the SEPA direct-debit rail. |
-| DTAUS bulk jobs | `MultiUeb`, `MultiLast` | They accept already serialized DTAUS payloads. National transfer/direct-debit schemes have been replaced by SEPA. |
 
 ## Intentionally Unsupported Legacy Surface
 
@@ -92,6 +91,7 @@ These surfaces remain out of scope, not merely deferred:
 - RDH, RAH, and RSA key-file live support;
 - Java passport import/export;
 - `LastCOR1SEPA` and `MultiLastCOR1SEPA`;
+- `MultiUeb` and `MultiLast`;
 - arbitrary dynamic lowlevel jobs through public `newLowlevelJob(...)`;
 - `GVTemplate`;
 - `WPStammData` / lowlevel `WPStammList`.
@@ -120,9 +120,9 @@ scripts/audit-modern-scope.sh
 Current output:
 
 ```text
-registry=65
+registry=63
 modern=46
-legacy=19
+legacy=17
 duplicates=<none>
 unclassified=<none>
 stale=<none>

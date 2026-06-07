@@ -59,8 +59,6 @@ legacy_jobs=(
   DauerNew
   Donation
   Last
-  MultiLast
-  MultiUeb
   StornoLast
   TermUeb
   TermUebDel

@@ -22,8 +22,8 @@ Last checked: 2026-06-07.
 
 ```text
 upstream=68
-rust=65
-missing=LastCOR1SEPA,MultiLastCOR1SEPA,Template
+rust=63
+missing=LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,Template
 extra=<none>
 ```
 
@@ -37,6 +37,10 @@ public registry in ADR 0265 because EPC guidance says `COR1` is no longer
 relevant for new SDD Core collections from 20 November 2016. The modern CORE
 and B2B SEPA direct-debit jobs remain in scope.
 
+`MultiLast` and `MultiUeb` were intentionally removed from the public registry
+in ADR 0266 because they are DTAUS bulk jobs over the old national payment
+rails. The modern SEPA bulk jobs remain in scope.
+
 ## How To Recheck
 
 ```sh
@@ -47,7 +51,7 @@ scripts/audit-job-coverage.sh
 The audit exits successfully only when:
 
 - the only missing upstream `GV*.java` names are `LastCOR1SEPA`,
-  `MultiLastCOR1SEPA`, and `Template`;
+  `MultiLast`, `MultiLastCOR1SEPA`, `MultiUeb`, and `Template`;
 - the Rust registry has no job names without a matching upstream `GV*.java`
   class.
 
@@ -60,5 +64,6 @@ not vendored and CI remains offline-only.
 - `docs/adr/0233-gv-job-coverage-audit.md`
 - `docs/adr/0252-unsupported-v1-surface-reference.md`
 - `docs/adr/0265-remove-cor1-public-jobs.md`
+- `docs/adr/0266-remove-dtaus-bulk-public-jobs.md`
 - `docs/reference/unsupported-surfaces.md`
 - `scripts/audit-job-coverage.sh`

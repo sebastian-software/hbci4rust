@@ -3,16 +3,17 @@
 Snapshot date: 2026-06-07.
 
 This audit checked the original 21 compatibility-carried legacy job candidates
-for current relevance before removal or feature-gating work. ADR 0265 has since
-removed the two `COR1` candidates from the public registry, leaving 19
-compatibility-carried legacy candidates in `scripts/audit-modern-scope.sh`.
+for current relevance before removal or feature-gating work. ADR 0265 removed
+the two `COR1` candidates from the public registry, and ADR 0266 removed the two
+DTAUS bulk candidates. That leaves 17 compatibility-carried legacy candidates in
+`scripts/audit-modern-scope.sh`.
 
 ## Finding
 
 The short statement "non-SEPA is legacy" is mostly correct for the classic
 German domestic payment jobs, but it is not precise enough for the whole set.
 
-- 18 candidates are classic national or DTAUS jobs. They use
+- 18 of the original candidates are classic national or DTAUS jobs. They use
   account-number/bank-sort-code, classic FinTS segments, DTAUS-style usage
   fields, or already serialized DTAUS payloads. Their modern v1 counterparts are
   SEPA jobs with IBAN/BIC and PAIN payloads.
@@ -48,9 +49,9 @@ The current Rust port keeps the original-near field shapes:
 | `Donation` | hbci4java alias over classic `Ueb5` with donation-specific DTAUS usage fields. | `UebSEPA` plus caller-side remittance purpose handling | Legacy; remove or hide with classic domestic transfer aliases. |
 | `Last` | Classic domestic direct-debit submission predating the SEPA direct-debit rail. | `LastSEPA`, `LastB2BSEPA` | Legacy; remove or hide with the classic direct-debit slice. |
 | `LastCOR1SEPA` | SEPA job, but `COR1` is obsolete for new SDD Core collections. | `LastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
-| `MultiLast` | Classic domestic bulk direct debit with serialized DTAUS payload. | `MultiLastSEPA`, `MultiLastB2BSEPA` | Legacy; remove or hide with DTAUS bulk jobs. |
+| `MultiLast` | Classic domestic bulk direct debit with serialized DTAUS payload. | `MultiLastSEPA`, `MultiLastB2BSEPA` | Removed from public registry by ADR 0266. |
 | `MultiLastCOR1SEPA` | SEPA bulk job, but `COR1` is obsolete for new SDD Core collections. | `MultiLastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
-| `MultiUeb` | Classic domestic bulk transfer with serialized DTAUS payload. | `MultiUebSEPA` | Legacy; remove or hide with DTAUS bulk jobs. |
+| `MultiUeb` | Classic domestic bulk transfer with serialized DTAUS payload. | `MultiUebSEPA` | Removed from public registry by ADR 0266. |
 | `StornoLast` | Classic domestic direct-debit objection path, tied to the pre-SEPA direct-debit surface. | Explicit future dispute/return workflow if needed | Legacy; remove or hide with the classic direct-debit slice. |
 | `TermUeb` | Classic scheduled transfer with national source and destination account fields. | `TermUebSEPA`, `TermMultiUebSEPA` | Legacy; remove or hide with classic scheduled transfers. |
 | `TermUebDel` | Classic scheduled-transfer deletion using stored classic order data. | `TermUebSEPADel` | Legacy; remove or hide with classic scheduled transfers. |
@@ -68,14 +69,14 @@ The current Rust port keeps the original-near field shapes:
 Remaining cleanup order remains conservative, with one correction: `UebForeign`
 is not a domestic transfer and should be handled last or behind a dedicated
 product-boundary ADR. `LastCOR1SEPA` and `MultiLastCOR1SEPA` were already
-removed from the public registry by ADR 0265.
+removed from the public registry by ADR 0265. `MultiUeb` and `MultiLast` were
+already removed from the public registry by ADR 0266.
 
-1. `MultiUeb`, `MultiLast`
-2. `Last`, `StornoLast`
-3. `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation`
-4. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`,
+1. `Last`, `StornoLast`
+2. `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation`
+3. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`,
    `DauerEdit`, `DauerDel`, `DauerList`
-5. `UebForeign`
+4. `UebForeign`
 
 ## Source Links
 
