@@ -37,6 +37,8 @@ Out:
 
 ## Tracking
 
+- `docs/architecture/v1-readiness.md` records the current evidence-backed v1
+  readiness estimate and completion bar.
 - `docs/architecture/job-coverage.md` records the current upstream `GV*.java`
   to Rust registry coverage and the intentional `GVTemplate` boundary.
 - `docs/architecture/result-coverage.md` records the current upstream
