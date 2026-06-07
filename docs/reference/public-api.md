@@ -7,7 +7,8 @@ existing hbci4java users can migrate incrementally.
 
 For workflow examples, see `docs/reference/java-to-rust-mapping.md` and
 `docs/reference/migration-examples.md`. For result/error inspection guidance,
-see `docs/reference/error-reporting.md`.
+see `docs/reference/error-reporting.md`. For the public v1 unsupported surface,
+see `docs/reference/unsupported-surfaces.md`.
 
 ## Primary PinTAN Path
 
@@ -120,7 +121,8 @@ PINTAN_JOB_NAMES
 ```
 
 `GVTemplate` and arbitrary lowlevel `newLowlevelJob(...)` are not exposed for
-v1. The audit script records that as an intentional boundary.
+v1. The audit script and `docs/reference/unsupported-surfaces.md` record that
+as an intentional boundary.
 
 ## Typed Results And Structures
 
@@ -180,7 +182,8 @@ VoPStatus
 ```
 
 `WPStammData` remains out of the v1 typed-result surface because upstream uses
-it through lowlevel template-style behavior.
+it through lowlevel template-style behavior. The unsupported-surface reference
+records this as the single intentional typed-result audit exclusion.
 
 ## Protocol, Security-Mechanism, And Utility Helpers
 

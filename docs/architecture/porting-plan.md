@@ -52,6 +52,9 @@ Out:
 - `docs/reference/error-reporting.md` records how Rust errors, execution
   statuses, return values, and known return-code helpers map to hbci4java-style
   diagnostics.
+- `docs/reference/unsupported-surfaces.md` records the public v1 boundaries for
+  security media, Java passport compatibility, dynamic lowlevel jobs, typed
+  result exclusions, live testing, and release limitations.
 - `docs/reference/live-bank-tests.md` describes the ignored, env-gated live
   PinTAN dialog smoke hook.
 - `docs/reference/packaging.md` records crate metadata, package-list, and

@@ -52,4 +52,6 @@ not vendored and CI remains offline-only.
 
 - `docs/adr/0232-custom-msg-job-and-template-boundary.md`
 - `docs/adr/0233-gv-job-coverage-audit.md`
+- `docs/adr/0252-unsupported-v1-surface-reference.md`
+- `docs/reference/unsupported-surfaces.md`
 - `scripts/audit-job-coverage.sh`

@@ -44,13 +44,15 @@ not ship with new warnings unless a dedicated ADR accepts the warning.
 - [x] Normalized typed result coverage covers all in-scope upstream `GVR*.java`
   shapes except the intentional `WPStammData` lowlevel boundary.
 - [ ] Coverage audit docs are current after the final release-candidate commit.
-- [ ] Publicly documented unsupported surfaces match the audit exclusions.
+- [x] Publicly documented unsupported surfaces match the audit exclusions.
 
 Evidence:
 
 - `docs/architecture/job-coverage.md`
 - `docs/architecture/result-coverage.md`
 - `docs/reference/java-to-rust-mapping.md`
+- `docs/reference/unsupported-surfaces.md`
+- ADR 0252
 
 ## Protocol And Offline Parity
 

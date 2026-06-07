@@ -41,6 +41,7 @@ readiness estimate and the Java migration map live in:
 - `docs/reference/java-to-rust-mapping.md`
 - `docs/reference/migration-examples.md`
 - `docs/reference/error-reporting.md`
+- `docs/reference/unsupported-surfaces.md`
 - `docs/reference/live-bank-tests.md`
 - `docs/reference/packaging.md`
 - `docs/reference/passport-storage-security.md`

@@ -6,6 +6,8 @@ keys, and tests, while using Rust-cased public types and async control flow.
 For a crate-root export review, see `docs/reference/public-api.md`.
 For high-risk per-job examples, see `docs/reference/migration-examples.md`.
 For error and status inspection, see `docs/reference/error-reporting.md`.
+For the public v1 unsupported surface, see
+`docs/reference/unsupported-surfaces.md`.
 
 ## Naming Rule
 
@@ -245,7 +247,8 @@ They are ignored, env-gated, and not part of CI acceptance.
 
 ## V1 Boundaries
 
-The following hbci4java concepts are intentionally outside v1:
+The following hbci4java concepts are intentionally outside v1 and are tracked in
+`docs/reference/unsupported-surfaces.md`:
 
 - chipcard, PCSC, CTAPI, DDV;
 - RDH, RAH, RSA key-file live support;
