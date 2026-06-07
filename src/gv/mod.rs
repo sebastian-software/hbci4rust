@@ -461,6 +461,7 @@ impl HbciJob {
                 self.check_account_crc("dst", callback).await
             }
             "TermUebList" => self.check_account_crc("my", callback).await,
+            "UebForeign" => self.check_account_crc("src", callback).await,
             _ => Ok(()),
         }
     }
@@ -829,6 +830,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "Ueb" => ueb_constraints(),
         "UebBZU" => ueb_bzu_constraints(),
         "UebEil" => ueb_eil_constraints(),
+        "UebForeign" => ueb_foreign_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
         "Umb" => umb_constraints(),
         "UmbSEPA" => umb_sepa_constraints(),
@@ -1102,6 +1104,27 @@ fn ueb_constraints() -> Vec<HbciJobConstraint> {
 
 fn ueb_eil_constraints() -> Vec<HbciJobConstraint> {
     classic_transfer_constraints("UebEil1")
+}
+
+fn ueb_foreign_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("src.country", "UebForeign2.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("src.blz", "UebForeign2.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.number", "UebForeign2.My.number", None::<String>),
+        HbciJobConstraint::new("src.subnumber", "UebForeign2.My.subnumber", Some("")),
+        HbciJobConstraint::new("src.name", "UebForeign2.myname", None::<String>),
+        HbciJobConstraint::new("dst.country", "UebForeign2.Other.KIK.country", Some("")),
+        HbciJobConstraint::new("dst.blz", "UebForeign2.Other.KIK.blz", Some("")),
+        HbciJobConstraint::new("dst.number", "UebForeign2.Other.number", Some("")),
+        HbciJobConstraint::new("dst.subnumber", "UebForeign2.Other.subnumber", Some("")),
+        HbciJobConstraint::new("dst.iban", "UebForeign2.otheriban", Some("")),
+        HbciJobConstraint::new("dst.name", "UebForeign2.othername", None::<String>),
+        HbciJobConstraint::new("dst.kiname", "UebForeign2.otherkiname", None::<String>),
+        HbciJobConstraint::new("btg.value", "UebForeign2.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "UebForeign2.BTG.curr", None::<String>),
+        HbciJobConstraint::new("kostentraeger", "UebForeign2.kostentraeger", Some("1")),
+        HbciJobConstraint::new("usage", "UebForeign2.usage", Some("")),
+    ]
 }
 
 fn umb_constraints() -> Vec<HbciJobConstraint> {

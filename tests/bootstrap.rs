@@ -1618,6 +1618,90 @@ fn ueb_exposes_original_near_v5_constraints() {
 }
 
 #[test]
+fn ueb_foreign_exposes_original_near_v2_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("UebForeign").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 16);
+    assert_eq!(
+        job.constraint("src.number")
+            .expect("source account number constraint")
+            .destination_name,
+        "UebForeign2.My.number"
+    );
+    assert_eq!(
+        job.constraint("src.country")
+            .expect("source country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("src.name")
+            .expect("source name constraint")
+            .destination_name,
+        "UebForeign2.myname"
+    );
+    assert_eq!(
+        job.constraint("dst.number")
+            .expect("destination account number constraint")
+            .destination_name,
+        "UebForeign2.Other.number"
+    );
+    assert_eq!(
+        job.constraint("dst.number")
+            .expect("destination account number constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("dst.iban")
+            .expect("destination iban constraint")
+            .destination_name,
+        "UebForeign2.otheriban"
+    );
+    assert_eq!(
+        job.constraint("dst.kiname")
+            .expect("destination bank name constraint")
+            .destination_name,
+        "UebForeign2.otherkiname"
+    );
+    assert_eq!(
+        job.constraint("btg.value")
+            .expect("amount value constraint")
+            .destination_name,
+        "UebForeign2.BTG.value"
+    );
+    assert_eq!(
+        job.constraint("kostentraeger")
+            .expect("cost carrier constraint")
+            .default_value
+            .as_deref(),
+        Some("1")
+    );
+    assert_eq!(
+        job.constraint("usage")
+            .expect("usage constraint")
+            .destination_name,
+        "UebForeign2.usage"
+    );
+    assert!(job.constraint("usage_2").is_none());
+    assert!(job.constraint("key").is_none());
+
+    job.try_set_param("dst.iban", "US00FOREIGNIBAN")
+        .expect("destination iban is accepted");
+    assert_eq!(
+        job.lowlevel_param("UebForeign2.otheriban"),
+        Some("US00FOREIGNIBAN")
+    );
+    job.try_set_param("kostentraeger", "2")
+        .expect("cost carrier is accepted");
+    assert_eq!(job.lowlevel_param("UebForeign2.kostentraeger"), Some("2"));
+}
+
+#[test]
 fn ueb_bzu_exposes_original_near_v5_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -6022,6 +6106,66 @@ async fn handler_renders_ueb_like_original() {
     assert!(
         body.contains(
             "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Transfer usage one:Transfer usage two'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_ueb_foreign_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("UebForeign").expect("job is in registry");
+    job.try_set_param("src.number", "1234567890")
+        .expect("source account number is accepted");
+    job.try_set_param("src.blz", "10020030")
+        .expect("source bank code is accepted");
+    job.try_set_param("src.name", "Sender Name")
+        .expect("source name is accepted");
+    job.try_set_param("dst.country", "US")
+        .expect("destination country is accepted");
+    job.try_set_param("dst.blz", "87654321")
+        .expect("destination bank code is accepted");
+    job.try_set_param("dst.number", "99887766")
+        .expect("destination account number is accepted");
+    job.try_set_param("dst.iban", "US00FOREIGNIBAN")
+        .expect("destination iban is accepted");
+    job.try_set_param("dst.kiname", "Foreign Bank")
+        .expect("destination bank name is accepted");
+    job.try_set_param("dst.name", "Foreign Receiver")
+        .expect("destination name is accepted");
+    job.try_set_param("btg.value", "42.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "USD")
+        .expect("amount currency is accepted");
+    job.try_set_param("kostentraeger", "2")
+        .expect("cost carrier is accepted");
+    job.try_set_param("usage", "Foreign transfer usage")
+        .expect("usage is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "UebForeign");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert!(
+        !status.job_results[0]
+            .result_data
+            .keys()
+            .any(|key| key.starts_with("content."))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKAOM:3:2+1234567890::280:10020030+Sender Name+99887766::840:87654321+US00FOREIGNIBAN+Foreign Bank+Foreign Receiver+42,:USD+2+Foreign transfer usage'"
         ),
         "{body}"
     );

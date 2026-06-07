@@ -1138,6 +1138,7 @@ fn render_job_into_custom_message(
         "Ueb" => render_ueb(message, job, index, passport),
         "UebBZU" => render_ueb_bzu(message, job, index, passport),
         "UebEil" => render_ueb_eil(message, job, index, passport),
+        "UebForeign" => render_ueb_foreign(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         "Umb" => render_umb(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
@@ -1429,6 +1430,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKEIL",
             lowlevel_segment: "UebEil1",
             path: "CustomMsg.GV.UebEil1",
+        }),
+        "UebForeign" => Ok(OrderhashSourceJobInfo {
+            code: "HKAOM",
+            lowlevel_segment: "UebForeign2",
+            path: "CustomMsg.GV.UebForeign2",
         }),
         "Umb" => Ok(OrderhashSourceJobInfo {
             code: "HKUMB",
@@ -3045,6 +3051,98 @@ fn render_ueb_eil(
     )
 }
 
+fn render_ueb_foreign(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "UebForeign2";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let src_account = classic_national_job_account(
+        job,
+        passport.first_account().cloned(),
+        lowlevel_segment,
+        "My",
+        "src",
+    );
+    if !has_account_identity(&src_account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "UebForeign requires src.number or a passport account for the current UebForeign2 renderer",
+        ));
+    }
+    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
+
+    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.myname"),
+        job,
+        "UebForeign2.myname",
+        "src.name",
+        "UebForeign requires src.name",
+    )?;
+    set_optional_classic_national_account_values(
+        message,
+        &format!("{segment}.Other"),
+        &dst_account,
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.otheriban"),
+        job_param(job, "UebForeign2.otheriban", "dst.iban"),
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.otherkiname"),
+        job,
+        "UebForeign2.otherkiname",
+        "dst.kiname",
+        "UebForeign requires dst.kiname",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.othername"),
+        job,
+        "UebForeign2.othername",
+        "dst.name",
+        "UebForeign requires dst.name",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.value"),
+        job,
+        "UebForeign2.BTG.value",
+        "btg.value",
+        "UebForeign requires btg.value",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.curr"),
+        job,
+        "UebForeign2.BTG.curr",
+        "btg.curr",
+        "UebForeign requires btg.curr",
+    )?;
+    message.set_value(
+        &format!("{segment}.kostentraeger"),
+        job_param(job, "UebForeign2.kostentraeger", "kostentraeger").unwrap_or("1"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.usage"),
+        job_param(job, "UebForeign2.usage", "usage"),
+    )?;
+
+    Ok(())
+}
+
 fn render_umb(
     message: &mut HbciMessage,
     job: &HbciJob,
@@ -4354,6 +4452,34 @@ fn set_classic_national_account_values(
         message,
         &format!("{prefix}.KIK.country"),
         account.country.as_deref().or(Some("DE")),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.KIK.blz"),
+        account.blz.as_deref(),
+    )?;
+    Ok(())
+}
+
+fn set_optional_classic_national_account_values(
+    message: &mut HbciMessage,
+    prefix: &str,
+    account: &Konto,
+) -> HbciResult<()> {
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.number"),
+        account.number.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.subnumber"),
+        account.subnumber.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.KIK.country"),
+        account.country.as_deref(),
     )?;
     set_optional_message_value(
         message,
