@@ -57,6 +57,8 @@ Out:
   result exclusions, live testing, and release limitations.
 - `docs/reference/parser-generator-goldens.md` records current parser/generator
   golden fixture coverage and explicit v1 limitations.
+- `docs/reference/malformed-bank-responses.md` records deterministic coverage
+  and limitations for malformed or unexpected bank responses.
 - `docs/reference/live-bank-tests.md` describes the ignored, env-gated live
   PinTAN dialog smoke hook.
 - `docs/reference/packaging.md` records crate metadata, package-list, and

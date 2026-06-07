@@ -43,6 +43,7 @@ readiness estimate and the Java migration map live in:
 - `docs/reference/error-reporting.md`
 - `docs/reference/unsupported-surfaces.md`
 - `docs/reference/parser-generator-goldens.md`
+- `docs/reference/malformed-bank-responses.md`
 - `docs/reference/live-bank-tests.md`
 - `docs/reference/packaging.md`
 - `docs/reference/passport-storage-security.md`

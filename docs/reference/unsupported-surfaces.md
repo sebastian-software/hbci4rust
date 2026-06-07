@@ -97,7 +97,7 @@ These items remain release-candidate work, not hidden implementation support:
 - risky parser or generator behavior needs Java golden artifacts or explicit
   limitation entries, tracked in `docs/reference/parser-generator-goldens.md`;
 - malformed bank responses added before v1 need deterministic replay or fixture
-  coverage;
+  coverage, tracked in `docs/reference/malformed-bank-responses.md`;
 - a persisted-format migration test is required before the first storage format
   revision.
 
@@ -120,6 +120,7 @@ Before any unsupported surface above becomes part of the public API:
 - `docs/reference/public-api.md`
 - `docs/reference/java-to-rust-mapping.md`
 - `docs/reference/live-bank-tests.md`
+- `docs/reference/malformed-bank-responses.md`
 - `docs/reference/passport-storage-security.md`
 - ADR 0003: V1 PinTAN Scope
 - ADR 0232: CustomMsg Job And Template Boundary
@@ -128,3 +129,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0236: Optional Live Bank Test Hooks
 - ADR 0246: V1 Release Checklist
 - ADR 0252: Unsupported V1 Surface Reference
+- ADR 0255: Malformed Bank Response Evidence

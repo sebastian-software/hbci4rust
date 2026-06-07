@@ -8,7 +8,8 @@ observable original-near behavior, and explicit limitation entries are all
 valid release evidence when they are named here.
 
 It does not declare every possible bank response handled. Malformed
-bank-response replay breadth remains a separate release checklist item.
+bank-response evidence is tracked in
+`docs/reference/malformed-bank-responses.md`.
 
 ## Fixture Inventory
 
@@ -48,7 +49,7 @@ resources/protocol/hbci.dtd
 | Area | Evidence | Current v1 claim | Limitation |
 | --- | --- | --- | --- |
 | Protocol XML/DTD loading | `resources/protocol/`; `tests/protocol_resources.rs` | Original XML/DTD resources load, parse, expose counts, child refs, defaults, segment lookups, and DTD entity expansion. | This does not remodel the full FinTS spec; v1 keeps original resources and parser behavior. |
-| FinTS wire parsing and message rendering | `tests/protocol_wire.rs`; `tests/protocol_message.rs` | Quoted delimiters, binary blocks, defaults, valids, sequence checks, value extraction, signature shell rendering, and repeated elements are pinned with original-near tests. | Malformed bank-response replay breadth remains tracked separately. |
+| FinTS wire parsing and message rendering | `tests/protocol_wire.rs`; `tests/protocol_message.rs` | Quoted delimiters, binary blocks, defaults, valids, sequence checks, value extraction, signature shell rendering, and repeated elements are pinned with original-near tests. | Broader malformed bank-response behavior is tracked in `docs/reference/malformed-bank-responses.md`. |
 | CAMT parsing | `tests/sepa.rs`; copied CAMT fixtures | Version detection, namespace handling, report shell parsing, balances, entries, transaction details, return information, malformed proprietary bank code handling, missing dates, invalid saldo amounts, and copied upstream fixtures are covered. | New bank-specific CAMT quirks need copied fixtures or explicit limitations before release acceptance depends on them. |
 | PAIN parsing | `tests/sepa.rs` | Representative PAIN.001 and PAIN.008 parser behavior is covered for old/new transfer fields and direct debit fields. | The upstream PAIN parse fixture set is not fully copied into v1. Add fixtures before claiming broader PAIN parser parity. |
 | PAIN generation | `tests/sepa.rs`; `tests/bootstrap.rs`; `docs/reference/migration-examples.md` | Generated PAIN.001/PAIN.008 payloads are checked for Java-compatible fields, sums, mixed-currency rejection, integration with job constraints, and parser roundtrips. | v1 does not claim byte-for-byte Java XML output identity for generated PAIN documents. Add Java-generated golden XML before making byte identity a release claim. |
@@ -65,8 +66,8 @@ They must be revisited if the public API or acceptance bar changes.
 - Not all upstream PAIN parse fixtures are copied; current tests cover selected
   representative parser behavior.
 - MT942 behavior is only pinned at the current shell/unbooked-data boundary.
-- Malformed bank-response behavior is not closed by this page; it needs
-  deterministic replay or fixture coverage before it can influence acceptance.
+- Malformed bank-response acceptance is governed by
+  `docs/reference/malformed-bank-responses.md`.
 - Bank-specific SCA, TAN media, CAMT, and FinTS quirks discovered during live
   smoke testing must be converted to offline replay fixtures or explicit
   limitations.

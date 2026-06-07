@@ -63,7 +63,7 @@ Evidence:
   generator behavior.
 - [x] Risky parser/generator behavior has Java golden artifacts or an explicit
   limitation entry.
-- [ ] Any malformed-bank-response behavior added before v1 has deterministic
+- [x] Any malformed-bank-response behavior added before v1 has deterministic
   replay or fixture coverage.
 
 Evidence:
@@ -74,9 +74,15 @@ Evidence:
 - `tests/sepa.rs`
 - `tests/swift.rs`
 - `tests/structures.rs`
+- `tests/bootstrap.rs`
+- `tests/status.rs`
+- `tests/secmech.rs`
+- `tests/runtime_callbacks.rs`
 - `tests/fixtures/hbci4java/`
 - `docs/reference/parser-generator-goldens.md`
+- `docs/reference/malformed-bank-responses.md`
 - ADR 0254
+- ADR 0255
 
 ## PinTAN Runtime Replay Breadth
 
