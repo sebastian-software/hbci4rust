@@ -1604,6 +1604,58 @@ fn ueb_sepa_exposes_original_near_v1_constraints() {
 }
 
 #[test]
+fn multi_ueb_sepa_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("MultiUebSEPA").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 24);
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban constraint")
+            .destination_name,
+        "SammelUebSEPA1.My.iban"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_001_001_02_URN)
+    );
+    assert_eq!(
+        job.constraint("_sepapain")
+            .expect("sepa pain")
+            .destination_name,
+        "SammelUebSEPA1.sepapain"
+    );
+    assert!(
+        job.constraint("dst.iban")
+            .expect("destination iban dummy constraint")
+            .indexed
+    );
+    assert_eq!(
+        job.constraint("batchbook")
+            .expect("batchbook dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("Total.value")
+            .expect("total value constraint")
+            .destination_name,
+        "SammelUebSEPA1.Total.value"
+    );
+    assert_eq!(
+        job.constraint("Total.curr")
+            .expect("total currency constraint")
+            .destination_name,
+        "SammelUebSEPA1.Total.curr"
+    );
+}
+
+#[test]
 fn last_sepa_exposes_original_near_v1_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -6573,6 +6625,101 @@ async fn handler_renders_ueb_sepa_with_generated_pain_like_original() {
     assert!(body.contains("<PmtInfId>SEPA-UEB</PmtInfId>"), "{body}");
     assert!(body.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
     assert!(body.contains("<Ustrd>Transfer usage</Ustrd>"));
+}
+
+#[tokio::test]
+async fn handler_renders_multi_ueb_sepa_with_generated_pain_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("MultiUebSEPA").expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param("src.name", "Sender Name")
+        .expect("source name is accepted");
+    job.try_set_indexed_param("dst.name", 0, "Receiver One")
+        .expect("first destination name is accepted");
+    job.try_set_indexed_param("dst.iban", 0, "DE99123456780000000000")
+        .expect("first destination iban is accepted");
+    job.try_set_indexed_param("dst.bic", 0, "DEUTDEDB277")
+        .expect("first destination bic is accepted");
+    job.try_set_indexed_param("btg.value", 0, "12.30")
+        .expect("first amount is accepted");
+    job.try_set_indexed_param("btg.curr", 0, "EUR")
+        .expect("first currency is accepted");
+    job.try_set_indexed_param("usage", 0, "Usage one")
+        .expect("first usage is accepted");
+    job.try_set_indexed_param("endtoendid", 0, "E2E-1")
+        .expect("first end to end id is accepted");
+    job.try_set_indexed_param("dst.name", 1, "Receiver Two")
+        .expect("second destination name is accepted");
+    job.try_set_indexed_param("dst.iban", 1, "DE77123456780000000000")
+        .expect("second destination iban is accepted");
+    job.try_set_indexed_param("dst.bic", 1, "COBADEFFXXX")
+        .expect("second destination bic is accepted");
+    job.try_set_indexed_param("btg.value", 1, "20.00")
+        .expect("second amount is accepted");
+    job.try_set_indexed_param("btg.curr", 1, "EUR")
+        .expect("second currency is accepted");
+    job.try_set_indexed_param("usage", 1, "Usage two")
+        .expect("second usage is accepted");
+    job.try_set_indexed_param("endtoendid", 1, "E2E-2")
+        .expect("second end to end id is accepted");
+    job.try_set_param("sepaid", "SEPA-MULTI")
+        .expect("sepa id is accepted");
+    job.try_set_param("pmtinfid", "PMT-MULTI")
+        .expect("payment info id is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "MultiUebSEPA");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.dialogid")
+            .map(String::as_str),
+        Some("0")
+    );
+    assert!(
+        !status.job_results[0]
+            .result_data
+            .keys()
+            .any(|key| key.starts_with("content."))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKCCM:3:1+DE02123456780000000000:MARKDEF1100+32,3:EUR++urn?:sepade?:xsd?:pain.001.001.02+@"
+        ),
+        "{body}"
+    );
+    assert!(body.contains("<MsgId>SEPA-MULTI</MsgId>"), "{body}");
+    assert!(body.contains("<PmtInfId>PMT-MULTI</PmtInfId>"), "{body}");
+    assert!(body.contains("<NbOfTxs>2</NbOfTxs>"), "{body}");
+    assert!(body.contains("<CtrlSum>32.30</CtrlSum>"), "{body}");
+    assert!(body.contains("<EndToEndId>E2E-1</EndToEndId>"), "{body}");
+    assert!(body.contains("<EndToEndId>E2E-2</EndToEndId>"), "{body}");
+    assert!(
+        body.contains("<Cdtr><Nm>Receiver One</Nm></Cdtr>"),
+        "{body}"
+    );
+    assert!(
+        body.contains("<Cdtr><Nm>Receiver Two</Nm></Cdtr>"),
+        "{body}"
+    );
+    assert!(body.contains("<Ustrd>Usage one</Ustrd>"), "{body}");
+    assert!(body.contains("<Ustrd>Usage two</Ustrd>"), "{body}");
 }
 
 #[tokio::test]

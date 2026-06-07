@@ -2,8 +2,9 @@ use hbci4rust::sepa::{
     CAMT_052_001_01_URN, CAMT_052_001_02_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN,
     CAMT_052_001_08_URN, ENDTOEND_ID_NOTPROVIDED, PAIN_001_001_02_URN, PAIN_008_001_01_URN,
     PAIN_008_001_02_URN, SepaKind, SepaVersion, generate_pain_001_001_02_transfer,
-    generate_pain_008_001_01_direct_debit, parse_camt_report_shell, parse_pain_001_transfers,
-    parse_pain_008_direct_debits,
+    generate_pain_001_001_02_transfers, generate_pain_008_001_01_direct_debit,
+    parse_camt_report_shell, parse_pain_001_transfers, parse_pain_008_direct_debits,
+    sum_pain_001_transfer_values,
 };
 use hbci4rust::{HbciErrorKind, Properties};
 
@@ -251,6 +252,93 @@ fn pain_001_generator_writes_single_transfer_defaults_like_original() {
         transfer.end_to_end_id.as_deref(),
         Some(ENDTOEND_ID_NOTPROVIDED)
     );
+}
+
+#[test]
+fn pain_001_generator_writes_indexed_multi_transfers_like_original() {
+    let params = Properties::from([
+        ("sepaid".to_owned(), "SEPA-MULTI".to_owned()),
+        ("pmtinfid".to_owned(), "PMT-MULTI".to_owned()),
+        ("src.name".to_owned(), "Sender Name".to_owned()),
+        ("src.iban".to_owned(), "DE02123456780000000000".to_owned()),
+        ("src.bic".to_owned(), "MARKDEF1100".to_owned()),
+        ("dst[0].name".to_owned(), "Receiver One".to_owned()),
+        (
+            "dst[0].iban".to_owned(),
+            "DE99123456780000000000".to_owned(),
+        ),
+        ("dst[0].bic".to_owned(), "DEUTDEDB277".to_owned()),
+        ("btg[0].value".to_owned(), "12.30".to_owned()),
+        ("btg[0].curr".to_owned(), "EUR".to_owned()),
+        ("usage[0]".to_owned(), "Usage one".to_owned()),
+        ("endtoendid[0]".to_owned(), "E2E-1".to_owned()),
+        ("dst[1].name".to_owned(), "Receiver Two".to_owned()),
+        (
+            "dst[1].iban".to_owned(),
+            "DE77123456780000000000".to_owned(),
+        ),
+        ("dst[1].bic".to_owned(), "COBADEFFXXX".to_owned()),
+        ("btg[1].value".to_owned(), "20.00".to_owned()),
+        ("btg[1].curr".to_owned(), "EUR".to_owned()),
+        ("usage[1]".to_owned(), "Usage two".to_owned()),
+        ("endtoendid[1]".to_owned(), "E2E-2".to_owned()),
+    ]);
+
+    let total = sum_pain_001_transfer_values(&params).expect("total is calculated");
+    let xml = generate_pain_001_001_02_transfers(&params).expect("multi PAIN.001 generates");
+    let transfers = parse_pain_001_transfers(&xml).expect("generated PAIN.001 parses");
+
+    assert_eq!(total.value, "32.30");
+    assert_eq!(total.curr.as_deref(), Some("EUR"));
+    assert!(xml.contains("<NbOfTxs>2</NbOfTxs>"));
+    assert!(xml.contains("<CtrlSum>32.30</CtrlSum>"));
+    assert!(xml.contains("<PmtInfId>PMT-MULTI</PmtInfId>"));
+    assert!(xml.contains("<Cdtr><Nm>Receiver One</Nm></Cdtr>"));
+    assert!(xml.contains("<Cdtr><Nm>Receiver Two</Nm></Cdtr>"));
+    assert_eq!(transfers.len(), 2);
+    assert_eq!(
+        transfers[0].destination.name.as_deref(),
+        Some("Receiver One")
+    );
+    assert_eq!(
+        transfers[1].destination.name.as_deref(),
+        Some("Receiver Two")
+    );
+    assert_eq!(
+        transfers[1]
+            .value
+            .as_ref()
+            .map(|value| value.value.as_str()),
+        Some("20.00")
+    );
+}
+
+#[test]
+fn pain_001_multi_sum_rejects_mixed_currencies_like_original() {
+    let params = Properties::from([
+        ("src.name".to_owned(), "Sender Name".to_owned()),
+        ("src.iban".to_owned(), "DE02123456780000000000".to_owned()),
+        ("src.bic".to_owned(), "MARKDEF1100".to_owned()),
+        ("dst[0].name".to_owned(), "Receiver One".to_owned()),
+        (
+            "dst[0].iban".to_owned(),
+            "DE99123456780000000000".to_owned(),
+        ),
+        ("btg[0].value".to_owned(), "12.30".to_owned()),
+        ("btg[0].curr".to_owned(), "EUR".to_owned()),
+        ("dst[1].name".to_owned(), "Receiver Two".to_owned()),
+        (
+            "dst[1].iban".to_owned(),
+            "DE77123456780000000000".to_owned(),
+        ),
+        ("btg[1].value".to_owned(), "20.00".to_owned()),
+        ("btg[1].curr".to_owned(), "USD".to_owned()),
+    ]);
+
+    let err = sum_pain_001_transfer_values(&params).expect_err("mixed currencies are rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::InvalidArgument);
+    assert!(err.to_string().contains("mixed currencies"));
 }
 
 #[test]

@@ -8,7 +8,8 @@ use crate::gv_result::{Konto, Value};
 use crate::protocol::normalize_iso_date;
 use crate::sepa::{
     CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, PAIN_008_001_02_URN,
-    generate_pain_001_001_02_transfer, generate_pain_008_001_01_direct_debit,
+    generate_pain_001_001_02_transfer, generate_pain_001_001_02_transfers,
+    generate_pain_008_001_01_direct_debit, sum_pain_001_transfer_values,
 };
 use crate::tools::Properties;
 
@@ -394,6 +395,14 @@ impl HbciJob {
             "DauerLastSEPANew" | "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
                 generate_pain_008_001_01_direct_debit(&params)?
             }
+            "MultiUebSEPA" => {
+                let total = sum_pain_001_transfer_values(&params)?;
+                self.set_frontend_and_lowlevel_param("Total.value", total.value);
+                if let Some(currency) = total.curr {
+                    self.set_frontend_and_lowlevel_param("Total.curr", currency);
+                }
+                generate_pain_001_001_02_transfers(&params)?
+            }
             _ => generate_pain_001_001_02_transfer(&params)?,
         };
         self.set_frontend_and_lowlevel_param("_sepapain", xml);
@@ -410,6 +419,7 @@ impl HbciJob {
             "LastB2BSEPA" => Some("LastB2BSEPA1"),
             "LastCOR1SEPA" => Some("LastCOR1SEPA1"),
             "LastSEPA" => Some("LastSEPA1"),
+            "MultiUebSEPA" => Some("SammelUebSEPA1"),
             "TermUebSEPA" => Some("TermUebSEPA1"),
             "TermUebSEPADel" => Some("TermUebSEPADel1"),
             "TermUebSEPAEdit" => Some("TermUebSEPAEdit1"),
@@ -446,7 +456,7 @@ impl HbciJob {
             }
 
             if let Some(sepa_name) = name.strip_prefix(&sepa_prefix) {
-                params.insert(single_transfer_sepa_name(sepa_name), value.clone());
+                params.insert(self.sepa_generation_param_name(sepa_name), value.clone());
             } else if name == &date_name {
                 params
                     .entry("date".to_owned())
@@ -455,6 +465,14 @@ impl HbciJob {
         }
 
         params
+    }
+
+    fn sepa_generation_param_name(&self, name: &str) -> String {
+        if self.name == "MultiUebSEPA" {
+            name.to_owned()
+        } else {
+            single_transfer_sepa_name(name)
+        }
     }
 
     pub(crate) async fn verify_account_checks(
@@ -855,6 +873,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "KUmsAllCamt" => kums_all_camt_constraints(),
         "KUmsNew" => kums_new_constraints(),
         "KUmsZeitSEPA" => kums_zeit_sepa_constraints(),
+        "MultiUebSEPA" => multi_ueb_sepa_constraints(),
         "Receipt" => receipt_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
@@ -1400,6 +1419,47 @@ fn ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
         )
         .indexed(true),
         HbciJobConstraint::new("purposecode", "UebSEPA1.sepa.purposecode", Some("")).indexed(true),
+    ]
+}
+
+fn multi_ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("src.bic", "SammelUebSEPA1.My.bic", None::<String>),
+        HbciJobConstraint::new("src.iban", "SammelUebSEPA1.My.iban", None::<String>),
+        HbciJobConstraint::new("src.country", "SammelUebSEPA1.My.KIK.country", Some("")),
+        HbciJobConstraint::new("src.blz", "SammelUebSEPA1.My.KIK.blz", Some("")),
+        HbciJobConstraint::new("src.number", "SammelUebSEPA1.My.number", Some("")),
+        HbciJobConstraint::new("src.subnumber", "SammelUebSEPA1.My.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "_sepadescriptor",
+            "SammelUebSEPA1.sepadescr",
+            Some(PAIN_001_001_02_URN),
+        ),
+        HbciJobConstraint::new("_sepapain", "SammelUebSEPA1.sepapain", None::<String>),
+        HbciJobConstraint::new("src.bic", "SammelUebSEPA1.sepa.src.bic", Some("")),
+        HbciJobConstraint::new("src.iban", "SammelUebSEPA1.sepa.src.iban", Some("")),
+        HbciJobConstraint::new("src.name", "SammelUebSEPA1.sepa.src.name", Some("")),
+        HbciJobConstraint::new("dst.bic", "SammelUebSEPA1.sepa.dst.bic", Some("")).indexed(true),
+        HbciJobConstraint::new("dst.iban", "SammelUebSEPA1.sepa.dst.iban", Some("")).indexed(true),
+        HbciJobConstraint::new("dst.name", "SammelUebSEPA1.sepa.dst.name", Some("")).indexed(true),
+        HbciJobConstraint::new("btg.value", "SammelUebSEPA1.sepa.btg.value", Some(""))
+            .indexed(true),
+        HbciJobConstraint::new("btg.curr", "SammelUebSEPA1.sepa.btg.curr", Some("EUR"))
+            .indexed(true),
+        HbciJobConstraint::new("usage", "SammelUebSEPA1.sepa.usage", Some("")).indexed(true),
+        HbciJobConstraint::new("batchbook", "SammelUebSEPA1.sepa.batchbook", Some("")),
+        HbciJobConstraint::new("Total.value", "SammelUebSEPA1.Total.value", None::<String>),
+        HbciJobConstraint::new("Total.curr", "SammelUebSEPA1.Total.curr", None::<String>),
+        HbciJobConstraint::new("sepaid", "SammelUebSEPA1.sepa.sepaid", Some("")),
+        HbciJobConstraint::new("pmtinfid", "SammelUebSEPA1.sepa.pmtinfid", Some("")),
+        HbciJobConstraint::new(
+            "endtoendid",
+            "SammelUebSEPA1.sepa.endtoendid",
+            Some("NOTPROVIDED"),
+        )
+        .indexed(true),
+        HbciJobConstraint::new("purposecode", "SammelUebSEPA1.sepa.purposecode", Some(""))
+            .indexed(true),
     ]
 }
 
