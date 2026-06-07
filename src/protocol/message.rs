@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::datatype::{DataTypeConstraints, render_data_element};
+use super::datatype::{DataTypeConstraints, render_data_element, render_data_element_bytes};
 use super::{
     DefinitionKind, ProtocolSyntax, SyntaxChild, SyntaxChildKind, SyntaxDefinition, SyntaxValidSet,
     SyntaxValue,
@@ -88,7 +88,7 @@ impl HbciMessage {
     }
 
     pub fn auto_set_message_size(&mut self) -> HbciResult<()> {
-        let message_size = self.to_fints_string()?.len();
+        let message_size = self.to_fints_bytes()?.len();
         self.set_message_size(message_size)
     }
 
@@ -112,6 +112,12 @@ impl HbciMessage {
     pub fn to_fints_string(&self) -> HbciResult<String> {
         self.root
             .render(None, true)
+            .map(|rendered| rendered.unwrap_or_default())
+    }
+
+    pub fn to_fints_bytes(&self) -> HbciResult<Vec<u8>> {
+        self.root
+            .render_bytes(None, true)
             .map(|rendered| rendered.unwrap_or_default())
     }
 }
@@ -227,6 +233,11 @@ impl SyntaxElement {
 
     pub fn to_fints_string(&self) -> HbciResult<String> {
         self.render(None, true)
+            .map(|rendered| rendered.unwrap_or_default())
+    }
+
+    pub fn to_fints_bytes(&self) -> HbciResult<Vec<u8>> {
+        self.render_bytes(None, true)
             .map(|rendered| rendered.unwrap_or_default())
     }
 
@@ -541,11 +552,69 @@ impl SyntaxElement {
         }
     }
 
+    fn render_bytes(
+        &self,
+        parent_kind: Option<SyntaxElementKind>,
+        required: bool,
+    ) -> HbciResult<Option<Vec<u8>>> {
+        if self.needs_request_tag && !self.requested {
+            return Ok(None);
+        }
+
+        match self.kind {
+            SyntaxElementKind::De => self.render_de_bytes(required),
+            SyntaxElementKind::Msg => self.render_msg_bytes(),
+            SyntaxElementKind::Seg => {
+                self.render_delimited_children_bytes(parent_kind, b'+', true, required)
+            }
+            SyntaxElementKind::Deg => {
+                let trim_trailing = parent_kind != Some(SyntaxElementKind::Deg);
+                self.render_delimited_children_bytes(parent_kind, b':', trim_trailing, required)
+            }
+            SyntaxElementKind::Sf => self.render_concatenated_children_bytes(required),
+        }
+    }
+
+    fn render_de_bytes(&self, required: bool) -> HbciResult<Option<Vec<u8>>> {
+        match &self.value {
+            Some(value) => Ok(Some(render_data_element_bytes(
+                &self.type_name,
+                value,
+                DataTypeConstraints {
+                    min_size: self.min_size,
+                    max_size: self.max_size,
+                },
+            )?)),
+            None if required => Err(HbciError::new(
+                HbciErrorKind::Protocol,
+                format!("message element {} has no value", self.path),
+            )),
+            None => Ok(None),
+        }
+    }
+
     fn render_msg(&self) -> HbciResult<Option<String>> {
         let mut rendered = String::new();
         for child in &self.children {
             match child.render_optional_aware(Some(self.kind))? {
                 Some(child_rendered) => rendered.push_str(&child_rendered),
+                None if child.min_num > 0 => {
+                    return Err(HbciError::new(
+                        HbciErrorKind::Protocol,
+                        format!("required message element {} is not renderable", child.path),
+                    ));
+                }
+                None => {}
+            }
+        }
+        Ok(Some(rendered))
+    }
+
+    fn render_msg_bytes(&self) -> HbciResult<Option<Vec<u8>>> {
+        let mut rendered = Vec::new();
+        for child in &self.children {
+            match child.render_optional_aware_bytes(Some(self.kind))? {
+                Some(child_rendered) => rendered.extend(child_rendered),
                 None if child.min_num > 0 => {
                     return Err(HbciError::new(
                         HbciErrorKind::Protocol,
@@ -567,6 +636,33 @@ impl SyntaxElement {
                 Some(child_rendered) => {
                     has_rendered_child = true;
                     rendered.push_str(&child_rendered);
+                }
+                None if child.min_num > 0 => {
+                    return Err(HbciError::new(
+                        HbciErrorKind::Protocol,
+                        format!("required message element {} is not renderable", child.path),
+                    ));
+                }
+                None => {}
+            }
+        }
+
+        if has_rendered_child || required {
+            Ok(Some(rendered))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn render_concatenated_children_bytes(&self, required: bool) -> HbciResult<Option<Vec<u8>>> {
+        let mut rendered = Vec::new();
+        let mut has_rendered_child = false;
+
+        for child in &self.children {
+            match child.render_optional_aware_bytes(Some(self.kind))? {
+                Some(child_rendered) => {
+                    has_rendered_child = true;
+                    rendered.extend(child_rendered);
                 }
                 None if child.min_num > 0 => {
                     return Err(HbciError::new(
@@ -633,6 +729,60 @@ impl SyntaxElement {
         }
     }
 
+    fn render_delimited_children_bytes(
+        &self,
+        parent_kind: Option<SyntaxElementKind>,
+        delimiter: u8,
+        trim_trailing_empty: bool,
+        required: bool,
+    ) -> HbciResult<Option<Vec<u8>>> {
+        let mut rendered_children = Vec::with_capacity(self.children.len());
+        let mut has_rendered_child = false;
+
+        for child in &self.children {
+            match child.render_optional_aware_bytes(Some(self.kind))? {
+                Some(rendered) => {
+                    has_rendered_child |= !rendered.is_empty();
+                    rendered_children.push(rendered);
+                }
+                None if child.min_num > 0 => {
+                    return Err(HbciError::new(
+                        HbciErrorKind::Protocol,
+                        format!("required message element {} is not renderable", child.path),
+                    ));
+                }
+                None => rendered_children.push(Vec::new()),
+            }
+        }
+
+        if trim_trailing_empty {
+            while rendered_children.last().is_some_and(Vec::is_empty) {
+                rendered_children.pop();
+            }
+        }
+
+        if !has_rendered_child && !required {
+            return Ok(None);
+        }
+
+        let mut rendered = Vec::new();
+        for (index, child) in rendered_children.into_iter().enumerate() {
+            if index != 0 {
+                rendered.push(delimiter);
+            }
+            rendered.extend(child);
+        }
+        if self.kind == SyntaxElementKind::Seg {
+            rendered.push(b'\'');
+        }
+
+        if rendered.is_empty() && parent_kind.is_some() && !required {
+            Ok(None)
+        } else {
+            Ok(Some(rendered))
+        }
+    }
+
     fn render_optional_aware(
         &self,
         parent_kind: Option<SyntaxElementKind>,
@@ -643,6 +793,22 @@ impl SyntaxElement {
         }
 
         match self.render(parent_kind, required) {
+            Ok(rendered) => Ok(rendered),
+            Err(_) if !required && !self.has_explicit_value() => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn render_optional_aware_bytes(
+        &self,
+        parent_kind: Option<SyntaxElementKind>,
+    ) -> HbciResult<Option<Vec<u8>>> {
+        let required = self.min_num > 0;
+        if !required && !self.has_explicit_value() {
+            return Ok(None);
+        }
+
+        match self.render_bytes(parent_kind, required) {
             Ok(rendered) => Ok(rendered),
             Err(_) if !required && !self.has_explicit_value() => Ok(None),
             Err(err) => Err(err),

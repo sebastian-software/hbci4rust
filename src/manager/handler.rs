@@ -297,7 +297,7 @@ where
         }
 
         message.prepare_outgoing()?;
-        Ok(message.to_fints_string()?.into_bytes())
+        message.to_fints_bytes()
     }
 
     fn render_dialog_end(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
@@ -310,7 +310,7 @@ where
         message.set_value("DialogEnd.MsgTail.msgnum", &request_ref.msgnum)?;
 
         message.prepare_outgoing()?;
-        Ok(message.to_fints_string()?.into_bytes())
+        message.to_fints_bytes()
     }
 
     fn render_dialog_init(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
@@ -349,7 +349,7 @@ where
         )?;
 
         message.prepare_outgoing()?;
-        Ok(message.to_fints_string()?.into_bytes())
+        message.to_fints_bytes()
     }
 }
 

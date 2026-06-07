@@ -32,7 +32,8 @@ pub use manager::{
     AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,
     ChallengeInfo, ChallengeJob, ChallengeParam, FlickerCode, FlickerCodeVersion,
     FlickerDataElement, FlickerEncoding, FlickerRenderer, FlickerStartCode, HbciHandler,
-    HbciVersion, HhdVersion, HhdVersionType, MatrixCode, QrCode, done, get_param, init, set_param,
+    HbciVersion, HhdVersion, HhdVersionType, MatrixCode, OrderHashMode, QrCode, done, get_param,
+    init, set_param,
 };
 pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};
 pub use tools::{

@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use hbci4rust::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
-    HbciCallback, HbciHandler, HbciJobResultData, HbciResult, Konto, Limit, PassportStorage,
-    PinTanPassport, PinTanPassportData, ReplayCommClient, Value, done, init,
+    HbciCallback, HbciHandler, HbciJobResultData, HbciResult, Konto, Limit, OrderHashMode,
+    PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
     sepa::CAMT_052_001_01_URN,
 };
@@ -76,6 +76,12 @@ fn fints_response(
     body.push_str(&msgnum.to_string());
     body.push('\'');
     CommResponse::ok(body)
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 fn custom_msg_ok_response() -> CommResponse {
@@ -2277,6 +2283,8 @@ async fn handler_renders_saldo_request_from_lowlevel_params_like_original() {
 
 #[tokio::test]
 async fn handler_renders_tan2step5_with_applied_challenge_params_like_original() {
+    const ORDER_SEGMENT: &str = "HKAOM:3:5+9876543210+100,99'";
+
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
         ..PinTanPassportData::default()
@@ -2307,8 +2315,11 @@ async fn handler_renders_tan2step5_with_applied_challenge_params_like_original()
     hktan
         .try_set_param("orderaccount.blz", "12345678")
         .expect("order account bank code");
+    let raw_orderhash = OrderHashMode::Sha1
+        .hash_segment(ORDER_SEGMENT)
+        .expect("order segment hashes");
     hktan
-        .try_set_param("orderhash", "12345")
+        .try_set_param("orderhash", raw_orderhash)
         .expect("order hash");
     hktan
         .try_set_param("notlasttan", "N")
@@ -2327,13 +2338,21 @@ async fn handler_renders_tan2step5_with_applied_challenge_params_like_original()
     assert_eq!(status.job_results[0].job_name, "TAN2Step");
 
     let requests = replay.requests().expect("requests");
-    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-
+    let body = &requests[0].body;
+    let hash_prefix = b"HKTAN:2:5+1+HKAOM+::12345678::280:12345678+@20@";
+    let hash_start = find_bytes(body, hash_prefix).expect("HKTAN hash prefix");
+    let payload_start = hash_start + hash_prefix.len();
+    let payload_end = payload_start + 20;
+    assert_eq!(
+        &body[payload_start..payload_end],
+        OrderHashMode::Sha1
+            .hash_segment_bytes(ORDER_SEGMENT)
+            .expect("expected hash")
+    );
     assert!(
-        body.contains(
-            "HKTAN:2:5+1+HKAOM+::12345678::280:12345678+@5@12345+++N+++10+100,99:::9876543210'"
-        ),
-        "{body}"
+        find_bytes(body, b"+++N+++10+100,99:::9876543210'HNHBS:3:1+1'").is_some(),
+        "{}",
+        String::from_utf8_lossy(body)
     );
 }
 

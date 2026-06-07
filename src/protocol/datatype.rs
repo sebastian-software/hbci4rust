@@ -51,6 +51,18 @@ pub(crate) fn render_data_element(
     }
 }
 
+pub(crate) fn render_data_element_bytes(
+    type_name: &str,
+    value: &str,
+    constraints: DataTypeConstraints,
+) -> HbciResult<Vec<u8>> {
+    if type_name == "Bin" {
+        return render_binary_data_element_bytes(value, constraints);
+    }
+
+    render_data_element(type_name, value, constraints).map(String::into_bytes)
+}
+
 pub(crate) fn parse_data_element(
     type_name: &str,
     value: &str,
@@ -416,6 +428,34 @@ fn render_binary_data_element(value: &str, constraints: DataTypeConstraints) -> 
     Ok(format!("@{}@{}", payload.len(), payload))
 }
 
+fn render_binary_data_element_bytes(
+    value: &str,
+    constraints: DataTypeConstraints,
+) -> HbciResult<Vec<u8>> {
+    let Some((format, data)) = value.split_at_checked(1) else {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "Bin data element value must start with B or N",
+        ));
+    };
+
+    let payload = match format {
+        "B" => latin1_payload_bytes(data)?,
+        "N" => positive_decimal_to_java_big_integer_bytes(data)?,
+        _ => {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("Bin data element value has unsupported format: {format}"),
+            ));
+        }
+    };
+
+    check_size_bytes("Bin", payload.len(), constraints)?;
+    let mut rendered = format!("@{}@", payload.len()).into_bytes();
+    rendered.extend(payload);
+    Ok(rendered)
+}
+
 fn render_numeric_binary_payload(value: &str) -> HbciResult<String> {
     let bytes = positive_decimal_to_java_big_integer_bytes(value)?;
     String::from_utf8(bytes).map_err(|err| {
@@ -463,6 +503,21 @@ fn positive_decimal_to_java_big_integer_bytes(value: &str) -> HbciResult<Vec<u8>
     bytes.reverse();
     if bytes.first().is_some_and(|byte| byte & 0x80 != 0) {
         bytes.insert(0, 0);
+    }
+    Ok(bytes)
+}
+
+fn latin1_payload_bytes(value: &str) -> HbciResult<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(value.len());
+    for character in value.chars() {
+        let code = character as u32;
+        if code > 0xff {
+            return Err(HbciError::new(
+                HbciErrorKind::Unsupported,
+                format!("Bin payload character is not ISO-8859-1 representable: U+{code:04X}"),
+            ));
+        }
+        bytes.push(code as u8);
     }
     Ok(bytes)
 }
@@ -586,6 +641,32 @@ fn check_size(type_name: &str, value: &str, constraints: DataTypeConstraints) ->
     Ok(())
 }
 
+fn check_size_bytes(
+    type_name: &str,
+    len: usize,
+    constraints: DataTypeConstraints,
+) -> HbciResult<()> {
+    if let Some(min_size) = constraints.min_size
+        && len < min_size
+    {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("{type_name} data element value is too short: {len} < {min_size}"),
+        ));
+    }
+    if let Some(max_size) = constraints.max_size
+        && max_size != 0
+        && len > max_size
+    {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("{type_name} data element value is too long: {len} > {max_size}"),
+        ));
+    }
+
+    Ok(())
+}
+
 fn quote_data_element(value: &str) -> String {
     let mut quoted = String::with_capacity(value.len());
     for character in value.chars() {
@@ -662,6 +743,20 @@ mod tests {
                 .contains("not UTF-8 representable")
         );
         assert!(render_data_element("Bin", "N", DataTypeConstraints::default()).is_err());
+    }
+
+    #[test]
+    fn renders_binary_values_as_bytes_like_hbci4java() {
+        assert_eq!(
+            render_data_element_bytes("Bin", "BA+\u{00a7}", DataTypeConstraints::default())
+                .expect("binary bytes render"),
+            [b'@', b'3', b'@', b'A', b'+', 0xa7]
+        );
+        assert_eq!(
+            render_data_element_bytes("Bin", "N128", DataTypeConstraints::default())
+                .expect("numeric binary bytes render"),
+            [b'@', b'2', b'@', 0, 0x80]
+        );
     }
 
     #[test]

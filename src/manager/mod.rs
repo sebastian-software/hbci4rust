@@ -1,6 +1,7 @@
 mod account_crc;
 mod bank_info;
 mod handler;
+mod orderhash;
 mod secmech;
 
 use std::collections::BTreeMap;
@@ -12,6 +13,7 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 pub use account_crc::AccountCrcAlgs;
 pub use bank_info::{BankInfo, BankInfoRegistry, HbciVersion};
 pub use handler::HbciHandler;
+pub use orderhash::OrderHashMode;
 pub use secmech::{
     AppliedChallengeParams, ChallengeHhdVersion, ChallengeInfo, ChallengeJob, ChallengeParam,
     FlickerCode, FlickerCodeVersion, FlickerDataElement, FlickerEncoding, FlickerRenderer,
