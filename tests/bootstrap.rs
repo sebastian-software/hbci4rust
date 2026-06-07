@@ -648,6 +648,16 @@ fn status_exposes_original_near_v4_constraints_and_jobid_helper() {
 }
 
 #[test]
+fn tan_list_exposes_original_near_empty_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("TANList").expect("job is in registry");
+
+    assert!(job.constraints().is_empty());
+    assert_eq!(job.constraint("maxentries"), None);
+}
+
+#[test]
 fn dauer_sepa_list_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -7229,6 +7239,99 @@ async fn handler_collects_status_result_like_original() {
     assert_eq!(second_return.code, "9010");
     assert_eq!(second_return.segment_ref.as_deref(), Some("6"));
     assert_eq!(second_return.text, "Failed");
+}
+
+#[tokio::test]
+async fn handler_renders_tan_list_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let tan_list = handler.new_job("TANList").expect("job is in registry");
+
+    handler.add_to_queue(tan_list);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "TANList");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKTAZ:3:1'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_collects_tan_list_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITAZ:3:1+A+LIST-1+20240229+100+2+7:Transfer:123456:20240228:112233+0",
+        "HITAZ:4:1+N+LIST-2",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let job = handler.new_job("TANList").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "TANList");
+    assert_eq!(
+        result
+            .result_data
+            .get("content.listnumber")
+            .map(String::as_str),
+        Some("LIST-1")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.TANInfo.usagetime")
+            .map(String::as_str),
+        Some("11:22:33")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content_2.liststatus")
+            .map(String::as_str),
+        Some("N")
+    );
+
+    let Some(HbciJobResultData::TanList(tan_list)) = result.result.as_ref() else {
+        panic!("expected TANList result data");
+    };
+    assert_eq!(tan_list.lists.len(), 2);
+    assert_eq!(tan_list.lists[0].status.as_deref(), Some("A"));
+    assert_eq!(tan_list.lists[0].number.as_deref(), Some("LIST-1"));
+    assert_eq!(tan_list.lists[0].date.as_deref(), Some("2024-02-29"));
+    assert_eq!(tan_list.lists[0].tan_count, Some(100));
+    assert_eq!(tan_list.lists[0].used_tan_count, Some(2));
+    assert_eq!(tan_list.lists[0].tan_infos.len(), 2);
+    assert_eq!(tan_list.lists[0].tan_infos[0].usage_code, Some(7));
+    assert_eq!(
+        tan_list.lists[0].tan_infos[0].usage_text.as_deref(),
+        Some("Transfer")
+    );
+    assert_eq!(
+        tan_list.lists[0].tan_infos[0].tan.as_deref(),
+        Some("123456")
+    );
+    assert_eq!(
+        tan_list.lists[0].tan_infos[0].usage_date.as_deref(),
+        Some("2024-02-28")
+    );
+    assert_eq!(
+        tan_list.lists[0].tan_infos[0].usage_time.as_deref(),
+        Some("11:22:33")
+    );
+    assert_eq!(tan_list.lists[0].tan_infos[1].usage_code, Some(0));
+    assert_eq!(tan_list.lists[1].status.as_deref(), Some("N"));
+    assert_eq!(tan_list.lists[1].number.as_deref(), Some("LIST-2"));
+    assert!(tan_list.lists[1].tan_infos.is_empty());
 }
 
 #[tokio::test]

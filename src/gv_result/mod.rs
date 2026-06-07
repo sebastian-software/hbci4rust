@@ -662,6 +662,7 @@ pub enum HbciJobResultData {
     TermUebList(GvrTermUebList),
     SaldoReq(GvrSaldoReq),
     KUms(GvrKUms),
+    TanList(GvrTanList),
     TanMediaList(GvrTanMediaList),
 }
 
@@ -829,6 +830,30 @@ pub struct GvrTermUebListEntry {
     pub can_delete: bool,
     pub sepadescr: Option<String>,
     pub sepapain_raw: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTanList {
+    pub lists: Vec<GvrTanListEntry>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTanListEntry {
+    pub status: Option<String>,
+    pub number: Option<String>,
+    pub date: Option<String>,
+    pub tan_count: Option<i32>,
+    pub used_tan_count: Option<i32>,
+    pub tan_infos: Vec<GvrTanInfo>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTanInfo {
+    pub usage_code: Option<i32>,
+    pub usage_text: Option<String>,
+    pub tan: Option<String>,
+    pub usage_date: Option<String>,
+    pub usage_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

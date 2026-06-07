@@ -10,10 +10,10 @@ use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
     GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrInfoList, GvrInfoListInfo,
     GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrStatus, GvrStatusEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit,
-    GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
-    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
-    Value,
+    GvrStatus, GvrStatusEntry, GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo,
+    GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry,
+    HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData,
+    HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1065,6 +1065,7 @@ fn render_job_into_custom_message(
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         "Status" => render_status(message, job, index),
+        "TANList" => render_tan_list(message, index),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
@@ -1351,6 +1352,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKPRO",
             lowlevel_segment: "Status4",
             path: "CustomMsg.GV.Status4",
+        }),
+        "TANList" => Ok(OrderhashSourceJobInfo {
+            code: "HKTAZ",
+            lowlevel_segment: "TANListList1",
+            path: "CustomMsg.GV.TANListList1",
         }),
         "SaldoReq" | "SaldoReqAll" => Ok(OrderhashSourceJobInfo {
             code: "HKSAL",
@@ -1739,6 +1745,15 @@ fn render_status(message: &mut HbciMessage, job: &HbciJob, index: usize) -> Hbci
     )?;
 
     Ok(())
+}
+
+fn render_tan_list(message: &mut HbciMessage, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    message.set_value(&format!("{root}.TANListList1"), "requested")
 }
 
 fn render_acc_info(
@@ -3010,6 +3025,7 @@ impl ParsedResponseStatus {
                 self.kums_all_camt_result_for_root(kums_response_root("KUmsZeitCamtRes1", index))
             }
             "KUmsNew" => self.kums_result_for_root(kums_response_root("KUmsNewRes7", index)),
+            "TANList" => self.tan_list_result().map(HbciJobResultData::TanList),
             "TANMediaList" => self
                 .tan_media_list_result_for_root(tan_media_list_response_root(index))
                 .map(HbciJobResultData::TanMediaList),
@@ -3050,6 +3066,7 @@ impl ParsedResponseStatus {
                     .map(|prefix| format!("{prefix}.SaldoRes7")),
             ),
             "Status" => self.content_result_data(self.status_response_roots()),
+            "TANList" => self.content_result_data(self.tan_list_response_roots()),
             "TANMediaList" => self.content_result_data([tan_media_list_response_root(index)]),
             _ => BTreeMap::new(),
         }
@@ -3157,6 +3174,24 @@ impl ParsedResponseStatus {
             .collect::<Vec<_>>();
 
         (!entries.is_empty()).then_some(GvrStatus { entries })
+    }
+
+    fn tan_list_response_roots(&self) -> Vec<String> {
+        counted_prefixes(&self.values, "CustomMsgRes.GVRes")
+            .into_iter()
+            .map(|prefix| format!("{prefix}.TANListListRes1"))
+            .filter(|root| self.values.contains_key(&format!("{root}.SegHead.code")))
+            .collect()
+    }
+
+    fn tan_list_result(&self) -> Option<GvrTanList> {
+        let lists = self
+            .tan_list_response_roots()
+            .into_iter()
+            .filter_map(|root| tan_list_entry_from_values(&self.values, &root))
+            .collect::<Vec<_>>();
+
+        (!lists.is_empty()).then_some(GvrTanList { lists })
     }
 
     fn dauer_edit_result_for_root(&self, root: String) -> Option<GvrDauerEdit> {
@@ -3329,6 +3364,38 @@ fn status_entry_from_values(
         date: optional_value(values, &format!("{prefix}.date")),
         time: optional_value(values, &format!("{prefix}.time")),
         return_value,
+    })
+}
+
+fn tan_list_entry_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrTanListEntry> {
+    values.get(&format!("{prefix}.SegHead.code"))?;
+    let tan_infos = counted_prefixes(values, &format!("{prefix}.TANInfo"))
+        .into_iter()
+        .filter_map(|prefix| tan_info_from_values(values, &prefix))
+        .collect();
+
+    Some(GvrTanListEntry {
+        status: optional_value(values, &format!("{prefix}.liststatus")),
+        number: optional_value(values, &format!("{prefix}.listnumber")),
+        date: optional_value(values, &format!("{prefix}.date")),
+        tan_count: optional_i32(values, &format!("{prefix}.noftansperlist")),
+        used_tan_count: optional_i32(values, &format!("{prefix}.nofusedtansperlist")),
+        tan_infos,
+    })
+}
+
+fn tan_info_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Option<GvrTanInfo> {
+    let usage_code = optional_i32(values, &format!("{prefix}.usagecode"))?;
+
+    Some(GvrTanInfo {
+        usage_code: Some(usage_code),
+        usage_text: optional_value(values, &format!("{prefix}.usagetxt")),
+        tan: optional_value(values, &format!("{prefix}.tan")),
+        usage_date: optional_value(values, &format!("{prefix}.usagedate")),
+        usage_time: optional_value(values, &format!("{prefix}.usagetime")),
     })
 }
 

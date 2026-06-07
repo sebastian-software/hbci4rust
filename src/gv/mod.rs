@@ -756,6 +756,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
         "Status" => status_constraints(),
+        "TANList" => Vec::new(),
         "TANMediaList" => tan_media_list_constraints(),
         "TAN2Step" => tan2step_constraints(),
         _ => Vec::new(),

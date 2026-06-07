@@ -27,10 +27,10 @@ pub use gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerList, GvrDauerListAussetzung,
     GvrDauerListEntry, GvrInfoList, GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo,
     GvrInstUebSepa, GvrKUms, GvrKUmsBTag, GvrKUmsLine, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus,
-    GvrStatusEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
-    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit,
-    Saldo, Value,
+    GvrStatusEntry, GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList,
+    GvrTermUeb, GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus,
+    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
+    HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit, Saldo, Value,
 };
 pub use manager::{
     AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,
