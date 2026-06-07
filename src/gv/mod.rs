@@ -41,6 +41,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "KUmsZeitSEPA",
     "Kontoauszug",
     "KontoauszugPdf",
+    "Last",
     "LastB2BSEPA",
     "LastCOR1SEPA",
     "LastSEPA",
@@ -511,6 +512,10 @@ impl HbciJob {
                 self.check_account_crc("my", callback).await
             }
             "FestList" | "FestListAll" => self.check_account_crc("my", callback).await,
+            "Last" => {
+                self.check_account_crc("my", callback).await?;
+                self.check_account_crc("other", callback).await
+            }
             "DauerEdit" | "DauerNew" | "Donation" | "TermUeb" | "TermUebEdit" | "Ueb"
             | "UebBZU" | "UebEil" | "UebGar" | "Umb" => {
                 self.check_account_crc("src", callback).await?;
@@ -881,6 +886,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "FestListAll" => fest_list_all_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
+        "Last" => last_constraints(),
         "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
         "LastCOR1SEPA" => last_sepa_constraints("LastCOR1SEPA1", "COR1"),
         "LastSEPA" => last_sepa_constraints("LastSEPA1", "CORE"),
@@ -1562,6 +1568,33 @@ fn multi_ueb_sepa_constraints_for(lowlevel_segment: &str) -> Vec<HbciJobConstrai
         .indexed(true),
         HbciJobConstraint::new("purposecode", lowlevel("sepa.purposecode"), Some("")).indexed(true),
     ]
+}
+
+fn last_constraints() -> Vec<HbciJobConstraint> {
+    let lowlevel_segment = "Last5";
+    let mut constraints = vec![
+        HbciJobConstraint::new("my.country", "Last5.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "Last5.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "Last5.My.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "Last5.My.subnumber", Some("")),
+        HbciJobConstraint::new("other.country", "Last5.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("other.blz", "Last5.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new("other.number", "Last5.Other.number", None::<String>),
+        HbciJobConstraint::new("other.subnumber", "Last5.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "Last5.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "Last5.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "Last5.name", None::<String>),
+        HbciJobConstraint::new("name2", "Last5.name2", Some("")),
+        HbciJobConstraint::new("type", "Last5.key", Some("05")),
+    ];
+
+    for index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let frontend = classic_usage_name(index);
+        let destination = format!("{lowlevel_segment}.usage.{frontend}");
+        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
+    }
+
+    constraints
 }
 
 fn last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {
