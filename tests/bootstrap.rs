@@ -1422,6 +1422,68 @@ fn ueb_eil_exposes_original_near_v1_constraints() {
 }
 
 #[test]
+fn umb_exposes_original_near_v2_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("Umb").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 27);
+    assert_eq!(
+        job.constraint("src.number")
+            .expect("source account number constraint")
+            .destination_name,
+        "Umb2.My.number"
+    );
+    assert_eq!(
+        job.constraint("src.country")
+            .expect("source country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("dst.number")
+            .expect("destination account number constraint")
+            .destination_name,
+        "Umb2.Other.number"
+    );
+    assert_eq!(
+        job.constraint("btg.value")
+            .expect("amount value constraint")
+            .destination_name,
+        "Umb2.BTG.value"
+    );
+    assert_eq!(
+        job.constraint("key")
+            .expect("transaction key constraint")
+            .default_value
+            .as_deref(),
+        Some("51")
+    );
+    assert_eq!(
+        job.constraint("usage")
+            .expect("usage constraint")
+            .destination_name,
+        "Umb2.usage.usage"
+    );
+    assert_eq!(
+        job.constraint("usage_14")
+            .expect("usage_14 constraint")
+            .destination_name,
+        "Umb2.usage.usage_14"
+    );
+    assert!(job.constraint("date").is_none());
+    assert!(job.constraint("id").is_none());
+
+    job.try_set_param("usage_2", "Second account transfer usage")
+        .expect("second usage line is accepted");
+    assert_eq!(
+        job.lowlevel_param("Umb2.usage.usage_2"),
+        Some("Second account transfer usage")
+    );
+}
+
+#[test]
 fn inst_ueb_sepa_exposes_original_near_v1_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -5342,6 +5404,73 @@ async fn handler_renders_ueb_eil_like_original() {
     assert!(
         body.contains(
             "HKEIL:3:1+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Urgent usage one:Urgent usage two'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_umb_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("Umb").expect("job is in registry");
+    job.try_set_param("src.number", "1234567890")
+        .expect("source account number is accepted");
+    job.try_set_param("src.blz", "10020030")
+        .expect("source bank code is accepted");
+    job.try_set_param("dst.number", "99887766")
+        .expect("destination account number is accepted");
+    job.try_set_param("dst.blz", "20030040")
+        .expect("destination bank code is accepted");
+    job.try_set_param("name", "Receiver Name")
+        .expect("recipient name is accepted");
+    job.try_set_param("btg.value", "42.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "EUR")
+        .expect("amount currency is accepted");
+    job.try_set_param("usage", "Account transfer usage one")
+        .expect("first usage line is accepted");
+    job.try_set_param("usage_2", "Account transfer usage two")
+        .expect("second usage line is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "Umb");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.dialogid")
+            .map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.segnum")
+            .map(String::as_str),
+        Some("3")
+    );
+    assert!(
+        !handler
+            .passport()
+            .persistent_data()
+            .keys()
+            .any(|key| key.starts_with("umb_"))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKUMB:3:2+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Account transfer usage one:Account transfer usage two'"
         ),
         "{body}"
     );

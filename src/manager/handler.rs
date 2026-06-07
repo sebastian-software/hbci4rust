@@ -1088,6 +1088,7 @@ fn render_job_into_custom_message(
         "UebBZU" => render_ueb_bzu(message, job, index, passport),
         "UebEil" => render_ueb_eil(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
+        "Umb" => render_umb(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
         "VoPAuth" => render_vop_auth(message, job, index),
         name => Err(HbciError::new(
@@ -1352,6 +1353,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKEIL",
             lowlevel_segment: "UebEil1",
             path: "CustomMsg.GV.UebEil1",
+        }),
+        "Umb" => Ok(OrderhashSourceJobInfo {
+            code: "HKUMB",
+            lowlevel_segment: "Umb2",
+            path: "CustomMsg.GV.Umb2",
         }),
         "InfoList" => Ok(OrderhashSourceJobInfo {
             code: "HKKIA",
@@ -2415,6 +2421,26 @@ fn render_ueb_eil(
         ClassicUebRenderSpec {
             lowlevel_segment: "UebEil1",
             job_name: "UebEil",
+            key_default: "51",
+            first_usage_frontend: "usage",
+        },
+    )
+}
+
+fn render_umb(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_classic_ueb(
+        message,
+        job,
+        index,
+        passport,
+        ClassicUebRenderSpec {
+            lowlevel_segment: "Umb2",
+            job_name: "Umb",
             key_default: "51",
             first_usage_frontend: "usage",
         },

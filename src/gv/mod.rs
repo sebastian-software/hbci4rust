@@ -445,7 +445,7 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
-            "TermUeb" | "Ueb" | "UebBZU" | "UebEil" => {
+            "TermUeb" | "Ueb" | "UebBZU" | "UebEil" | "Umb" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -814,6 +814,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "UebBZU" => ueb_bzu_constraints(),
         "UebEil" => ueb_eil_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
+        "Umb" => umb_constraints(),
         "UmbSEPA" => umb_sepa_constraints(),
         "KUmsAll" => kums_all_constraints(),
         "KUmsAllCamt" => kums_all_camt_constraints(),
@@ -936,6 +937,10 @@ fn ueb_constraints() -> Vec<HbciJobConstraint> {
 
 fn ueb_eil_constraints() -> Vec<HbciJobConstraint> {
     classic_transfer_constraints("UebEil1")
+}
+
+fn umb_constraints() -> Vec<HbciJobConstraint> {
+    classic_transfer_constraints("Umb2")
 }
 
 fn ueb_bzu_constraints() -> Vec<HbciJobConstraint> {
