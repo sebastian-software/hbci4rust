@@ -6,7 +6,8 @@ parameter keys, result concepts, and lowlevel protocol helpers stay visible so
 existing hbci4java users can migrate incrementally.
 
 For workflow examples, see `docs/reference/java-to-rust-mapping.md` and
-`docs/reference/migration-examples.md`.
+`docs/reference/migration-examples.md`. For result/error inspection guidance,
+see `docs/reference/error-reporting.md`.
 
 ## Primary PinTAN Path
 
@@ -39,6 +40,19 @@ Java-near rules:
 
 The public balance-request migration shape is covered by
 `tests/public_api.rs`.
+
+## Error And Status Reporting
+
+The v1 API keeps local failures separate from bank-side return values:
+
+- `HbciResult<T>` and `HbciError` report failures that prevent the operation from
+  producing its normal result;
+- `HbciExecStatus`, `HbciMsgStatus`, `HbciStatus`, and `HbciReturnValue` report
+  FinTS return codes, warnings, and bank-side business errors.
+
+Callers should handle `Result::Err` first, then inspect `HbciExecStatus::success`,
+`error_string()`, job results, and known return-code helpers such as
+`invalid_pin_code()`.
 
 ## Passport And Storage
 

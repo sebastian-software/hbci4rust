@@ -1,6 +1,7 @@
 use hbci4rust::{
-    HbciHandler, JobRegistry, Konto, PINTAN_JOB_NAMES, PinTanPassport, PinTanPassportData,
-    ReplayCommClient, sepa::CAMT_052_001_01_URN,
+    HbciExecStatus, HbciHandler, HbciReturnValue, JobRegistry, KnownReturncode, Konto,
+    PINTAN_JOB_NAMES, PinTanPassport, PinTanPassportData, ReplayCommClient,
+    sepa::CAMT_052_001_01_URN,
 };
 
 fn public_passport() -> PinTanPassport {
@@ -44,6 +45,30 @@ fn balance_request_migration_shape_uses_crate_root_api() {
     assert_eq!(queued.len(), 1);
     assert_eq!(queued[0].name(), "SaldoReq");
     assert_eq!(queued[0].param("my.iban"), Some("DE02123456780012345678"));
+}
+
+#[test]
+fn error_reporting_migration_shape_uses_crate_root_status_api() {
+    let status = HbciExecStatus {
+        success: false,
+        global_return_values: vec![HbciReturnValue::new("0010", "Dialog OK")],
+        segment_return_values: vec![HbciReturnValue::new("9942", "PIN falsch")],
+        ..HbciExecStatus::default()
+    };
+
+    assert!(!status.success);
+    assert!(!status.is_ok());
+    assert!(status.message_status().is_ok());
+    assert_eq!(status.error_string(), "9942:PIN falsch");
+    assert!(status.is_invalid_pin());
+    assert_eq!(status.invalid_pin_code().unwrap().code, "9942");
+    assert_eq!(
+        status
+            .return_value_for_code(KnownReturncode::E9942)
+            .unwrap()
+            .text,
+        "PIN falsch"
+    );
 }
 
 #[test]

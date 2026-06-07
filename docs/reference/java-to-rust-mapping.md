@@ -5,6 +5,7 @@ The Rust port stays original-near for protocol behavior, job names, parameter
 keys, and tests, while using Rust-cased public types and async control flow.
 For a crate-root export review, see `docs/reference/public-api.md`.
 For high-risk per-job examples, see `docs/reference/migration-examples.md`.
+For error and status inspection, see `docs/reference/error-reporting.md`.
 
 ## Naming Rule
 
@@ -100,8 +101,8 @@ async fn load_balance(passport: PinTanPassport, iban: &str) -> HbciResult<()> {
     handler.close().await?;
 
     if !status.success {
-        // Inspect status.global_return_values, status.segment_return_values,
-        // status.messages, and per-job result data.
+        // Inspect status.error_string(), global_return_values,
+        // segment_return_values, job_results, and known return-code helpers.
     }
 
     Ok(())
@@ -110,6 +111,27 @@ async fn load_balance(passport: PinTanPassport, iban: &str) -> HbciResult<()> {
 
 Tests can replace network I/O with `ReplayCommClient` and then inspect the
 recorded FinTS request bodies.
+
+## Error And Status Inspection
+
+Java exceptions map to `HbciError` only when the Rust operation cannot produce
+the normal result value. Bank-side return codes stay in status objects:
+
+```rust
+let status = handler.execute_with_tan2step().await?;
+
+if status.is_invalid_pin() {
+    let value = status.invalid_pin_code().expect("checked above");
+    eprintln!("authentication failed: {value}");
+}
+
+if !status.success {
+    eprintln!("{}", status.error_string());
+}
+```
+
+This is intentionally close to hbci4java's split between thrown exceptions and
+`HBCIExecStatus`/`HBCIRetVal` inspection.
 
 ## Jobs And Parameters
 

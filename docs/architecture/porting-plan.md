@@ -49,6 +49,9 @@ Out:
 - `docs/reference/public-api.md` reviews the crate-root v1 export surface.
 - `docs/reference/migration-examples.md` records public examples for high-risk
   statement and SEPA workflows.
+- `docs/reference/error-reporting.md` records how Rust errors, execution
+  statuses, return values, and known return-code helpers map to hbci4java-style
+  diagnostics.
 - `docs/reference/live-bank-tests.md` describes the ignored, env-gated live
   PinTAN dialog smoke hook.
 - `docs/reference/packaging.md` records crate metadata, package-list, and

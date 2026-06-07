@@ -83,7 +83,7 @@ Evidence:
   photoTAN callback emission are replay-tested.
 - [x] Failed process-2 submission state and process-2 transport retry state are
   replay-tested.
-- [ ] Error/reporting behavior is reviewed for user-facing API clarity.
+- [x] Error/reporting behavior is reviewed for user-facing API clarity.
 - [ ] Additional bank-specific SCA variants discovered during live smoke tests
   are converted into offline replay fixtures or documented as limitations.
 
@@ -92,6 +92,10 @@ Evidence:
 - `tests/bootstrap.rs`
 - `tests/runtime_callbacks.rs`
 - `tests/live_bank.rs`
+- `tests/status.rs`
+- `tests/public_api.rs`
+- `docs/reference/error-reporting.md`
+- ADR 0250
 
 ## Public API And Migration Docs
 
