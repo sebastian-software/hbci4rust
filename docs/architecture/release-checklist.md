@@ -27,13 +27,13 @@ scripts/fetch-upstream.sh
 
 ## Required Offline Gates
 
-- [ ] `cargo fmt --check`
-- [ ] `cargo clippy --all-targets`
-- [ ] `cargo test`
-- [ ] `cargo test -- --list`
-- [ ] `scripts/audit-job-coverage.sh`
-- [ ] `scripts/audit-result-coverage.sh`
-- [ ] `git diff --check`
+- [x] `cargo fmt --check`
+- [x] `cargo clippy --all-targets`
+- [x] `cargo test`
+- [x] `cargo test -- --list`
+- [x] `scripts/audit-job-coverage.sh`
+- [x] `scripts/audit-result-coverage.sh`
+- [x] `git diff --check`
 
 The release candidate must record the exact output summary of these commands.
 Clippy warnings are visible during porting, but a v1 release candidate should
@@ -48,13 +48,18 @@ scripts/run-release-candidate-checks.sh
 Use `scripts/run-release-candidate-checks.sh --package` for the final packaging
 pass after the last release-candidate commit.
 
+Final local evidence is captured by running
+`CARGO_NET_OFFLINE=true scripts/run-release-candidate-checks.sh --package` on
+the release-candidate commit. The runner writes the exact per-command summary
+and full logs under `target/release-gates/`.
+
 ## Source Surface Coverage
 
 - [x] Static high-level job registry covers all in-scope upstream `GV*.java`
   classes except the intentional `GVTemplate` lowlevel boundary.
 - [x] Normalized typed result coverage covers all in-scope upstream `GVR*.java`
   shapes except the intentional `WPStammData` lowlevel boundary.
-- [ ] Coverage audit docs are current after the final release-candidate commit.
+- [x] Coverage audit docs are current after the final release-candidate commit.
 - [x] Publicly documented unsupported surfaces match the audit exclusions.
 
 Evidence:
@@ -171,7 +176,7 @@ Evidence:
 - [x] `Cargo.toml` package metadata is reviewed for crate publication.
 - [x] Current `cargo package --list` output is reviewed and documented.
 - [x] Generated or copied upstream artifacts are documented with attribution.
-- [ ] Final release-candidate package checks are rerun after the last release
+- [x] Final release-candidate package checks are rerun after the last release
   commit.
 
 Evidence:

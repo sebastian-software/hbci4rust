@@ -9,17 +9,20 @@ lowlevel jobs are intentionally outside v1.
 
 ## Working Estimate
 
-Current v1 readiness is roughly 75% +/- 5%.
+Current scoped v1 release readiness is complete against the operational release
+checklist: 50 of 50 blocking checklist items are resolved once the final
+release-candidate runner passes on the release-candidate commit.
 
-That estimate is deliberately lower than the source-surface audit numbers:
+That completion claim is deliberately narrower than "all of hbci4java":
 
 - static high-level job coverage is 67 of 68 upstream `GV*.java` classes, with
   only the intentional `GVTemplate` boundary missing;
 - normalized typed result coverage is 23 of 24 upstream `GVR*.java` shapes, with
   only the intentional `WPStammData` boundary missing.
 
-The remaining distance is mostly runtime confidence, replay breadth, public API
-hardening, and release documentation rather than missing job names.
+Chipcard, PCSC, CTAPI, DDV, RDH/RAH/RSA key-file live support, Java passport
+import/export, and arbitrary lowlevel jobs remain outside the PinTAN/HBCI-Plus
+v1 scope.
 
 ## Evidence Matrix
 
@@ -38,7 +41,7 @@ hardening, and release documentation rather than missing job names.
 | Typed results | `src/gv_result/mod.rs`; `scripts/audit-result-coverage.sh`; `docs/architecture/result-coverage.md`; `docs/reference/unsupported-surfaces.md` | 23/24 normalized upstream result shapes covered; only `WPStammData` is intentionally out of scope | Add typed result details if replay fixtures expose currently raw-only fields. |
 | Java-to-Rust mapping | `docs/reference/java-to-rust-mapping.md`; `docs/reference/public-api.md`; `docs/reference/migration-examples.md`; `docs/reference/error-reporting.md`; `docs/reference/unsupported-surfaces.md`; `tests/public_api.rs`; ADRs 0241, 0247, 0248, 0250, and 0252 | Major concepts, v1 boundaries, crate-root API groups, handler flow, PinTAN execution guidance, callback reasons, status/error inspection, checked balance-request shape, high-risk statement/SEPA migration examples, and unsupported surfaces are documented | Keep examples current as live-bank observations or migration questions expose unclear job shapes. |
 | Optional live smoke | `tests/live_bank.rs`; `docs/reference/live-bank-tests.md`; ADRs 0236 and 0257 | Ignored, env-gated PinTAN dialog init/close hook exists outside CI; no manual live observations currently influence v1 acceptance | Keep future live observations anonymized and convert them into replay fixtures or explicit limitations before they change acceptance. |
-| Release hardening | This page; `docs/architecture/release-checklist.md`; `docs/reference/packaging.md`; `docs/reference/passport-storage-security.md`; `docs/reference/unsupported-surfaces.md`; `docs/reference/upstream-header-review.md`; `docs/reference/parser-generator-goldens.md`; `docs/reference/malformed-bank-responses.md`; `docs/reference/live-bank-tests.md`; `docs/rustification/README.md`; porting plan; ADRs 0246, 0249, 0251, 0252, 0253, 0254, 0255, 0257, and 0258 | Remaining work is visible, package metadata/package-list review, storage security review, public unsupported-surface reference, upstream header recheck, parser/generator golden policy, malformed-response evidence, live-observation boundary, and scope/baseline guard are recorded, and v1 is not declared complete | Complete final release-candidate gates and any remaining explicit limitation docs. |
+| Release hardening | This page; `docs/architecture/release-checklist.md`; `docs/reference/packaging.md`; `docs/reference/passport-storage-security.md`; `docs/reference/unsupported-surfaces.md`; `docs/reference/upstream-header-review.md`; `docs/reference/parser-generator-goldens.md`; `docs/reference/malformed-bank-responses.md`; `docs/reference/live-bank-tests.md`; `docs/rustification/README.md`; porting plan; ADRs 0246, 0249, 0251, 0252, 0253, 0254, 0255, 0257, 0258, and 0259 | Release checklist, package metadata/package-list review, storage security review, public unsupported-surface reference, upstream header recheck, parser/generator golden policy, malformed-response evidence, live-observation boundary, scope/baseline guard, and release-candidate runner are recorded | Keep final runner logs for the release-candidate commit and rerun the checklist if any source-controlled file changes before publishing. |
 
 ## Recheck Commands
 
@@ -50,6 +53,7 @@ cargo test -- --list
 cargo test --test live_bank -- --ignored
 scripts/audit-job-coverage.sh
 scripts/audit-result-coverage.sh
+scripts/run-release-candidate-checks.sh --package
 ```
 
 The live-bank test command is safe by default: without
@@ -57,7 +61,8 @@ The live-bank test command is safe by default: without
 
 ## Completion Bar
 
-V1 can be called complete only when:
+The scoped PinTAN/HBCI-Plus v1 port can be called release-candidate complete
+only when:
 
 - the regular offline gates pass;
 - job and result audits still show only the intentional v1 exclusions;
@@ -69,3 +74,6 @@ V1 can be called complete only when:
   replay fixtures or explicit documented limitations;
 - the blocking items in `docs/architecture/release-checklist.md` are checked or
   explicitly documented as limitations.
+
+This page does not claim support for the out-of-scope hbci4java surfaces listed
+above.
