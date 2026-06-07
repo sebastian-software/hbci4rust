@@ -28,6 +28,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "DauerSEPAEdit",
     "DauerSEPAList",
     "DauerSEPANew",
+    "Donation",
     "FestCondList",
     "FestList",
     "FestListAll",
@@ -509,8 +510,8 @@ impl HbciJob {
                 self.check_account_crc("my", callback).await
             }
             "FestList" | "FestListAll" => self.check_account_crc("my", callback).await,
-            "DauerEdit" | "DauerNew" | "TermUeb" | "TermUebEdit" | "Ueb" | "UebBZU" | "UebEil"
-            | "Umb" => {
+            "DauerEdit" | "DauerNew" | "Donation" | "TermUeb" | "TermUebEdit" | "Ueb"
+            | "UebBZU" | "UebEil" | "Umb" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -873,6 +874,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPANew" => dauer_sepa_new_constraints(),
         "DauerLastSEPAList" => dauer_last_sepa_list_constraints(),
         "DauerLastSEPANew" => dauer_last_sepa_new_constraints(),
+        "Donation" => donation_constraints(),
         "FestCondList" => fest_cond_list_constraints(),
         "FestList" => fest_list_constraints(),
         "FestListAll" => fest_list_all_constraints(),
@@ -1199,6 +1201,27 @@ fn classic_usage_name(index: usize) -> String {
 
 fn ueb_constraints() -> Vec<HbciJobConstraint> {
     classic_transfer_constraints("Ueb5")
+}
+
+fn donation_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("src.number", "Ueb5.My.number", None::<String>),
+        HbciJobConstraint::new("src.subnumber", "Ueb5.My.subnumber", Some("")),
+        HbciJobConstraint::new("dst.blz", "Ueb5.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new("dst.number", "Ueb5.Other.number", None::<String>),
+        HbciJobConstraint::new("dst.subnumber", "Ueb5.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "Ueb5.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "Ueb5.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "Ueb5.name", None::<String>),
+        HbciJobConstraint::new("spenderid", "Ueb5.usage.usage", None::<String>),
+        HbciJobConstraint::new("plz_street", "Ueb5.usage.usage_2", None::<String>),
+        HbciJobConstraint::new("name_ort", "Ueb5.usage.usage_3", None::<String>),
+        HbciJobConstraint::new("src.blz", "Ueb5.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.country", "Ueb5.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dst.country", "Ueb5.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("name2", "Ueb5.name2", Some("")),
+        HbciJobConstraint::new("key", "Ueb5.key", Some("69")),
+    ]
 }
 
 fn ueb_eil_constraints() -> Vec<HbciJobConstraint> {

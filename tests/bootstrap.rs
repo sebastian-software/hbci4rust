@@ -2478,6 +2478,62 @@ fn ueb_exposes_original_near_v5_constraints() {
 }
 
 #[test]
+fn donation_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("Donation").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 16);
+    assert_eq!(
+        job.constraint("src.number")
+            .expect("source account number constraint")
+            .destination_name,
+        "Ueb5.My.number"
+    );
+    assert_eq!(
+        job.constraint("spenderid")
+            .expect("spender id constraint")
+            .destination_name,
+        "Ueb5.usage.usage"
+    );
+    assert_eq!(
+        job.constraint("plz_street")
+            .expect("postal and street constraint")
+            .destination_name,
+        "Ueb5.usage.usage_2"
+    );
+    assert_eq!(
+        job.constraint("name_ort")
+            .expect("name and city constraint")
+            .destination_name,
+        "Ueb5.usage.usage_3"
+    );
+    assert_eq!(
+        job.constraint("key")
+            .expect("transaction key constraint")
+            .default_value
+            .as_deref(),
+        Some("69")
+    );
+    assert!(job.constraint("usage").is_none());
+    assert!(job.constraint("usage_4").is_none());
+    assert!(job.constraint("date").is_none());
+
+    job.try_set_param("spenderid", "SPENDER-1")
+        .expect("spender id is accepted");
+    job.try_set_param("plz_street", "12345 Musterstrasse")
+        .expect("postal and street line is accepted");
+    job.try_set_param("name_ort", "Max Berlin")
+        .expect("name and city line is accepted");
+    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), Some("SPENDER-1"));
+    assert_eq!(
+        job.lowlevel_param("Ueb5.usage.usage_2"),
+        Some("12345 Musterstrasse")
+    );
+    assert_eq!(job.lowlevel_param("Ueb5.usage.usage_3"), Some("Max Berlin"));
+}
+
+#[test]
 fn ueb_foreign_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -8160,6 +8216,60 @@ async fn handler_renders_ueb_like_original() {
     assert!(
         body.contains(
             "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Transfer usage one:Transfer usage two'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_donation_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("Donation").expect("job is in registry");
+    job.try_set_param("src.number", "1234567890")
+        .expect("source account number is accepted");
+    job.try_set_param("src.blz", "10020030")
+        .expect("source bank code is accepted");
+    job.try_set_param("dst.number", "99887766")
+        .expect("destination account number is accepted");
+    job.try_set_param("dst.blz", "20030040")
+        .expect("destination bank code is accepted");
+    job.try_set_param("name", "Donation Receiver")
+        .expect("recipient name is accepted");
+    job.try_set_param("btg.value", "15.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "EUR")
+        .expect("amount currency is accepted");
+    job.try_set_param("spenderid", "SPENDER-1")
+        .expect("spender id is accepted");
+    job.try_set_param("plz_street", "12345 Street")
+        .expect("postal and street line is accepted");
+    job.try_set_param("name_ort", "Max Berlin")
+        .expect("name and city line is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "Donation");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert!(
+        !status.job_results[0]
+            .result_data
+            .keys()
+            .any(|key| key.starts_with("content."))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Donation Receiver++15,:EUR+69++SPENDER-1:12345 Street:Max Berlin'"
         ),
         "{body}"
     );

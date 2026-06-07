@@ -1115,6 +1115,7 @@ fn render_job_into_custom_message(
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
         "DauerLastSEPAList" => render_dauer_last_sepa_list(message, job, index, passport),
         "DauerLastSEPANew" => render_dauer_last_sepa_new(message, job, index, passport),
+        "Donation" => render_donation(message, job, index, passport),
         "FestCondList" => render_fest_cond_list(message, job, index),
         "FestList" | "FestListAll" => render_fest_list(message, job, index, passport),
         "InfoList" => render_info_list(message, job, index),
@@ -1487,7 +1488,7 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "SammelLastB2BSEPA1",
             path: "CustomMsg.GV.SammelLastB2BSEPA1",
         }),
-        "Ueb" => Ok(OrderhashSourceJobInfo {
+        "Donation" | "Ueb" => Ok(OrderhashSourceJobInfo {
             code: "HKUEB",
             lowlevel_segment: "Ueb5",
             path: "CustomMsg.GV.Ueb5",
@@ -3358,6 +3359,26 @@ fn render_ueb(
             job_name: "Ueb",
             key_default: "51",
             first_usage_frontend: "usage",
+        },
+    )
+}
+
+fn render_donation(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_classic_ueb(
+        message,
+        job,
+        index,
+        passport,
+        ClassicUebRenderSpec {
+            lowlevel_segment: "Ueb5",
+            job_name: "Donation",
+            key_default: "69",
+            first_usage_frontend: "spenderid",
         },
     )
 }
