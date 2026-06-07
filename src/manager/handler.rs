@@ -408,6 +408,23 @@ where
         Ok(exec_status)
     }
 
+    pub async fn execute_tan2step_process2_submission(&mut self) -> HbciResult<HbciExecStatus> {
+        if !self.queue.is_empty() {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "process-2 TAN submission requires an empty queue",
+            ));
+        }
+
+        let hktan = self.new_tan2step_process2_job()?;
+        self.try_add_to_queue(hktan)?;
+        let status = self.execute().await?;
+        if status.success {
+            self.passport.clear_sca_state();
+        }
+        Ok(status)
+    }
+
     pub async fn close(&mut self) -> HbciResult<()> {
         if !self.dialog.is_open() {
             return Ok(());
