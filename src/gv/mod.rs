@@ -619,6 +619,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "KUmsNew" => kums_new_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
+        "TANMediaList" => tan_media_list_constraints(),
         "TAN2Step" => tan2step_constraints(),
         _ => Vec::new(),
     }
@@ -696,6 +697,13 @@ fn saldo_req_all_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.blz", "Saldo7.KTV.KIK.blz", None::<String>),
         HbciJobConstraint::new("my.number", "Saldo7.KTV.number", None::<String>),
         HbciJobConstraint::new("my.subnumber", "Saldo7.KTV.subnumber", Some("")),
+    ]
+}
+
+fn tan_media_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("mediatype", "TANMediaList4.mediatype", Some("0")),
+        HbciJobConstraint::new("mediacategory", "TANMediaList4.mediacategory", Some("A")),
     ]
 }
 

@@ -136,6 +136,13 @@ impl PinTanPassport {
         self.data.tan_media_names.join("|")
     }
 
+    pub fn set_tan_media_names<I>(&mut self, names: I)
+    where
+        I: IntoIterator<Item = String>,
+    {
+        self.data.tan_media_names = names.into_iter().collect();
+    }
+
     pub fn tan_segment_version(&self) -> &str {
         self.current_twostep_mechanism()
             .and_then(|mechanism| mechanism.get("segversion").map(String::as_str))

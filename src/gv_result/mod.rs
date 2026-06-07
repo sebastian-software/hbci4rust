@@ -651,6 +651,43 @@ impl Display for HbciJobResult {
 pub enum HbciJobResultData {
     SaldoReq(GvrSaldoReq),
     KUms(GvrKUms),
+    TanMediaList(GvrTanMediaList),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTanMediaList {
+    pub tan_option: Option<i32>,
+    pub media: Vec<GvrTanMediaInfo>,
+}
+
+impl GvrTanMediaList {
+    pub fn active_media_names(&self) -> Vec<String> {
+        self.media
+            .iter()
+            .filter(|info| info.status.as_deref() == Some("1"))
+            .filter_map(|info| info.media_name.as_deref())
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTanMediaInfo {
+    pub media_category: Option<String>,
+    pub status: Option<String>,
+    pub card_number: Option<String>,
+    pub card_seq_number: Option<String>,
+    pub card_type: Option<i32>,
+    pub valid_from: Option<String>,
+    pub valid_to: Option<String>,
+    pub tan_list_number: Option<String>,
+    pub media_name: Option<String>,
+    pub mobile_number: Option<String>,
+    pub mobile_number_secure: Option<String>,
+    pub free_tans: Option<i32>,
+    pub last_use: Option<String>,
+    pub activated_on: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

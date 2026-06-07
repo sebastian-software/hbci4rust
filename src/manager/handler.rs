@@ -7,9 +7,9 @@ use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
-    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
-    Value,
+    GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus,
+    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
+    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -387,6 +387,7 @@ where
                 result
             })
             .collect::<Vec<_>>();
+        update_passport_tan_media_names_from_results(&mut self.passport, &results);
         let success =
             http_success && response_status.global_is_ok() && results.iter().all(|job| job.success);
 
@@ -1035,6 +1036,7 @@ fn render_job_into_custom_message(
         "KUmsNew" => render_kums_new(message, job, index, passport),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
+        "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
@@ -1272,6 +1274,14 @@ fn kums_response_root(segment_name: &str, index: usize) -> String {
     }
 }
 
+fn tan_media_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.TANMediaListRes4".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.TANMediaListRes4", index + 1)
+    }
+}
+
 fn render_saldo_request(
     message: &mut HbciMessage,
     job: &HbciJob,
@@ -1451,6 +1461,26 @@ fn render_kums_all_camt(
         message,
         &format!("{segment}.offset"),
         job_param(job, "KUmsZeitCamt1.offset", "offset"),
+    )?;
+
+    Ok(())
+}
+
+fn render_tan_media_list(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.TANMediaList4");
+
+    message.set_value(
+        &format!("{segment}.mediatype"),
+        job_param(job, "TANMediaList4.mediatype", "mediatype").unwrap_or("0"),
+    )?;
+    message.set_value(
+        &format!("{segment}.mediacategory"),
+        job_param(job, "TANMediaList4.mediacategory", "mediacategory").unwrap_or("A"),
     )?;
 
     Ok(())
@@ -1830,6 +1860,9 @@ impl ParsedResponseStatus {
                 self.kums_all_camt_result_for_root(kums_response_root("KUmsZeitCamtRes1", index))
             }
             "KUmsNew" => self.kums_result_for_root(kums_response_root("KUmsNewRes7", index)),
+            "TANMediaList" => self
+                .tan_media_list_result_for_root(tan_media_list_response_root(index))
+                .map(HbciJobResultData::TanMediaList),
             _ => None,
         }
     }
@@ -1847,6 +1880,7 @@ impl ParsedResponseStatus {
                     .into_iter()
                     .map(|prefix| format!("{prefix}.SaldoRes7")),
             ),
+            "TANMediaList" => self.content_result_data([tan_media_list_response_root(index)]),
             _ => BTreeMap::new(),
         }
     }
@@ -1915,6 +1949,20 @@ impl ParsedResponseStatus {
         Some(HbciJobResultData::KUms(result))
     }
 
+    fn tan_media_list_result_for_root(&self, root: String) -> Option<GvrTanMediaList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+
+        let media = counted_prefixes(&self.values, &format!("{root}.MediaInfo"))
+            .into_iter()
+            .filter_map(|prefix| tan_media_info_from_values(&self.values, &prefix))
+            .collect();
+
+        Some(GvrTanMediaList {
+            tan_option: optional_i32(&self.values, &format!("{root}.tanoption")),
+            media,
+        })
+    }
+
     fn kums_all_camt_result_for_root(&self, root: String) -> Option<HbciJobResultData> {
         let booked_messages = counted_value_keys(&self.values, &format!("{root}.booked.message"));
         let notbooked = self.values.get(&format!("{root}.notbooked"));
@@ -1934,6 +1982,44 @@ impl ParsedResponseStatus {
         }
 
         Some(HbciJobResultData::KUms(result))
+    }
+}
+
+fn tan_media_info_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrTanMediaInfo> {
+    Some(GvrTanMediaInfo {
+        media_category: optional_value(values, &format!("{prefix}.mediacategory")),
+        status: optional_value(values, &format!("{prefix}.status")),
+        card_number: optional_value(values, &format!("{prefix}.cardnumber")),
+        card_seq_number: optional_value(values, &format!("{prefix}.cardseqnumber")),
+        card_type: optional_i32(values, &format!("{prefix}.cardtype")),
+        valid_from: optional_value(values, &format!("{prefix}.validfrom")),
+        valid_to: optional_value(values, &format!("{prefix}.validto")),
+        tan_list_number: optional_value(values, &format!("{prefix}.tanlistnumber")),
+        media_name: optional_value(values, &format!("{prefix}.medianame")),
+        mobile_number: optional_value(values, &format!("{prefix}.mobilenumber")),
+        mobile_number_secure: optional_value(values, &format!("{prefix}.mobilenumber_secure")),
+        free_tans: optional_i32(values, &format!("{prefix}.freetans")),
+        last_use: optional_value(values, &format!("{prefix}.lastuse")),
+        activated_on: optional_value(values, &format!("{prefix}.activatedon")),
+    })
+    .filter(|info| info.media_category.is_some())
+}
+
+fn update_passport_tan_media_names_from_results(
+    passport: &mut PinTanPassport,
+    results: &[HbciJobResult],
+) {
+    for result in results {
+        let Some(HbciJobResultData::TanMediaList(data)) = result.result.as_ref() else {
+            continue;
+        };
+        let names = data.active_media_names();
+        if !names.is_empty() {
+            passport.set_tan_media_names(names);
+        }
     }
 }
 
@@ -2284,6 +2370,10 @@ fn non_empty_string(value: &str) -> Option<String> {
 
 fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String> {
     values.get(key).and_then(|value| non_empty_string(value))
+}
+
+fn optional_i32(values: &BTreeMap<String, String>, key: &str) -> Option<i32> {
+    optional_value(values, key).and_then(|value| value.parse().ok())
 }
 
 fn required_message_value<'a>(

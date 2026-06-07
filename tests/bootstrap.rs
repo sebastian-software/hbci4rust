@@ -545,6 +545,52 @@ fn kums_all_camt_exposes_original_near_constraints() {
 }
 
 #[test]
+fn tan_media_list_exposes_original_near_v4_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("TANMediaList").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 2);
+    assert_eq!(
+        job.constraint("mediatype")
+            .expect("mediatype constraint")
+            .destination_name,
+        "TANMediaList4.mediatype"
+    );
+    assert_eq!(
+        job.constraint("mediatype")
+            .expect("mediatype constraint")
+            .default_value
+            .as_deref(),
+        Some("0")
+    );
+    assert_eq!(
+        job.constraint("mediacategory")
+            .expect("mediacategory constraint")
+            .destination_name,
+        "TANMediaList4.mediacategory"
+    );
+    assert_eq!(
+        job.constraint("mediacategory")
+            .expect("mediacategory constraint")
+            .default_value
+            .as_deref(),
+        Some("A")
+    );
+    let lowlevel = job.verify_constraints().expect("constraints resolve");
+    assert_eq!(
+        lowlevel.get("TANMediaList4.mediatype").map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(
+        lowlevel
+            .get("TANMediaList4.mediacategory")
+            .map(String::as_str),
+        Some("A")
+    );
+}
+
+#[test]
 fn tan2step_exposes_original_near_v5_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -2954,6 +3000,55 @@ async fn handler_uses_replay_comm_client() {
     assert_signed_custom_msg_request(&body, "0", "1", 5);
     assert!(body.contains("HKSAL:3:7+DE02123456780000000000+N'"));
     assert!(!body.contains("SaldoReq"));
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_tan_media_list_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITAB:3:4+2+M:1:::::::::::push-app+G:2:::::::::::inactive-card+S:1:::::::::::photo-app",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("TANMediaList").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "TANMediaList");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.tanoption")
+            .map(String::as_str),
+        Some("2")
+    );
+
+    let Some(HbciJobResultData::TanMediaList(result)) = status.job_results[0].result.as_ref()
+    else {
+        panic!("expected TANMediaList result data");
+    };
+    assert_eq!(result.tan_option, Some(2));
+    assert_eq!(result.media.len(), 3);
+    assert_eq!(result.media[0].media_category.as_deref(), Some("M"));
+    assert_eq!(result.media[0].status.as_deref(), Some("1"));
+    assert_eq!(result.media[0].media_name.as_deref(), Some("push-app"));
+    assert_eq!(result.media[1].media_name.as_deref(), Some("inactive-card"));
+    assert_eq!(result.media[2].media_category.as_deref(), Some("S"));
+    assert_eq!(result.media[2].media_name.as_deref(), Some("photo-app"));
+    assert_eq!(
+        handler.passport().tan_media_names(),
+        &["push-app".to_owned(), "photo-app".to_owned()]
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKTAB:3:4+0+A'"), "{body}");
 }
 
 #[tokio::test]
