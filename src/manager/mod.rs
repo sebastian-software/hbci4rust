@@ -20,7 +20,7 @@ pub use secmech::{
     FlickerCode, FlickerCodeVersion, FlickerDataElement, FlickerEncoding, FlickerRenderer,
     FlickerStartCode, HhdVersion, HhdVersionType, MatrixCode, QrCode,
 };
-pub use signature::apply_pintan_user_sig_to_sig_tail;
+pub use signature::{PinTanSigHead, apply_pintan_sig_head, apply_pintan_user_sig_to_sig_tail};
 
 #[derive(Default)]
 struct RuntimeState {

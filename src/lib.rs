@@ -32,8 +32,8 @@ pub use manager::{
     AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,
     ChallengeInfo, ChallengeJob, ChallengeParam, FlickerCode, FlickerCodeVersion,
     FlickerDataElement, FlickerEncoding, FlickerRenderer, FlickerStartCode, HbciHandler,
-    HbciVersion, HhdVersion, HhdVersionType, MatrixCode, OrderHashMode, QrCode,
-    apply_pintan_user_sig_to_sig_tail, done, get_param, init, set_param,
+    HbciVersion, HhdVersion, HhdVersionType, MatrixCode, OrderHashMode, PinTanSigHead, QrCode,
+    apply_pintan_sig_head, apply_pintan_user_sig_to_sig_tail, done, get_param, init, set_param,
 };
 pub use passport::{
     ONESTEP_TAN_METHOD_ID, PassportStorage, PinTanPassport, PinTanPassportData, PinTanScaState,

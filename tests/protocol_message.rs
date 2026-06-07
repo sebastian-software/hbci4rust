@@ -1,5 +1,6 @@
 use hbci4rust::{
-    UserSig, apply_pintan_user_sig_to_sig_tail,
+    PinTanPassport, PinTanPassportData, PinTanSigHead, UserSig, apply_pintan_sig_head,
+    apply_pintan_user_sig_to_sig_tail,
     protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec},
 };
 
@@ -200,6 +201,105 @@ fn applies_pintan_usersig_to_signature_tail_without_empty_tan() {
         .expect("message sequences and size are prepared");
     let rendered = message.to_fints_string().expect("message renders");
     assert!(rendered.contains("HNSHA:4:2+REF1++12345'"), "{rendered}");
+}
+
+#[test]
+fn applies_pintan_sighead_from_passport_like_hbci4java_onestep_defaults() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+    let passport = pintan_passport_with_tan_method("999");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF1", "1", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+
+    apply_pintan_sig_head(&mut message, "DialogEnd.SigHead", &sig_head).expect("sighead applies");
+
+    assert_eq!(
+        message.value("DialogEnd.SigHead.SecProfile.method"),
+        Some("PIN")
+    );
+    assert_eq!(
+        message.value("DialogEnd.SigHead.SecProfile.version"),
+        Some("1")
+    );
+    assert_eq!(message.value("DialogEnd.SigHead.secfunc"), Some("999"));
+    assert_eq!(message.value("DialogEnd.SigHead.seccheckref"), Some("REF1"));
+    assert_eq!(message.value("DialogEnd.SigHead.role"), Some("1"));
+    assert_eq!(
+        message.value("DialogEnd.SigHead.SecIdnDetails.func"),
+        Some("1")
+    );
+    assert_eq!(
+        message.value("DialogEnd.SigHead.SecIdnDetails.sysid"),
+        Some("0")
+    );
+    assert_eq!(message.value("DialogEnd.SigHead.secref"), Some("1"));
+    assert_eq!(
+        message.value("DialogEnd.SigHead.SecTimestamp.date"),
+        Some("2024-02-29")
+    );
+    assert_eq!(
+        message.value("DialogEnd.SigHead.SecTimestamp.time"),
+        Some("07:08:09")
+    );
+    assert_eq!(message.value("DialogEnd.SigHead.HashAlg.alg"), Some("999"));
+    assert_eq!(message.value("DialogEnd.SigHead.SigAlg.alg"), Some("10"));
+    assert_eq!(message.value("DialogEnd.SigHead.SigAlg.mode"), Some("16"));
+    assert_eq!(
+        message.value("DialogEnd.SigHead.KeyName.KIK.country"),
+        Some("DE")
+    );
+    assert_eq!(
+        message.value("DialogEnd.SigHead.KeyName.KIK.blz"),
+        Some("12345678")
+    );
+    assert_eq!(
+        message.value("DialogEnd.SigHead.KeyName.userid"),
+        Some("user")
+    );
+    assert_eq!(message.value("DialogEnd.SigHead.KeyName.keynum"), Some("0"));
+    assert_eq!(
+        message.value("DialogEnd.SigHead.KeyName.keyversion"),
+        Some("0")
+    );
+
+    message
+        .set_value("DialogEnd.SigHead.SegHead.seq", "2")
+        .expect("segment sequence can be fixed for segment render");
+    let rendered = message
+        .element("DialogEnd.SigHead")
+        .expect("signature head exists")
+        .to_fints_string()
+        .expect("signature head renders");
+
+    assert_eq!(
+        rendered,
+        "HNSHK:2:4+PIN:1+999+REF1+1+1+1::0+1+1:20240229:070809+1:999:1+6:10:16+280:12345678:user:S:0:0'"
+    );
+}
+
+#[test]
+fn derives_pintan_sighead_profile_version_two_for_twostep_method() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+    let passport = pintan_passport_with_tan_method("921");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF2", "7", "2024-03-01", "08:09:10")
+        .expect("pintan sighead values derive from passport");
+
+    apply_pintan_sig_head(&mut message, "DialogEnd.SigHead", &sig_head).expect("sighead applies");
+
+    assert_eq!(
+        message.value("DialogEnd.SigHead.SecProfile.version"),
+        Some("2")
+    );
+    assert_eq!(message.value("DialogEnd.SigHead.secfunc"), Some("921"));
+    assert_eq!(message.value("DialogEnd.SigHead.seccheckref"), Some("REF2"));
+    assert_eq!(message.value("DialogEnd.SigHead.secref"), Some("7"));
 }
 
 #[test]
@@ -592,4 +692,14 @@ fn dialog_end_message_with_pintan_signature_shell() -> HbciMessage {
     );
 
     message
+}
+
+fn pintan_passport_with_tan_method(tan_method: &str) -> PinTanPassport {
+    PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        user_id: "user".to_owned(),
+        tan_method: Some(tan_method.to_owned()),
+        ..PinTanPassportData::default()
+    })
 }
