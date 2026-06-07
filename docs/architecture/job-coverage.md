@@ -89,5 +89,6 @@ not vendored and CI remains offline-only.
 - `docs/adr/0268-remove-classic-domestic-transfer-public-jobs.md`
 - `docs/adr/0269-remove-classic-scheduled-standing-public-jobs.md`
 - `docs/adr/0276-remove-classic-scheduled-standing-internals.md`
+- `docs/adr/0277-supersede-removed-legacy-job-port-adrs.md`
 - `docs/reference/unsupported-surfaces.md`
 - `scripts/audit-job-coverage.sh`

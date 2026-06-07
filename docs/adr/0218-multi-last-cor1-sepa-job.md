@@ -1,7 +1,8 @@
 # 0218 Port MultiLastCOR1SEPA As Bulk COR1 Direct Debit Variant
 
 ## Status
-Accepted
+
+Superseded by ADR 0265 and ADR 0271
 
 ## Context
 `GVMultiLastCOR1SEPA` in hbci4java implements SEPA COR1 bulk direct debit. It

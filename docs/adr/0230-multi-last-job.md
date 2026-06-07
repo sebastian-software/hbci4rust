@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR 0266 and ADR 0272
 
 ## Context
 
