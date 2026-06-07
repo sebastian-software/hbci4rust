@@ -686,6 +686,10 @@ impl HbciJob {
             return binary_lowlevel_value(value);
         }
 
+        if self.name == "VoP" && frontend_name == "pollingid" {
+            return binary_lowlevel_value(value);
+        }
+
         value.to_owned()
     }
 
@@ -907,6 +911,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TANList" => Vec::new(),
         "TANMediaList" => tan_media_list_constraints(),
         "TAN2Step" => tan2step_constraints(),
+        "VoP" => vop_constraints(),
         "VoPAuth" => vop_auth_constraints(),
         _ => Vec::new(),
     }
@@ -2110,6 +2115,19 @@ fn vop_auth_constraints() -> Vec<HbciJobConstraint> {
         "VoPAuth1.vopid",
         None::<String>,
     )]
+}
+
+fn vop_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new(
+            "suppreports.descriptor",
+            "VoPCheck1.suppreports.descriptor",
+            Some(""),
+        ),
+        HbciJobConstraint::new("pollingid", "VoPCheck1.pollingid", None::<String>),
+        HbciJobConstraint::new("maxentries", "VoPCheck1.maxentries", None::<String>),
+        HbciJobConstraint::new("offset", "VoPCheck1.offset", None::<String>),
+    ]
 }
 
 fn tan2step_constraints() -> Vec<HbciJobConstraint> {

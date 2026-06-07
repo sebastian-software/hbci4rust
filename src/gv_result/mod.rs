@@ -669,6 +669,7 @@ pub enum HbciJobResultData {
     KUms(GvrKUms),
     TanList(GvrTanList),
     TanMediaList(GvrTanMediaList),
+    VoP(GvrVoP),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -980,6 +981,83 @@ pub struct GvrTermUebListEntry {
     pub can_delete: bool,
     pub sepadescr: Option<String>,
     pub sepapain_raw: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrVoP {
+    pub result: Option<VoPResult>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoPResult {
+    pub vop_id: Option<String>,
+    pub polling_id: Option<String>,
+    pub text: Option<String>,
+    pub items: Vec<VoPResultItem>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoPResultItem {
+    pub status: Option<VoPStatus>,
+    pub original: Option<String>,
+    pub name: Option<String>,
+    pub iban: Option<String>,
+    pub usage: Option<String>,
+    pub amount: Option<String>,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VoPStatus {
+    Match,
+    NoMatch,
+    CloseMatch,
+    NotApplicable,
+    Pending,
+}
+
+impl VoPStatus {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Match => "RCVC",
+            Self::NoMatch => "RVNM",
+            Self::CloseMatch => "RVMC",
+            Self::NotApplicable => "RVNA",
+            Self::Pending => "PDNG",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Match => "Übereinstimmung",
+            Self::NoMatch => "Keine Übereinstimmung",
+            Self::CloseMatch => "Beinahe Übereinstimmung",
+            Self::NotApplicable => "Nicht anwendbar",
+            Self::Pending => "Wartet auf Rückmeldung",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            code if code.eq_ignore_ascii_case("RCVC") => Some(Self::Match),
+            code if code.eq_ignore_ascii_case("RVNM") => Some(Self::NoMatch),
+            code if code.eq_ignore_ascii_case("RVMC") => Some(Self::CloseMatch),
+            code if code.eq_ignore_ascii_case("RVNA") => Some(Self::NotApplicable),
+            code if code.eq_ignore_ascii_case("PDNG") => Some(Self::Pending),
+            _ => None,
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            name if name.eq_ignore_ascii_case("MATCH") => Some(Self::Match),
+            name if name.eq_ignore_ascii_case("NO_MATCH") => Some(Self::NoMatch),
+            name if name.eq_ignore_ascii_case("CLOSE_MATCH") => Some(Self::CloseMatch),
+            name if name.eq_ignore_ascii_case("NOT_APPLICABLE") => Some(Self::NotApplicable),
+            name if name.eq_ignore_ascii_case("PENDING") => Some(Self::Pending),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

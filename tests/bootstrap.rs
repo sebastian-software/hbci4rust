@@ -6,8 +6,8 @@ use hbci4rust::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
     GvrFestCond, HbciCallback, HbciHandler, HbciJobResultData, HbciMsgStatus, HbciResult,
     HbciReturnValue, HbciStatus, Konto, KontoauszugFormat, Limit, OrderHashMode, PassportStorage,
-    PinTanPassport, PinTanPassportData, ReplayCommClient, TanMethodSelection, UserSig, Value, done,
-    init,
+    PinTanPassport, PinTanPassportData, ReplayCommClient, TanMethodSelection, UserSig, Value,
+    VoPStatus, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
     sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, PAIN_008_001_02_URN},
 };
@@ -760,6 +760,54 @@ fn vop_auth_exposes_original_near_constraints_and_binary_vopid() {
         .expect("vopid is accepted");
     assert_eq!(job.param("vopid"), Some("VOP-ID-1"));
     assert_eq!(job.lowlevel_param("VoPAuth1.vopid"), Some("BVOP-ID-1"));
+}
+
+#[test]
+fn vop_exposes_original_near_constraints_and_binary_pollingid() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("VoP").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 4);
+    assert_eq!(
+        job.constraint("suppreports.descriptor")
+            .expect("suppreports.descriptor constraint")
+            .destination_name,
+        "VoPCheck1.suppreports.descriptor"
+    );
+    assert_eq!(
+        job.constraint("suppreports.descriptor")
+            .expect("suppreports.descriptor constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("pollingid")
+            .expect("pollingid constraint")
+            .destination_name,
+        "VoPCheck1.pollingid"
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "VoPCheck1.maxentries"
+    );
+    assert_eq!(
+        job.constraint("offset")
+            .expect("offset constraint")
+            .destination_name,
+        "VoPCheck1.offset"
+    );
+
+    job.try_set_param("pollingid", "POLL-ID-1")
+        .expect("pollingid is accepted");
+    assert_eq!(job.param("pollingid"), Some("POLL-ID-1"));
+    assert_eq!(
+        job.lowlevel_param("VoPCheck1.pollingid"),
+        Some("BPOLL-ID-1")
+    );
 }
 
 #[test]
@@ -12030,6 +12078,62 @@ async fn handler_renders_vop_auth_request_like_original() {
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
     assert!(body.contains("HKVPA:3:1+@8@VOP-ID-1'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_vop_single_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIVPP:3:1+@8@VOP-ID-1++@9@POLL-ID-2+++DE02123456780000000000::Corrected Recipient::RVMC:Close enough+Please check+2",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut vop = handler.new_job("VoP").expect("job is in registry");
+    vop.try_set_param("suppreports.descriptor", "pain.002.001.10")
+        .expect("descriptor is accepted");
+    vop.try_set_param("pollingid", "POLL-ID-1")
+        .expect("pollingid is accepted");
+    vop.try_set_param("maxentries", "10")
+        .expect("maxentries is accepted");
+    vop.try_set_param("offset", "0")
+        .expect("offset is accepted");
+
+    handler.add_to_queue(vop);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "VoP");
+    let Some(HbciJobResultData::VoP(vop_result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected VoP result data");
+    };
+    let result = vop_result.result.as_ref().expect("VoP result");
+    assert_eq!(result.vop_id.as_deref(), Some("VOP-ID-1"));
+    assert_eq!(result.polling_id.as_deref(), Some("POLL-ID-2"));
+    assert_eq!(result.text.as_deref(), Some("Please check"));
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].status, Some(VoPStatus::CloseMatch));
+    assert_eq!(
+        result.items[0].iban.as_deref(),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(result.items[0].name.as_deref(), Some("Corrected Recipient"));
+    assert_eq!(result.items[0].text.as_deref(), Some("Close enough"));
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.result.differentname")
+            .map(String::as_str),
+        Some("Corrected Recipient")
+    );
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains("HKVPP:3:1+pain.002.001.10+@9@POLL-ID-1+10+0'"),
+        "{body}"
+    );
     assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 

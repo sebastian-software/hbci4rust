@@ -15,9 +15,9 @@ use crate::gv_result::{
     GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrKontoauszug,
     GvrKontoauszugEntry, GvrLastSepa, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry,
     GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb,
-    GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus,
+    GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, GvrVoP, HbciDialogStatus, HbciExecStatus,
     HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus,
-    Konto, KontoauszugFormat, Saldo, Value,
+    Konto, KontoauszugFormat, Saldo, Value, VoPResult, VoPResultItem, VoPStatus,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1156,6 +1156,7 @@ fn render_job_into_custom_message(
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         "Umb" => render_umb(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
+        "VoP" => render_vop(message, job, index),
         "VoPAuth" => render_vop_auth(message, job, index),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
@@ -1590,6 +1591,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "KontoauszugPdf2",
             path: "CustomMsg.GV.KontoauszugPdf2",
         }),
+        "VoP" => Ok(OrderhashSourceJobInfo {
+            code: "HKVPP",
+            lowlevel_segment: "VoPCheck1",
+            path: "CustomMsg.GV.VoPCheck1",
+        }),
         "VoPAuth" => Ok(OrderhashSourceJobInfo {
             code: "HKVPA",
             lowlevel_segment: "VoPAuth1",
@@ -1895,6 +1901,14 @@ fn sepa_info_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.SEPAInfoRes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.SEPAInfoRes1", index + 1)
+    }
+}
+
+fn vop_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.VoPCheckRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.VoPCheckRes1", index + 1)
     }
 }
 
@@ -2340,6 +2354,41 @@ fn render_change_pin(message: &mut HbciMessage, job: &HbciJob, index: usize) -> 
         "newpin",
         "ChangePIN requires newpin",
     )
+}
+
+fn render_vop(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.VoPCheck1");
+    let descriptor = job
+        .lowlevel_param("VoPCheck1.suppreports.descriptor")
+        .or_else(|| job.param("suppreports.descriptor"))
+        .unwrap_or("");
+    let polling_id = job_param_required(
+        job,
+        "VoPCheck1.pollingid",
+        "pollingid",
+        "VoP requires pollingid",
+    )?;
+    let max_entries = job_param_required(
+        job,
+        "VoPCheck1.maxentries",
+        "maxentries",
+        "VoP requires maxentries",
+    )?;
+    let offset = job_param_required(job, "VoPCheck1.offset", "offset", "VoP requires offset")?;
+
+    message.set_value(&segment, "requested")?;
+    message.set_value(&format!("{segment}.suppreports.descriptor"), descriptor)?;
+    message.set_value(
+        &format!("{segment}.pollingid"),
+        sepa_binary_value(polling_id),
+    )?;
+    message.set_value(&format!("{segment}.maxentries"), max_entries)?;
+    message.set_value(&format!("{segment}.offset"), offset)
 }
 
 fn render_vop_auth(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
@@ -5251,6 +5300,9 @@ impl ParsedResponseStatus {
             "TANMediaList" => self
                 .tan_media_list_result_for_root(tan_media_list_response_root(index))
                 .map(HbciJobResultData::TanMediaList),
+            "VoP" => self
+                .vop_result_for_root(vop_response_root(index))
+                .map(HbciJobResultData::VoP),
             _ => None,
         }
     }
@@ -5320,6 +5372,7 @@ impl ParsedResponseStatus {
             "Status" => self.content_result_data(self.status_response_roots()),
             "TANList" => self.content_result_data(self.tan_list_response_roots()),
             "TANMediaList" => self.content_result_data([tan_media_list_response_root(index)]),
+            "VoP" => self.content_result_data([vop_response_root(index)]),
             _ => BTreeMap::new(),
         }
     }
@@ -5537,6 +5590,29 @@ impl ParsedResponseStatus {
         })
     }
 
+    fn vop_result_for_root(&self, root: String) -> Option<GvrVoP> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        let report_desc = optional_value(&self.values, &format!("{root}.reportdesc"));
+        let report = optional_value(&self.values, &format!("{root}.report"));
+        let mut result = VoPResult {
+            vop_id: optional_value(&self.values, &format!("{root}.vopid")),
+            polling_id: optional_value(&self.values, &format!("{root}.pollingid")),
+            text: optional_value(&self.values, &format!("{root}.infotext")),
+            items: Vec::new(),
+        };
+
+        if report_desc.is_none() || report.is_none() {
+            result.items.push(vop_result_item_from_values(
+                &self.values,
+                &format!("{root}.result"),
+            ));
+        }
+
+        Some(GvrVoP {
+            result: Some(result),
+        })
+    }
+
     fn kums_result_for_root(&self, root: String) -> Option<HbciJobResultData> {
         let booked = self.values.get(&format!("{root}.booked"));
         let notbooked = self.values.get(&format!("{root}.notbooked"));
@@ -5589,6 +5665,21 @@ impl ParsedResponseStatus {
         }
 
         Some(HbciJobResultData::KUms(result))
+    }
+}
+
+fn vop_result_item_from_values(values: &BTreeMap<String, String>, prefix: &str) -> VoPResultItem {
+    let status = optional_value(values, &format!("{prefix}.result"))
+        .and_then(|code| VoPStatus::from_code(&code));
+
+    VoPResultItem {
+        status,
+        original: None,
+        name: optional_value(values, &format!("{prefix}.differentname")),
+        iban: optional_value(values, &format!("{prefix}.iban")),
+        usage: None,
+        amount: None,
+        text: optional_value(values, &format!("{prefix}.reason")),
     }
 }
 
