@@ -285,6 +285,43 @@ fn applies_pintan_sighead_from_passport_like_hbci4java_onestep_defaults() {
 }
 
 #[test]
+fn applies_pintan_sighead_to_hbci_plus_without_secprofile() {
+    let syntax = load_protocol_spec("plus")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg").expect("message tree builds");
+    let passport = pintan_passport_with_tan_method("999");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF1", "1", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+
+    apply_pintan_sig_head(&mut message, "CustomMsg.SigHead", &sig_head).expect("sighead applies");
+
+    assert_eq!(message.element("CustomMsg.SigHead.SecProfile"), None);
+    assert_eq!(message.value("CustomMsg.SigHead.secfunc"), Some("999"));
+    assert_eq!(message.value("CustomMsg.SigHead.seccheckref"), Some("REF1"));
+    assert_eq!(message.value("CustomMsg.SigHead.role"), Some("1"));
+    assert_eq!(
+        message.value("CustomMsg.SigHead.SecIdnDetails.sysid"),
+        Some("0")
+    );
+
+    message
+        .set_value("CustomMsg.SigHead.SegHead.seq", "2")
+        .expect("segment sequence can be fixed for segment render");
+    let rendered = message
+        .element("CustomMsg.SigHead")
+        .expect("signature head exists")
+        .to_fints_string()
+        .expect("signature head renders");
+
+    assert_eq!(
+        rendered,
+        "HNSHK:2:3+999+REF1+1+1+1::0+1+1:20240229:070809+1:999:1+6:10:16+280:12345678:user:S:0:0'"
+    );
+}
+
+#[test]
 fn derives_pintan_sighead_profile_version_two_for_twostep_method() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")

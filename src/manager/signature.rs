@@ -134,14 +134,14 @@ pub fn apply_pintan_sig_head(
     sig_head_path: &str,
     sig_head: &PinTanSigHead,
 ) -> HbciResult<()> {
-    message.set_value(
-        &format!("{sig_head_path}.SecProfile.method"),
-        &sig_head.profile_method,
-    )?;
-    message.set_value(
-        &format!("{sig_head_path}.SecProfile.version"),
-        &sig_head.profile_version,
-    )?;
+    let sec_profile_method_path = format!("{sig_head_path}.SecProfile.method");
+    if message.element(&sec_profile_method_path).is_some() {
+        message.set_value(&sec_profile_method_path, &sig_head.profile_method)?;
+        message.set_value(
+            &format!("{sig_head_path}.SecProfile.version"),
+            &sig_head.profile_version,
+        )?;
+    }
     message.set_value(&format!("{sig_head_path}.secfunc"), &sig_head.secfunc)?;
     message.set_value(
         &format!("{sig_head_path}.seccheckref"),
