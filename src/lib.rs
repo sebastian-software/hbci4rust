@@ -25,11 +25,11 @@ pub use error::{HbciError, HbciErrorKind, HbciResult};
 pub use gv::{HbciJob, HbciJobConstraint, JobRegistry, PINTAN_JOB_NAMES};
 pub use gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerList, GvrDauerListAussetzung,
-    GvrDauerListEntry, GvrInstUebSepa, GvrKUms, GvrKUmsBTag, GvrKUmsLine, GvrSaldoReq,
-    GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
-    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit,
-    Saldo, Value,
+    GvrDauerListEntry, GvrInfoList, GvrInfoListInfo, GvrInstUebSepa, GvrKUms, GvrKUmsBTag,
+    GvrKUmsLine, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb,
+    GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus,
+    HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus,
+    HbciStatusCode, Konto, Limit, Saldo, Value,
 };
 pub use manager::{
     AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,

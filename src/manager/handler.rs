@@ -8,10 +8,11 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
-    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrInstUebSepa, GvrKUms, GvrSaldoReq,
-    GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
-    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrInfoList, GvrInfoListInfo,
+    GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList,
+    GvrTermUeb, GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus,
+    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
+    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1051,6 +1052,7 @@ fn render_job_into_custom_message(
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
+        "InfoList" => render_info_list(message, job, index),
         "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
@@ -1292,6 +1294,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "InstUebSEPA1",
             path: "CustomMsg.GV.InstUebSEPA1",
         }),
+        "InfoList" => Ok(OrderhashSourceJobInfo {
+            code: "HKKIA",
+            lowlevel_segment: "InfoList4",
+            path: "CustomMsg.GV.InfoList4",
+        }),
         "UebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCCS",
             lowlevel_segment: "UebSEPA1",
@@ -1384,6 +1391,14 @@ fn acc_info_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.AccInfoRes2".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.AccInfoRes2", index + 1)
+    }
+}
+
+fn info_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.InfoListRes4".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.InfoListRes4", index + 1)
     }
 }
 
@@ -1599,6 +1614,24 @@ fn render_kums_zeit_sepa(
         message,
         &format!("{segment}.offset"),
         job_param(job, "KUmsZeitSEPA7.offset", "offset"),
+    )?;
+
+    Ok(())
+}
+
+fn render_info_list(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.InfoList4");
+
+    message.set_value(&segment, "requested")?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "InfoList4.maxentries", "maxentries"),
     )?;
 
     Ok(())
@@ -2839,6 +2872,9 @@ impl ParsedResponseStatus {
             "DauerSEPANew" => self
                 .dauer_new_result_for_root(dauer_sepa_new_response_root(index))
                 .map(HbciJobResultData::DauerNew),
+            "InfoList" => self
+                .info_list_result_for_root(info_list_response_root(index))
+                .map(HbciJobResultData::InfoList),
             "InstUebSEPA" => self
                 .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::InstUebSepa),
@@ -2880,6 +2916,7 @@ impl ParsedResponseStatus {
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
+            "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermUebSEPAEdit" => {
@@ -2972,6 +3009,16 @@ impl ParsedResponseStatus {
         Some(GvrDauerNew {
             order_id: optional_value(&self.values, &format!("{root}.orderid")),
         })
+    }
+
+    fn info_list_result_for_root(&self, root: String) -> Option<GvrInfoList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        let entries = counted_prefixes(&self.values, &format!("{root}.InfoInfo"))
+            .into_iter()
+            .filter_map(|prefix| info_list_info_from_values(&self.values, &prefix))
+            .collect();
+
+        Some(GvrInfoList { entries })
     }
 
     fn dauer_edit_result_for_root(&self, root: String) -> Option<GvrDauerEdit> {
@@ -3089,6 +3136,26 @@ fn tan_media_info_from_values(
         activated_on: optional_value(values, &format!("{prefix}.activatedon")),
     })
     .filter(|info| info.media_category.is_some())
+}
+
+fn info_list_info_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrInfoListInfo> {
+    let code = optional_value(values, &format!("{prefix}.code"))?;
+    let comments = counted_value_keys(values, &format!("{prefix}.comment"))
+        .into_iter()
+        .filter_map(|key| optional_value(values, &key))
+        .collect();
+
+    Some(GvrInfoListInfo {
+        code: Some(code),
+        description: optional_value(values, &format!("{prefix}.descr")),
+        info_type: optional_value(values, &format!("{prefix}.type")),
+        format: optional_value(values, &format!("{prefix}.format")),
+        date: optional_value(values, &format!("{prefix}.version")),
+        comments,
+    })
 }
 
 fn acc_info_entry_from_values(

@@ -526,6 +526,29 @@ fn acc_info_exposes_original_near_v2_constraints() {
 }
 
 #[test]
+fn info_list_exposes_original_near_v4_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("InfoList").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 1);
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "InfoList4.maxentries"
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(job.constraint("offset"), None);
+}
+
+#[test]
 fn dauer_sepa_list_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -6847,6 +6870,82 @@ async fn handler_renders_receipt_request_like_original() {
 
     assert!(body.contains("HKQTG:3:1+@10@RECEIPT+OK'"), "{body}");
     assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_info_list_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut info_list = handler.new_job("InfoList").expect("job is in registry");
+    info_list
+        .try_set_param_int("maxentries", 7)
+        .expect("maxentries is accepted");
+
+    handler.add_to_queue(info_list);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "InfoList");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKKIA:3:4+7'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_collects_info_list_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIKIA:3:4+INFO1:First info:F:20260601:TXT:Hint one:Hint two+THEME:Theme heading:T",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let job = handler.new_job("InfoList").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "InfoList");
+    assert_eq!(
+        result
+            .result_data
+            .get("content.InfoInfo.code")
+            .map(String::as_str),
+        Some("INFO1")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.InfoInfo_2.code")
+            .map(String::as_str),
+        Some("THEME")
+    );
+
+    let Some(HbciJobResultData::InfoList(info_list)) = result.result.as_ref() else {
+        panic!("expected InfoList result data");
+    };
+    assert_eq!(info_list.entries.len(), 2);
+    assert_eq!(info_list.entries[0].code.as_deref(), Some("INFO1"));
+    assert_eq!(
+        info_list.entries[0].description.as_deref(),
+        Some("First info")
+    );
+    assert_eq!(info_list.entries[0].info_type.as_deref(), Some("F"));
+    assert_eq!(info_list.entries[0].format.as_deref(), Some("TXT"));
+    assert_eq!(info_list.entries[0].date.as_deref(), Some("2026-06-01"));
+    assert_eq!(
+        info_list.entries[0].comments,
+        vec!["Hint one".to_owned(), "Hint two".to_owned()]
+    );
+    assert_eq!(info_list.entries[1].code.as_deref(), Some("THEME"));
+    assert_eq!(info_list.entries[1].info_type.as_deref(), Some("T"));
+    assert!(info_list.entries[1].comments.is_empty());
 }
 
 #[tokio::test]

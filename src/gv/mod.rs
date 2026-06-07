@@ -693,6 +693,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
         "DauerSEPANew" => dauer_sepa_new_constraints(),
+        "InfoList" => info_list_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
@@ -1146,6 +1147,14 @@ fn acc_info_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.subnumber", "AccInfo2.KTV.subnumber", Some("")),
         HbciJobConstraint::new("all", "AccInfo2.allaccounts", Some("N")),
     ]
+}
+
+fn info_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![HbciJobConstraint::new(
+        "maxentries",
+        "InfoList4.maxentries",
+        Some(""),
+    )]
 }
 
 fn kums_all_constraints() -> Vec<HbciJobConstraint> {
