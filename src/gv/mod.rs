@@ -30,6 +30,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "DauerSEPANew",
     "FestCondList",
     "FestList",
+    "FestListAll",
     "InfoList",
     "InfoOrder",
     "InstUebSEPA",
@@ -507,7 +508,7 @@ impl HbciJob {
             | "SaldoReq" | "SaldoReqAll" | "WPDepotList" | "WPDepotUms" => {
                 self.check_account_crc("my", callback).await
             }
-            "FestList" => self.check_account_crc("my", callback).await,
+            "FestList" | "FestListAll" => self.check_account_crc("my", callback).await,
             "DauerEdit" | "DauerNew" | "TermUeb" | "TermUebEdit" | "Ueb" | "UebBZU" | "UebEil"
             | "Umb" => {
                 self.check_account_crc("src", callback).await?;
@@ -874,6 +875,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerLastSEPANew" => dauer_last_sepa_new_constraints(),
         "FestCondList" => fest_cond_list_constraints(),
         "FestList" => fest_list_constraints(),
+        "FestListAll" => fest_list_all_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
         "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
@@ -2044,6 +2046,16 @@ fn kontoauszug_pdf_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("year", "KontoauszugPdf2.year", Some("")),
         HbciJobConstraint::new("maxentries", "KontoauszugPdf2.maxentries", Some("")),
         HbciJobConstraint::new("offset", "KontoauszugPdf2.offset", Some("")),
+    ]
+}
+
+fn fest_list_all_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.number", "FestList4.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "FestList4.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("my.blz", "FestList4.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.country", "FestList4.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dummy", "FestList4.allaccounts", Some("J")),
     ]
 }
 

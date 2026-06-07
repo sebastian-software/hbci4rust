@@ -1116,7 +1116,7 @@ fn render_job_into_custom_message(
         "DauerLastSEPAList" => render_dauer_last_sepa_list(message, job, index, passport),
         "DauerLastSEPANew" => render_dauer_last_sepa_new(message, job, index, passport),
         "FestCondList" => render_fest_cond_list(message, job, index),
-        "FestList" => render_fest_list(message, job, index, passport),
+        "FestList" | "FestListAll" => render_fest_list(message, job, index, passport),
         "InfoList" => render_info_list(message, job, index),
         "InfoOrder" => render_info_order(message, job, index),
         "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
@@ -1582,7 +1582,7 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "FestCondList3",
             path: "CustomMsg.GV.FestCondList3",
         }),
-        "FestList" => Ok(OrderhashSourceJobInfo {
+        "FestList" | "FestListAll" => Ok(OrderhashSourceJobInfo {
             code: "HKFGB",
             lowlevel_segment: "FestList4",
             path: "CustomMsg.GV.FestList4",
@@ -2156,9 +2156,14 @@ fn render_fest_list(
     }
 
     set_national_account_values(message, &segment, &account)?;
+    let allaccounts_default = if job.name() == "FestListAll" {
+        "J"
+    } else {
+        "N"
+    };
     message.set_value(
         &format!("{segment}.allaccounts"),
-        job_param(job, "FestList4.allaccounts", "dummy").unwrap_or("N"),
+        job_param(job, "FestList4.allaccounts", "dummy").unwrap_or(allaccounts_default),
     )?;
 
     Ok(())
@@ -5370,7 +5375,7 @@ impl ParsedResponseStatus {
             "FestCondList" => self
                 .fest_cond_list_result_for_root(fest_cond_list_response_root(index))
                 .map(HbciJobResultData::FestCondList),
-            "FestList" => self
+            "FestList" | "FestListAll" => self
                 .fest_list_result_for_root(fest_list_response_root(index))
                 .map(HbciJobResultData::FestList),
             "InfoList" => self
@@ -5478,7 +5483,9 @@ impl ParsedResponseStatus {
                 self.content_result_data([dauer_last_sepa_new_response_root(index)])
             }
             "FestCondList" => self.content_result_data([fest_cond_list_response_root(index)]),
-            "FestList" => self.content_result_data([fest_list_response_root(index)]),
+            "FestList" | "FestListAll" => {
+                self.content_result_data([fest_list_response_root(index)])
+            }
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),

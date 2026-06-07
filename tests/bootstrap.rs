@@ -1054,6 +1054,48 @@ fn fest_list_exposes_original_near_constraints() {
 }
 
 #[test]
+fn fest_list_all_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("FestListAll").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 5);
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("account number constraint")
+            .destination_name,
+        "FestList4.KTV.number"
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("bank code constraint")
+            .destination_name,
+        "FestList4.KTV.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("dummy")
+            .expect("all accounts constraint")
+            .destination_name,
+        "FestList4.allaccounts"
+    );
+    assert_eq!(
+        job.constraint("dummy")
+            .expect("all accounts constraint")
+            .default_value
+            .as_deref(),
+        Some("J")
+    );
+    assert_eq!(job.constraint("maxentries"), None);
+
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    assert_eq!(
+        job.lowlevel_param("FestList4.KTV.number"),
+        Some("1234567890")
+    );
+}
+
+#[test]
 fn kontoauszug_pdf_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -11590,6 +11632,50 @@ async fn handler_renders_fest_list_request_like_original() {
 
     assert!(
         body.contains("HKFGB:3:4+1234567890::280:10020030++N'"),
+        "{body}"
+    );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_fest_list_all_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIFGB:3:4+55555::280:10020030+FEST-ID+10000,00:EUR+20240701:20250701:1,234:A:1000,00:EUR:50000,00:EUR:COND1:One year+1234567890::280:10020030+J+2+1+22222::280:10020030+33333::280:10020030+CONDVER1:20240601:120000+123,45:EUR+1+12:11000,00:EUR:2",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut fest_list = handler.new_job("FestListAll").expect("job is in registry");
+    fest_list
+        .try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    fest_list
+        .try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+
+    handler.add_to_queue(fest_list);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "FestListAll");
+    let Some(HbciJobResultData::FestList(fest_list)) = status.job_results[0].result.as_ref() else {
+        panic!("expected shared FestList result data");
+    };
+    assert_eq!(fest_list.entries.len(), 1);
+    assert_eq!(fest_list.entries[0].id.as_deref(), Some("FEST-ID"));
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.FestCond.condid")
+            .map(String::as_str),
+        Some("COND1")
+    );
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains("HKFGB:3:4+1234567890::280:10020030++J'"),
         "{body}"
     );
     assert_signed_custom_msg_request(&body, "0", "1", 5);
