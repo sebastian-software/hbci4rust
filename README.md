@@ -39,6 +39,7 @@ readiness estimate and the Java migration map live in:
 - `docs/architecture/release-checklist.md`
 - `docs/reference/public-api.md`
 - `docs/reference/java-to-rust-mapping.md`
+- `docs/reference/migration-examples.md`
 - `docs/reference/live-bank-tests.md`
 
 ## Development

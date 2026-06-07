@@ -5,7 +5,8 @@ PinTAN/HBCI-Plus port. It is intentionally original-near: Java job names,
 parameter keys, result concepts, and lowlevel protocol helpers stay visible so
 existing hbci4java users can migrate incrementally.
 
-For workflow examples, see `docs/reference/java-to-rust-mapping.md`.
+For workflow examples, see `docs/reference/java-to-rust-mapping.md` and
+`docs/reference/migration-examples.md`.
 
 ## Primary PinTAN Path
 

@@ -102,8 +102,8 @@ Evidence:
   documented.
 - [x] API docs are reviewed for the crate-root exported v1 types.
 - [x] At least one migration example is checked against the current public API.
-- [ ] Per-job migration examples are added for the highest-risk transfer and
-  statement workflows, or explicitly deferred.
+- [x] Per-job migration examples are added for the highest-risk transfer and
+  statement workflows.
 
 Evidence:
 
@@ -111,6 +111,7 @@ Evidence:
 - `src/lib.rs`
 - `docs/reference/public-api.md`
 - `docs/reference/java-to-rust-mapping.md`
+- `docs/reference/migration-examples.md`
 - `tests/public_api.rs`
 - `tests/bootstrap.rs`
 
