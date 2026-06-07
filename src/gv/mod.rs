@@ -694,6 +694,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPADel" => dauer_sepa_del_constraints(),
         "DauerSEPANew" => dauer_sepa_new_constraints(),
         "InfoList" => info_list_constraints(),
+        "InfoOrder" => info_order_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
@@ -1155,6 +1156,30 @@ fn info_list_constraints() -> Vec<HbciJobConstraint> {
         "InfoList4.maxentries",
         Some(""),
     )]
+}
+
+fn info_order_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = vec![
+        HbciJobConstraint::new("code", "InfoDetails4.InfoCodes.code", None::<String>),
+        HbciJobConstraint::new("name", "InfoDetails4.Address.name1", Some("")),
+        HbciJobConstraint::new("name2", "InfoDetails4.Address.name2", Some("")),
+        HbciJobConstraint::new("street", "InfoDetails4.Address.street_pf", Some("")),
+        HbciJobConstraint::new("ort", "InfoDetails4.Address.ort", Some("")),
+        HbciJobConstraint::new("plz", "InfoDetails4.Address.plz_ort", Some("")),
+        HbciJobConstraint::new("plz", "InfoDetails4.Address.plz", Some("")),
+        HbciJobConstraint::new("country", "InfoDetails4.Address.country", Some("")),
+        HbciJobConstraint::new("tel", "InfoDetails4.Address.tel", Some("")),
+        HbciJobConstraint::new("fax", "InfoDetails4.Address.fax", Some("")),
+        HbciJobConstraint::new("email", "InfoDetails4.Address.email", Some("")),
+    ];
+    constraints.extend((2..=10).map(|index| {
+        HbciJobConstraint::new(
+            format!("code_{index}"),
+            format!("InfoDetails4.InfoCodes.code_{index}"),
+            Some(""),
+        )
+    }));
+    constraints
 }
 
 fn kums_all_constraints() -> Vec<HbciJobConstraint> {

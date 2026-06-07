@@ -9,10 +9,10 @@ use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
     GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrInfoList, GvrInfoListInfo,
-    GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList,
-    GvrTermUeb, GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus,
-    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
-    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
+    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
+    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
+    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1053,6 +1053,7 @@ fn render_job_into_custom_message(
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
         "InfoList" => render_info_list(message, job, index),
+        "InfoOrder" => render_info_order(message, job, index),
         "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
@@ -1299,6 +1300,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "InfoList4",
             path: "CustomMsg.GV.InfoList4",
         }),
+        "InfoOrder" => Ok(OrderhashSourceJobInfo {
+            code: "HKINF",
+            lowlevel_segment: "InfoDetails4",
+            path: "CustomMsg.GV.InfoDetails4",
+        }),
         "UebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCCS",
             lowlevel_segment: "UebSEPA1",
@@ -1399,6 +1405,14 @@ fn info_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.InfoListRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.InfoListRes4", index + 1)
+    }
+}
+
+fn info_order_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.InfoDetailsRes4".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.InfoDetailsRes4", index + 1)
     }
 }
 
@@ -1633,6 +1647,61 @@ fn render_info_list(message: &mut HbciMessage, job: &HbciJob, index: usize) -> H
         &format!("{segment}.maxentries"),
         job_param(job, "InfoList4.maxentries", "maxentries"),
     )?;
+
+    Ok(())
+}
+
+fn render_info_order(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.InfoDetails4");
+
+    message.set_value(&segment, "requested")?;
+    message.set_value(
+        &format!("{segment}.InfoCodes.code"),
+        job_param_required(
+            job,
+            "InfoDetails4.InfoCodes.code",
+            "code",
+            "InfoOrder requires code",
+        )?,
+    )?;
+    for index in 2..=10 {
+        set_optional_message_value(
+            message,
+            &format!("{segment}.InfoCodes.code_{index}"),
+            job_param(
+                job,
+                &format!("InfoDetails4.InfoCodes.code_{index}"),
+                &format!("code_{index}"),
+            ),
+        )?;
+    }
+    for (suffix, frontend) in [
+        ("name1", "name"),
+        ("name2", "name2"),
+        ("street_pf", "street"),
+        ("ort", "ort"),
+        ("plz_ort", "plz"),
+        ("plz", "plz"),
+        ("country", "country"),
+        ("tel", "tel"),
+        ("fax", "fax"),
+        ("email", "email"),
+    ] {
+        let path = format!("{segment}.Address.{suffix}");
+        if message.element(&path).is_none() {
+            continue;
+        }
+        set_optional_message_value(
+            message,
+            &path,
+            job_param(job, &format!("InfoDetails4.Address.{suffix}"), frontend),
+        )?;
+    }
 
     Ok(())
 }
@@ -2875,6 +2944,9 @@ impl ParsedResponseStatus {
             "InfoList" => self
                 .info_list_result_for_root(info_list_response_root(index))
                 .map(HbciJobResultData::InfoList),
+            "InfoOrder" => self
+                .info_order_result_for_root(info_order_response_root(index))
+                .map(HbciJobResultData::InfoOrder),
             "InstUebSEPA" => self
                 .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::InstUebSepa),
@@ -2917,6 +2989,7 @@ impl ParsedResponseStatus {
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
+            "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermUebSEPAEdit" => {
@@ -3019,6 +3092,16 @@ impl ParsedResponseStatus {
             .collect();
 
         Some(GvrInfoList { entries })
+    }
+
+    fn info_order_result_for_root(&self, root: String) -> Option<GvrInfoOrder> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        let entries = counted_prefixes(&self.values, &format!("{root}.Info"))
+            .into_iter()
+            .filter_map(|prefix| info_order_info_from_values(&self.values, &prefix))
+            .collect();
+
+        Some(GvrInfoOrder { entries })
     }
 
     fn dauer_edit_result_for_root(&self, root: String) -> Option<GvrDauerEdit> {
@@ -3155,6 +3238,18 @@ fn info_list_info_from_values(
         format: optional_value(values, &format!("{prefix}.format")),
         date: optional_value(values, &format!("{prefix}.version")),
         comments,
+    })
+}
+
+fn info_order_info_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrInfoOrderInfo> {
+    let code = optional_value(values, &format!("{prefix}.code"))?;
+
+    Some(GvrInfoOrderInfo {
+        code: Some(code),
+        message: optional_value(values, &format!("{prefix}.msg")),
     })
 }
 

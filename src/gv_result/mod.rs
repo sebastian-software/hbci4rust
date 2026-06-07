@@ -654,6 +654,7 @@ pub enum HbciJobResultData {
     DauerList(GvrDauerList),
     DauerNew(GvrDauerNew),
     InfoList(GvrInfoList),
+    InfoOrder(GvrInfoOrder),
     InstUebSepa(GvrInstUebSepa),
     TermUeb(GvrTermUeb),
     TermUebEdit(GvrTermUebEdit),
@@ -711,6 +712,17 @@ pub struct GvrInfoListInfo {
     pub format: Option<String>,
     pub date: Option<String>,
     pub comments: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrInfoOrder {
+    pub entries: Vec<GvrInfoOrderInfo>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrInfoOrderInfo {
+    pub code: Option<String>,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

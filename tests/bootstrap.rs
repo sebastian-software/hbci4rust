@@ -549,6 +549,57 @@ fn info_list_exposes_original_near_v4_constraints() {
 }
 
 #[test]
+fn info_order_exposes_original_near_v4_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("InfoOrder").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 20);
+    assert_eq!(
+        job.constraint("code")
+            .expect("base code constraint")
+            .destination_name,
+        "InfoDetails4.InfoCodes.code"
+    );
+    assert_eq!(
+        job.constraint("code")
+            .expect("base code constraint")
+            .default_value
+            .as_deref(),
+        None
+    );
+    assert_eq!(
+        job.constraint("code_2")
+            .expect("second code constraint")
+            .destination_name,
+        "InfoDetails4.InfoCodes.code_2"
+    );
+    assert_eq!(
+        job.constraint("code_10")
+            .expect("tenth code constraint")
+            .destination_name,
+        "InfoDetails4.InfoCodes.code_10"
+    );
+
+    let plz_destinations = job
+        .constraints()
+        .iter()
+        .filter(|constraint| constraint.frontend_name == "plz")
+        .map(|constraint| constraint.destination_name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        plz_destinations,
+        vec!["InfoDetails4.Address.plz_ort", "InfoDetails4.Address.plz"]
+    );
+    assert_eq!(
+        job.constraint("email")
+            .expect("email constraint")
+            .destination_name,
+        "InfoDetails4.Address.email"
+    );
+}
+
+#[test]
 fn dauer_sepa_list_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -6946,6 +6997,99 @@ async fn handler_collects_info_list_result_like_original() {
     assert_eq!(info_list.entries[1].code.as_deref(), Some("THEME"));
     assert_eq!(info_list.entries[1].info_type.as_deref(), Some("T"));
     assert!(info_list.entries[1].comments.is_empty());
+}
+
+#[tokio::test]
+async fn handler_renders_info_order_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut info_order = handler.new_job("InfoOrder").expect("job is in registry");
+    info_order
+        .try_set_param("code", "INFO1")
+        .expect("base code is accepted");
+    info_order
+        .try_set_param("code_2", "INFO2")
+        .expect("second code is accepted");
+    info_order
+        .try_set_param("name", "Max Mustermann")
+        .expect("name is accepted");
+    info_order
+        .try_set_param("street", "Musterstrasse 1")
+        .expect("street is accepted");
+    info_order
+        .try_set_param("plz", "12345")
+        .expect("postal code is accepted");
+    info_order
+        .try_set_param("ort", "Berlin")
+        .expect("city is accepted");
+    info_order
+        .try_set_param("country", "DE")
+        .expect("country is accepted");
+    info_order
+        .try_set_param("email", "max@example.test")
+        .expect("email is accepted");
+
+    handler.add_to_queue(info_order);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "InfoOrder");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains(
+            "HKINF:3:4+INFO1:INFO2+Max Mustermann::Musterstrasse 1:12345:Berlin:280:::max?@example.test'"
+        ),
+        "{body}"
+    );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_collects_info_order_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIINF:3:4+INFO1:Text one+INFO2:Text two",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut job = handler.new_job("InfoOrder").expect("job is in registry");
+    job.try_set_param("code", "INFO1")
+        .expect("base code is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "InfoOrder");
+    assert_eq!(
+        result
+            .result_data
+            .get("content.Info.code")
+            .map(String::as_str),
+        Some("INFO1")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.Info_2.msg")
+            .map(String::as_str),
+        Some("Text two")
+    );
+
+    let Some(HbciJobResultData::InfoOrder(info_order)) = result.result.as_ref() else {
+        panic!("expected InfoOrder result data");
+    };
+    assert_eq!(info_order.entries.len(), 2);
+    assert_eq!(info_order.entries[0].code.as_deref(), Some("INFO1"));
+    assert_eq!(info_order.entries[0].message.as_deref(), Some("Text one"));
+    assert_eq!(info_order.entries[1].code.as_deref(), Some("INFO2"));
+    assert_eq!(info_order.entries[1].message.as_deref(), Some("Text two"));
 }
 
 #[tokio::test]
