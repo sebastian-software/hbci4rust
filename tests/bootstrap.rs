@@ -2077,6 +2077,64 @@ fn passport_one_step_fallback_does_not_persist_tan_method() {
 }
 
 #[test]
+fn passport_reports_pintan_segment_tan_info_like_original_bpd_lookup() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "N".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV2.segcode".to_owned(),
+                "HKKAZ".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV2.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.KUmsZeitPar7.SegHead.code".to_owned(),
+                "HIKAZS".to_owned(),
+            ),
+            (
+                "Params.ExamplePar1.SegHead.code".to_owned(),
+                "HIXYZS".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+
+    assert_eq!(
+        passport.pin_tan_info_for_segment_code("HKSAL").as_deref(),
+        Some("N")
+    );
+    assert_eq!(
+        passport.pin_tan_info_for_segment_code("HKKAZ").as_deref(),
+        Some("J")
+    );
+    assert_eq!(passport.pin_tan_info_for_segment_code("HKXYZ"), None);
+    assert_eq!(
+        passport.pin_tan_info_for_segment_code("HNHBK").as_deref(),
+        Some("A")
+    );
+}
+
+#[test]
+fn passport_returns_no_pintan_segment_tan_info_without_bpd() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+
+    assert_eq!(passport.pin_tan_info_for_segment_code("HNHBK"), None);
+}
+
+#[test]
 fn passport_reports_bank_selection_when_no_user_methods_and_one_step_disallowed() {
     let mut passport = PinTanPassport::new(PinTanPassportData {
         bpd_parameters: pintan_bpd("N", &[("922", "pushTAN"), ("921", "photoTAN")]),

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dialog::KnownReturncode;
 use crate::gv_result::{HbciMsgStatus, Konto, Limit, Value};
-use crate::tools::{ParameterFinder, ParameterQuery, Properties};
+use crate::tools::{ParameterFinder, ParameterQuery, Properties, to_parameter_code};
 
 pub const ONESTEP_TAN_METHOD_ID: &str = "999";
 
@@ -190,6 +190,34 @@ impl PinTanPassport {
         )
         .map(|values| values.values().any(|value| value == "J"))
         .unwrap_or(false)
+    }
+
+    pub fn pin_tan_info_for_segment_code(&self, code: &str) -> Option<String> {
+        if self.data.bpd_parameters.is_empty() {
+            return None;
+        }
+
+        let mut is_gv = false;
+        let param_code = to_parameter_code(Some(code));
+
+        for (key, value) in &self.data.bpd_parameters {
+            if !key.starts_with("Params") {
+                continue;
+            }
+
+            if is_pin_tan_gv_segcode_key(key) {
+                if value == code {
+                    let needtan_key = format!("{}needtan", &key[..key.len() - "segcode".len()]);
+                    return self.data.bpd_parameters.get(&needtan_key).cloned();
+                }
+            } else if key.ends_with(".SegHead.code")
+                && param_code.as_deref() == Some(value.as_str())
+            {
+                is_gv = true;
+            }
+        }
+
+        if is_gv { None } else { Some("A".to_owned()) }
     }
 
     pub fn determine_tan_method(&mut self) -> TanMethodSelection {
@@ -827,6 +855,15 @@ fn split_pipe_values(value: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .collect()
+}
+
+fn is_pin_tan_gv_segcode_key(key: &str) -> bool {
+    key.starts_with("Params")
+        && key
+            .split_once('.')
+            .is_some_and(|(_, tail)| tail.starts_with("PinTanPar"))
+        && key.contains(".ParPinTan.PinTanGV")
+        && key.ends_with(".segcode")
 }
 
 fn tan2step_response_roots(values: &BTreeMap<String, String>, message_prefix: &str) -> Vec<String> {
