@@ -154,6 +154,22 @@ impl PinTanPassport {
         &self.data.bpd_parameters
     }
 
+    pub fn persistent_data(&self) -> &BTreeMap<String, Properties> {
+        &self.data.persistent_data
+    }
+
+    pub fn get_persistent_data(&self, key: &str) -> Option<&Properties> {
+        self.data.persistent_data.get(key)
+    }
+
+    pub fn set_persistent_data(&mut self, key: impl Into<String>, data: Properties) {
+        self.data.persistent_data.insert(key.into(), data);
+    }
+
+    pub fn remove_persistent_data(&mut self, key: &str) -> Option<Properties> {
+        self.data.persistent_data.remove(key)
+    }
+
     pub fn twostep_mechanisms(&self) -> &BTreeMap<String, Properties> {
         &self.data.twostep_mechanisms
     }
@@ -724,6 +740,8 @@ pub struct PinTanPassportData {
     pub twostep_mechanisms: BTreeMap<String, Properties>,
     #[serde(default)]
     pub allowed_twostep_mechanisms: Vec<String>,
+    #[serde(default)]
+    pub persistent_data: BTreeMap<String, Properties>,
 }
 
 fn fill_from_account(account: &mut Konto, source: &Konto) {

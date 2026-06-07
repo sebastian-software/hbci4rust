@@ -1,3 +1,4 @@
+use hbci4rust::tools::Properties;
 use hbci4rust::{HbciErrorKind, PinTanPassport, PinTanPassportData, UserSig};
 
 #[test]
@@ -65,4 +66,32 @@ fn pintan_passport_caches_and_clears_runtime_pin() {
 
     passport.clear_pin();
     assert_eq!(passport.pin(), None);
+}
+
+#[test]
+fn pintan_passport_stores_rust_native_persistent_data() {
+    let mut passport = PinTanPassport::new(PinTanPassportData::default());
+    let data = Properties::from([
+        ("DauerDetails.firstdate".to_owned(), "2025-11-01".to_owned()),
+        ("sepapain".to_owned(), "<Document/>".to_owned()),
+    ]);
+
+    passport.set_persistent_data("dauer_ORDER123", data.clone());
+
+    assert_eq!(
+        passport
+            .get_persistent_data("dauer_ORDER123")
+            .and_then(|data| data.get("DauerDetails.firstdate"))
+            .map(String::as_str),
+        Some("2025-11-01")
+    );
+    assert_eq!(
+        passport.persistent_data().get("dauer_ORDER123"),
+        Some(&data)
+    );
+    assert_eq!(
+        passport.remove_persistent_data("dauer_ORDER123"),
+        Some(data)
+    );
+    assert!(passport.get_persistent_data("dauer_ORDER123").is_none());
 }

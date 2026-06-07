@@ -396,6 +396,7 @@ where
             })
             .collect::<Vec<_>>();
         update_passport_tan_media_names_from_results(&mut self.passport, &results);
+        update_passport_dauer_persistent_data_from_results(&mut self.passport, &results);
         let success =
             http_success && response_status.global_is_ok() && results.iter().all(|job| job.success);
 
@@ -2406,6 +2407,45 @@ fn update_passport_tan_media_names_from_results(
             passport.set_tan_media_names(names);
         }
     }
+}
+
+fn update_passport_dauer_persistent_data_from_results(
+    passport: &mut PinTanPassport,
+    results: &[HbciJobResult],
+) {
+    for result in results {
+        if result.job_name != "DauerSEPAList" {
+            continue;
+        }
+        let Some(order_id) = result
+            .result_data
+            .get("content.orderid")
+            .filter(|order_id| !order_id.is_empty())
+        else {
+            continue;
+        };
+        let snapshot = dauer_persistent_snapshot(&result.result_data);
+        if !snapshot.is_empty() {
+            passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+        }
+    }
+}
+
+fn dauer_persistent_snapshot(result_data: &BTreeMap<String, String>) -> Properties {
+    let mut snapshot = Properties::new();
+    let prefix = "content.";
+
+    for (key, value) in result_data {
+        let Some(suffix) = key.strip_prefix(prefix) else {
+            continue;
+        };
+        if suffix.starts_with("SegHead.") || suffix == "orderid" || suffix.ends_with(".orderid") {
+            continue;
+        }
+        snapshot.insert(suffix.to_owned(), value.clone());
+    }
+
+    snapshot
 }
 
 fn update_passport_accounts_from_sepa_info(

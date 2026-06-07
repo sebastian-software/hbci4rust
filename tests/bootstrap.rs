@@ -1949,6 +1949,10 @@ fn rust_native_passport_storage_roundtrips() {
         )]),
         twostep_mechanisms: BTreeMap::new(),
         allowed_twostep_mechanisms: vec!["921".to_owned(), "922".to_owned()],
+        persistent_data: BTreeMap::from([(
+            "dauer_ORDER123".to_owned(),
+            BTreeMap::from([("DauerDetails.firstdate".to_owned(), "2025-11-01".to_owned())]),
+        )]),
     };
 
     let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
@@ -3310,6 +3314,23 @@ async fn handler_renders_and_collects_dauer_sepa_list_envelope_like_original() {
             .map(|value| value.value.as_str()),
         Some("2.00")
     );
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("dauer_ORDER123")
+        .expect("dauer persistent data");
+    assert_eq!(
+        snapshot.get("DauerDetails.firstdate").map(String::as_str),
+        Some("2025-11-01")
+    );
+    assert_eq!(snapshot.get("sepapain").map(String::as_str), Some(pain));
+    assert_eq!(
+        snapshot
+            .get("Aussetzung.newvalue.value")
+            .map(String::as_str),
+        Some("2.00")
+    );
+    assert!(!snapshot.contains_key("orderid"));
+    assert!(!snapshot.keys().any(|key| key.starts_with("SegHead.")));
 
     let requests = replay.requests().expect("requests");
     assert_eq!(requests.len(), 1);
