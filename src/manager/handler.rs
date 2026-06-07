@@ -1074,6 +1074,7 @@ fn render_job_into_custom_message(
         "TermUebSEPAList" => render_term_ueb_sepa_list(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
+        "VoPAuth" => render_vop_auth(message, job, index),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
@@ -1357,6 +1358,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKTAZ",
             lowlevel_segment: "TANListList1",
             path: "CustomMsg.GV.TANListList1",
+        }),
+        "VoPAuth" => Ok(OrderhashSourceJobInfo {
+            code: "HKVPA",
+            lowlevel_segment: "VoPAuth1",
+            path: "CustomMsg.GV.VoPAuth1",
         }),
         "SaldoReq" | "SaldoReqAll" => Ok(OrderhashSourceJobInfo {
             code: "HKSAL",
@@ -1754,6 +1760,19 @@ fn render_tan_list(message: &mut HbciMessage, index: usize) -> HbciResult<()> {
         format!("CustomMsg.GV_{}", index + 1)
     };
     message.set_value(&format!("{root}.TANListList1"), "requested")
+}
+
+fn render_vop_auth(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.VoPAuth1");
+    let vopid = job_param_required(job, "VoPAuth1.vopid", "vopid", "VoPAuth requires vopid")?;
+
+    message.set_value(&segment, "requested")?;
+    message.set_value(&format!("{segment}.vopid"), sepa_binary_value(vopid))
 }
 
 fn render_acc_info(

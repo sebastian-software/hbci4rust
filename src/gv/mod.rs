@@ -605,6 +605,10 @@ impl HbciJob {
             return format!("B{value}");
         }
 
+        if self.name == "VoPAuth" && frontend_name == "vopid" {
+            return binary_lowlevel_value(value);
+        }
+
         value.to_owned()
     }
 
@@ -677,6 +681,14 @@ fn status_jobid_date(value: &str) -> HbciResult<String> {
     }
 
     normalize_iso_date(&format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]))
+}
+
+fn binary_lowlevel_value(value: &str) -> String {
+    if value.starts_with('B') || value.starts_with('N') {
+        value.to_owned()
+    } else {
+        format!("B{value}")
+    }
 }
 
 fn indexed_destination_name(destination: &str, index: usize) -> String {
@@ -759,6 +771,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TANList" => Vec::new(),
         "TANMediaList" => tan_media_list_constraints(),
         "TAN2Step" => tan2step_constraints(),
+        "VoPAuth" => vop_auth_constraints(),
         _ => Vec::new(),
     }
 }
@@ -1339,6 +1352,14 @@ fn tan_media_list_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("mediatype", "TANMediaList4.mediatype", Some("0")),
         HbciJobConstraint::new("mediacategory", "TANMediaList4.mediacategory", Some("A")),
     ]
+}
+
+fn vop_auth_constraints() -> Vec<HbciJobConstraint> {
+    vec![HbciJobConstraint::new(
+        "vopid",
+        "VoPAuth1.vopid",
+        None::<String>,
+    )]
 }
 
 fn tan2step_constraints() -> Vec<HbciJobConstraint> {

@@ -658,6 +658,33 @@ fn tan_list_exposes_original_near_empty_constraints() {
 }
 
 #[test]
+fn vop_auth_exposes_original_near_constraints_and_binary_vopid() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("VoPAuth").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 1);
+    assert_eq!(
+        job.constraint("vopid")
+            .expect("vopid constraint")
+            .destination_name,
+        "VoPAuth1.vopid"
+    );
+    assert_eq!(
+        job.constraint("vopid")
+            .expect("vopid constraint")
+            .default_value
+            .as_deref(),
+        None
+    );
+
+    job.try_set_param("vopid", "VOP-ID-1")
+        .expect("vopid is accepted");
+    assert_eq!(job.param("vopid"), Some("VOP-ID-1"));
+    assert_eq!(job.lowlevel_param("VoPAuth1.vopid"), Some("BVOP-ID-1"));
+}
+
+#[test]
 fn dauer_sepa_list_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -7332,6 +7359,30 @@ async fn handler_collects_tan_list_result_like_original() {
     assert_eq!(tan_list.lists[1].status.as_deref(), Some("N"));
     assert_eq!(tan_list.lists[1].number.as_deref(), Some("LIST-2"));
     assert!(tan_list.lists[1].tan_infos.is_empty());
+}
+
+#[tokio::test]
+async fn handler_renders_vop_auth_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut vop_auth = handler.new_job("VoPAuth").expect("job is in registry");
+    vop_auth
+        .try_set_param("vopid", "VOP-ID-1")
+        .expect("vopid is accepted");
+
+    handler.add_to_queue(vop_auth);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "VoPAuth");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKVPA:3:1+@8@VOP-ID-1'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 
 #[tokio::test]
