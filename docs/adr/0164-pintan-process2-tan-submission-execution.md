@@ -48,5 +48,7 @@ Open follow-up work:
 
 - define result aggregation for automatic multi-message execution;
 - failed `process=2` submissions keep SCA state per ADR 0239;
+- transport errors during `process=2` submission keep queued retry state per
+  ADR 0240;
 - support process variant 1 automatic execution once the multi-message runner exists;
 - cover decoupled process `S` status polling separately.

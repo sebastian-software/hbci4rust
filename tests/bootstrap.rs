@@ -11627,6 +11627,131 @@ async fn handler_preserves_sca_state_after_failed_process2_tan_submission() {
 }
 
 #[tokio::test]
+async fn handler_preserves_process2_submission_after_transport_error() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.name".to_owned(),
+                "pushTAN".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.inputinfo".to_owned(),
+                "Bitte bestaetigen".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HITAN:3:5+1++ORDER-REF-NETWORK+Bitte geben Sie die TAN ein+@5@HHDUC",
+        ])),
+        Err(hbci4rust::HbciError::new(
+            hbci4rust::HbciErrorKind::Network,
+            "replay transport failure",
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    handler
+        .try_add_to_queue_with_initial_tan_job(saldo)
+        .expect("task and first HKTAN queue");
+    let first_status = handler.execute().await.expect("first replay response");
+    assert!(first_status.success);
+    assert_eq!(handler.dialog_context().message_number, 2);
+
+    let err = handler
+        .execute_tan2step_process2_submission()
+        .await
+        .expect_err("transport error is returned");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Network);
+    assert_eq!(err.message(), "replay transport failure");
+    assert_eq!(handler.dialog_context().message_number, 2);
+    assert_eq!(handler.queued_jobs().len(), 1);
+    assert_eq!(handler.queued_jobs()[0].name(), "TAN2Step");
+    assert_eq!(handler.queued_jobs()[0].param("process"), Some("2"));
+    assert_eq!(
+        handler.queued_jobs()[0].param("orderref"),
+        Some("ORDER-REF-NETWORK")
+    );
+    assert_eq!(
+        handler.passport().sca_state().order_ref.as_deref(),
+        Some("ORDER-REF-NETWORK")
+    );
+    assert_eq!(
+        handler.passport().sca_state().challenge.as_deref(),
+        Some("Bitte geben Sie die TAN ein")
+    );
+    assert_eq!(
+        handler.passport().sca_state().hhd_uc.as_deref(),
+        Some("HHDUC")
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 2);
+    let second_body = String::from_utf8(requests[1].body.clone()).expect("second body is text");
+    assert!(fints_segment(&second_body, "HKTAN").starts_with("HKTAN:3:5+2"));
+    assert!(
+        fints_segment(&second_body, "HKTAN").contains("ORDER-REF-NETWORK"),
+        "{second_body}"
+    );
+    assert_eq!(
+        fints_segment(&second_body, "HNSHA")
+            .split('+')
+            .collect::<Vec<_>>()
+            .get(3)
+            .copied(),
+        Some("12345:987654")
+    );
+    assert_eq!(
+        events
+            .lock()
+            .expect("callback event lock")
+            .iter()
+            .filter(|event| event.reason == CallbackReason::NeedPtTan)
+            .count(),
+        1
+    );
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
 async fn handler_executes_process2_flow_automatically_and_merges_status() {
     let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
     done().expect("runtime reset");
