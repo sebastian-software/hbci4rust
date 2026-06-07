@@ -3211,6 +3211,106 @@ fn handler_prepares_process1_hktan_uses_noref_for_required_tan_media_without_val
 }
 
 #[tokio::test]
+async fn handler_prepares_process2_step1_hktan_next_to_original_task() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media: Some("push-app".to_owned()),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_process2_step1_job(&saldo)
+        .expect("process-2 step-1 HKTAN prepares");
+
+    assert_eq!(hktan.name(), "TAN2Step");
+    assert_eq!(hktan.param("process"), Some("4"));
+    assert_eq!(hktan.param("ordersegcode"), Some("HKSAL"));
+    assert_eq!(hktan.param("tanmedia"), Some("push-app"));
+    assert_eq!(hktan.param("orderhash"), None);
+    assert_eq!(hktan.param("orderref"), None);
+    assert_eq!(hktan.param("notlasttan"), None);
+
+    handler.add_to_queue(saldo);
+    handler
+        .try_add_to_queue(hktan)
+        .expect("prepared HKTAN verifies and queues");
+    let status = handler.execute().await.expect("replay response");
+    assert!(status.success);
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 6);
+    assert!(body.contains("HKSAL:3:7+DE02123456780000000000+N'"));
+
+    let hktan_segment = fints_segment(&body, "HKTAN");
+    let fields = hktan_segment.split('+').collect::<Vec<_>>();
+    assert_eq!(fields.get(1).copied(), Some("4"));
+    assert_eq!(fields.get(2).copied(), Some("HKSAL"));
+    assert_eq!(fields.last().copied(), Some("push-app"));
+    assert!(!hktan_segment.contains("@20@"), "{hktan_segment}");
+}
+
+#[tokio::test]
+async fn handler_prepares_process2_step1_hktan_asks_callback_for_required_tan_media() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(TanMediaSelectingCallback {
+            events: events.clone(),
+            selection: Some("mobiletan".to_owned()),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media_names: vec!["mobiletan".to_owned()],
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.needtanmedia".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+    let mut handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_process2_step1_job_with_tan_media_selection(&saldo)
+        .await
+        .expect("process-2 step-1 HKTAN prepares");
+
+    assert_eq!(hktan.param("process"), Some("4"));
+    assert_eq!(hktan.param("ordersegcode"), Some("HKSAL"));
+    assert_eq!(hktan.param("tanmedia"), Some("mobiletan"));
+    assert_eq!(handler.passport().tan_media(), Some("mobiletan"));
+    let events = events.lock().expect("callback event lock");
+    assert!(
+        events
+            .iter()
+            .any(|event| event.reason == CallbackReason::NeedPtTanMedia)
+    );
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
 async fn handler_prepares_process2_hktan_from_stored_hitan_orderref() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[

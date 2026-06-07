@@ -111,6 +111,20 @@ where
         )
     }
 
+    pub fn new_tan2step_process2_step1_job(&self, task: &HbciJob) -> HbciResult<HbciJob> {
+        let tan_media = self.passport.tan_media_for_hktan_without_callback();
+        new_tan2step_process2_step1_job(&self.registry, task, tan_media.as_deref())
+    }
+
+    pub async fn new_tan2step_process2_step1_job_with_tan_media_selection(
+        &mut self,
+        task: &HbciJob,
+    ) -> HbciResult<HbciJob> {
+        let callback = super::callback();
+        let tan_media = choose_tan_media_if_needed(&mut self.passport, callback.as_deref()).await?;
+        new_tan2step_process2_step1_job(&self.registry, task, tan_media.as_deref())
+    }
+
     pub fn new_tan2step_process2_job(&self) -> HbciResult<HbciJob> {
         new_tan2step_process2_job(&self.registry, &self.passport)
     }
@@ -804,6 +818,23 @@ fn new_tan2step_process1_job(
     }
 
     apply_challenge_params_if_needed(&mut hktan, task_info.code, task, &secmech, challenge_info)?;
+
+    Ok(hktan)
+}
+
+fn new_tan2step_process2_step1_job(
+    registry: &JobRegistry,
+    task: &HbciJob,
+    tan_media: Option<&str>,
+) -> HbciResult<HbciJob> {
+    let task_info = orderhash_source_job_info(task.name())?;
+    let mut hktan = registry.new_job("TAN2Step")?;
+    hktan.try_set_param("process", "4")?;
+    hktan.try_set_param("ordersegcode", task_info.code)?;
+
+    if let Some(tan_media) = tan_media.filter(|value| !value.is_empty()) {
+        hktan.try_set_param("tanmedia", tan_media)?;
+    }
 
     Ok(hktan)
 }
