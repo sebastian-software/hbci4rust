@@ -326,6 +326,16 @@ impl HbciJob {
         &self.lowlevel_params
     }
 
+    pub(crate) fn set_lowlevel_param_if_absent(
+        &mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) {
+        self.lowlevel_params
+            .entry(name.into())
+            .or_insert_with(|| value.into());
+    }
+
     pub fn constraints(&self) -> &[HbciJobConstraint] {
         &self.constraints
     }
@@ -445,7 +455,7 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
-            "TermUeb" | "Ueb" | "UebBZU" | "UebEil" | "Umb" => {
+            "TermUeb" | "TermUebEdit" | "Ueb" | "UebBZU" | "UebEil" | "Umb" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -805,6 +815,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
         "TermUeb" => term_ueb_constraints(),
         "TermUebDel" => term_ueb_del_constraints(),
+        "TermUebEdit" => term_ueb_edit_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
@@ -930,6 +941,34 @@ fn term_ueb_del_constraints() -> Vec<HbciJobConstraint> {
         "TermUebDel3.id",
         None::<String>,
     )]
+}
+
+fn term_ueb_edit_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = vec![
+        HbciJobConstraint::new("src.country", "TermUebEdit4.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("src.blz", "TermUebEdit4.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.number", "TermUebEdit4.My.number", None::<String>),
+        HbciJobConstraint::new("src.subnumber", "TermUebEdit4.My.subnumber", Some("")),
+        HbciJobConstraint::new("dst.country", "TermUebEdit4.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dst.blz", "TermUebEdit4.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new("dst.number", "TermUebEdit4.Other.number", Some("")),
+        HbciJobConstraint::new("dst.subnumber", "TermUebEdit4.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "TermUebEdit4.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "TermUebEdit4.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "TermUebEdit4.name", None::<String>),
+        HbciJobConstraint::new("date", "TermUebEdit4.date", None::<String>),
+        HbciJobConstraint::new("orderid", "TermUebEdit4.id", None::<String>),
+        HbciJobConstraint::new("name2", "TermUebEdit4.name2", Some("")),
+        HbciJobConstraint::new("key", "TermUebEdit4.key", Some("51")),
+    ];
+
+    for index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let frontend = classic_usage_name(index);
+        let destination = format!("TermUebEdit4.usage.{frontend}");
+        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
+    }
+
+    constraints
 }
 
 fn classic_usage_name(index: usize) -> String {
