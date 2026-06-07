@@ -58,6 +58,9 @@ Out:
 - `docs/reference/security-media-scope.md` records the local audit evidence and
   current bank/provider source snapshot behind the PinTAN-only security-media
   boundary.
+- `docs/reference/modern-scope-audit.md` records which currently ported
+  hbci4java-compatible jobs are modern v1 surface versus compatibility-carried
+  legacy surface.
 - `docs/reference/parser-generator-goldens.md` records current parser/generator
   golden fixture coverage and explicit v1 limitations.
 - `docs/reference/malformed-bank-responses.md` records deterministic coverage

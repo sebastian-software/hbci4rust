@@ -46,6 +46,10 @@ only persisted passport format is the Rust-native PinTAN envelope documented in
 The current market/source evidence for this boundary is recorded in
 `docs/reference/security-media-scope.md`.
 
+Some historical payment jobs are still present for original-near compatibility.
+They are tracked separately in `docs/reference/modern-scope-audit.md`; their
+presence does not change the unsupported security-media boundary.
+
 ## Dynamic Lowlevel Boundary
 
 The public v1 job surface is a static PinTAN-compatible registry. It does not
@@ -136,6 +140,7 @@ Before any unsupported surface above becomes part of the public API:
 - `docs/reference/live-bank-tests.md`
 - `docs/reference/malformed-bank-responses.md`
 - `docs/reference/passport-storage-security.md`
+- `docs/reference/modern-scope-audit.md`
 - `docs/reference/security-media-scope.md`
 - ADR 0003: V1 PinTAN Scope
 - ADR 0232: CustomMsg Job And Template Boundary
@@ -148,3 +153,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0257: Live Smoke Observation Boundary
 - ADR 0258: Baseline And Scope Change Guard
 - ADR 0261: Security Media Scope Evidence
+- ADR 0262: Non-Legacy Publication Scope

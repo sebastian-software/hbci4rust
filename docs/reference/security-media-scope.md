@@ -2,9 +2,9 @@
 
 Snapshot date: 2026-06-07.
 
-This note explains why the scoped v1 port stays focused on FinTS PinTAN /
-HBCI-Plus and does not implement hbci4java's classic chipcard, PCSC, CTAPI,
-DDV, RDH, RAH, RSA key-file live support, or Java passport import paths.
+This note explains why the scoped v1 port is a non-legacy FinTS PinTAN /
+HBCI-Plus port and does not implement hbci4java's classic chipcard, PCSC,
+CTAPI, DDV, RDH, RAH, RSA key-file live support, or Java passport import paths.
 
 It is not an argument that those paths never matter. It is an argument that they
 are not the current v1 acceptance gap.
@@ -61,8 +61,8 @@ The following sources were checked for the v1 scope decision.
 
 The current evidence supports a pragmatic v1 boundary:
 
-- PinTAN/HBCI-Plus remains the best-supported path for a useful consumer-bank
-  and small-business Rust port.
+- PinTAN/HBCI-Plus remains the best-supported path for a useful modern
+  consumer-bank and small-business Rust port.
 - chipTAN, QR-TAN, photoTAN, decoupled app approval, and TAN media metadata are
   in scope as PinTAN/SCA mechanisms.
 - HBCI signature cards are still part of the broader FinTS ecosystem, especially
@@ -73,6 +73,8 @@ The current evidence supports a pragmatic v1 boundary:
   signing, Java passport compatibility questions, and PSD2-era uncertainty.
 - The current port should document these surfaces as future scope candidates,
   not unfinished release blockers.
+- The project does not currently plan to add those historical security media;
+  future support would require a new ADR and a deliberate scope expansion.
 
 ## Source Links
 

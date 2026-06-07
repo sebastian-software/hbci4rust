@@ -44,16 +44,22 @@ The scoped v1 PinTAN/HBCI-Plus port is release-candidate complete against
 are resolved**.
 
 This means the selected v1 surface is covered, not that every historical
-hbci4java feature is ported. The current source-surface audits show:
+hbci4java feature is strategic or recommended. The current source-surface audits
+show:
 
 | Audit | Upstream surface | Rust v1 coverage | Intentional gap |
 | --- | --- | --- | --- |
 | Jobs | 68 `GV*.java` classes | 67 registered jobs | `GVTemplate` |
 | Results | 24 normalized `GVR*.java` shapes | 23 typed result shapes | `WPStammData` |
 
-Both gaps are lowlevel boundaries. `GVTemplate` is Java's dynamic
+Both audit gaps are lowlevel boundaries. `GVTemplate` is Java's dynamic
 `newLowlevelJob(...)` fallback, and `WPStammData` is tied to the lowlevel
 `WPStammList` path. They are not hidden PinTAN implementation holes.
+
+Some classic hbci4java payment jobs are currently still present for
+original-near compatibility, but they are not the product direction. See
+`docs/reference/modern-scope-audit.md` for the current split between modern v1
+surface, compatibility-carried legacy surface, and unsupported legacy surface.
 
 ## What V1 Includes
 
@@ -88,18 +94,32 @@ These hbci4java surfaces are deliberately outside v1:
 surface means classic HBCI signature-card support with card readers and
 signature media, not a TAN generated from a debit card plus TAN generator.
 
-## Why PinTAN First
+## Non-Legacy Scope
 
 The scope is based on both local port evidence and current external source
-checks. Current bank/provider documentation supports PinTAN/HBCI-Plus as the
-most useful first release path: Deutsche Bank, comdirect, ING, DKB, and
-Consorsbank document FinTS/HBCI-Plus or PIN/TAN-style access, while Sparkasse
-still describes classic HBCI chipcard as secure but laborious and not
-recommended for today's banking. REINER SCT's key-file note also records the
-PSD2-era problem with copyable RDH-10 key files.
+checks. This is not a "PinTAN first, legacy later" roadmap. The intended
+publication stance is a useful modern FinTS PinTAN/HBCI-Plus port without
+strategic support for historical security media or national pre-SEPA payment
+rails.
+
+Current evidence supports that stance:
+
+- FinTS still includes signature-card and TAN-based paths, but banks commonly
+  document PIN/TAN, app approval, photoTAN, BestSign, SecurePlus, pushTAN,
+  chipTAN, or other SCA flows for current financial-software access.
+- Sparkasse still explains classic HBCI chipcard as secure but laborious and
+  says it is not recommended today.
+- Bundesbank SEPA documentation records that national credit transfer and
+  direct-debit schemes were replaced by SEPA, with German transition allowances
+  ending in 2016.
+- EPC guidance says the SEPA `COR1` local instrument is no longer relevant for
+  new SDD Core collections from 20 November 2016.
+- EU/ECB instant-payment guidance makes `InstUebSEPA` and verification-style
+  work more relevant than classic domestic transfer variants.
 
 The detailed evidence and source links live in
-`docs/reference/security-media-scope.md`.
+`docs/reference/security-media-scope.md` and
+`docs/reference/modern-scope-audit.md`.
 
 ## Documentation Map
 
@@ -115,6 +135,8 @@ The detailed evidence and source links live in
 - `docs/reference/java-to-rust-mapping.md`: Java concept to Rust API mapping.
 - `docs/reference/migration-examples.md`: checked high-risk workflow examples.
 - `docs/reference/security-media-scope.md`: PinTAN-only scope evidence.
+- `docs/reference/modern-scope-audit.md`: modern versus legacy-carried surface
+  audit.
 - `docs/reference/unsupported-surfaces.md`: public v1 boundaries.
 - `docs/reference/passport-storage-security.md`: storage security review.
 - `docs/reference/packaging.md`: crate metadata and package review.
