@@ -655,6 +655,7 @@ pub enum HbciJobResultData {
     DauerNew(GvrDauerNew),
     TermUeb(GvrTermUeb),
     TermUebEdit(GvrTermUebEdit),
+    TermUebList(GvrTermUebList),
     SaldoReq(GvrSaldoReq),
     KUms(GvrKUms),
     TanMediaList(GvrTanMediaList),
@@ -755,6 +756,27 @@ pub struct GvrTermUeb {
 pub struct GvrTermUebEdit {
     pub order_id: Option<String>,
     pub order_id_old: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTermUebList {
+    pub entries: Vec<GvrTermUebListEntry>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTermUebListEntry {
+    pub my: Konto,
+    pub other: Konto,
+    pub value: Option<Value>,
+    pub key: Option<String>,
+    pub addkey: Option<String>,
+    pub usage: Vec<String>,
+    pub date: Option<String>,
+    pub orderid: Option<String>,
+    pub can_change: bool,
+    pub can_delete: bool,
+    pub sepadescr: Option<String>,
+    pub sepapain_raw: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

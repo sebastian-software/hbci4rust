@@ -9,9 +9,9 @@ use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
     GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, HbciDialogStatus, HbciExecStatus,
-    HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus,
-    Konto, Saldo, Value,
+    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
+    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
+    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1062,6 +1062,7 @@ fn render_job_into_custom_message(
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
         "TermUebSEPADel" => render_term_ueb_sepa_del(message, job, index, passport),
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
+        "TermUebSEPAList" => render_term_ueb_sepa_list(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
@@ -1277,6 +1278,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "TermUebSEPAEdit1",
             path: "CustomMsg.GV.TermUebSEPAEdit1",
         }),
+        "TermUebSEPAList" => Ok(OrderhashSourceJobInfo {
+            code: "HKCSB",
+            lowlevel_segment: "TermUebSEPAList1",
+            path: "CustomMsg.GV.TermUebSEPAList1",
+        }),
         "UebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCCS",
             lowlevel_segment: "UebSEPA1",
@@ -1402,6 +1408,14 @@ fn term_ueb_sepa_edit_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TermUebSEPAEditRes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermUebSEPAEditRes1", index + 1)
+    }
+}
+
+fn term_ueb_sepa_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.TermUebSEPAListRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.TermUebSEPAListRes1", index + 1)
     }
 }
 
@@ -1573,6 +1587,51 @@ fn render_dauer_sepa_list(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "DauerSEPAList2.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_term_ueb_sepa_list(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.TermUebSEPAList1");
+    let account = term_ueb_sepa_list_account(job, passport);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "TermUebSEPAList requires my.iban, src.iban, my.number, or a passport account for the current TermUebSEPAList1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "TermUebSEPAList1.sepadescr", "_sepadescriptor")
+            .unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.startdate"),
+        job_param(job, "TermUebSEPAList1.startdate", "startdate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.enddate"),
+        job_param(job, "TermUebSEPAList1.enddate", "enddate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "TermUebSEPAList1.maxentries", "maxentries"),
     )?;
 
     Ok(())
@@ -2206,6 +2265,43 @@ fn dauer_sepa_list_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
     account
 }
 
+fn term_ueb_sepa_list_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
+    let mut account = passport.first_account().cloned().unwrap_or_default();
+
+    overlay_account_param(
+        &mut account.iban,
+        job.lowlevel_param("TermUebSEPAList1.My.iban")
+            .or_else(|| job.param("my.iban"))
+            .or_else(|| job.param("src.iban"))
+            .filter(|value| !value.is_empty()),
+    );
+    overlay_account_param(
+        &mut account.bic,
+        job.lowlevel_param("TermUebSEPAList1.My.bic")
+            .or_else(|| job.param("my.bic"))
+            .or_else(|| job.param("src.bic"))
+            .filter(|value| !value.is_empty()),
+    );
+    overlay_account_param(
+        &mut account.country,
+        job_param(job, "TermUebSEPAList1.My.KIK.country", "my.country"),
+    );
+    overlay_account_param(
+        &mut account.blz,
+        job_param(job, "TermUebSEPAList1.My.KIK.blz", "my.blz"),
+    );
+    overlay_account_param(
+        &mut account.number,
+        job_param(job, "TermUebSEPAList1.My.number", "my.number"),
+    );
+    overlay_account_param(
+        &mut account.subnumber,
+        job_param(job, "TermUebSEPAList1.My.subnumber", "my.subnumber"),
+    );
+
+    account
+}
+
 fn standing_order_sepa_account(
     job: &HbciJob,
     passport: &PinTanPassport,
@@ -2576,6 +2672,9 @@ impl ParsedResponseStatus {
             "TermUebSEPAEdit" => self
                 .term_ueb_edit_result_for_root(term_ueb_sepa_edit_response_root(index))
                 .map(HbciJobResultData::TermUebEdit),
+            "TermUebSEPAList" => self
+                .term_ueb_list_result_for_root(term_ueb_sepa_list_response_root(index))
+                .map(HbciJobResultData::TermUebList),
             "SaldoReq" => self
                 .saldo_result_for_index(index, passport)
                 .map(HbciJobResultData::SaldoReq),
@@ -2605,6 +2704,9 @@ impl ParsedResponseStatus {
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermUebSEPAEdit" => {
                 self.content_result_data([term_ueb_sepa_edit_response_root(index)])
+            }
+            "TermUebSEPAList" => {
+                self.content_result_data([term_ueb_sepa_list_response_root(index)])
             }
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
             "KUmsAllCamt" => {
@@ -2709,6 +2811,13 @@ impl ParsedResponseStatus {
         Some(GvrTermUebEdit {
             order_id: optional_value(&self.values, &format!("{root}.orderid")),
             order_id_old: optional_value(&self.values, &format!("{root}.orderidold")),
+        })
+    }
+
+    fn term_ueb_list_result_for_root(&self, root: String) -> Option<GvrTermUebList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrTermUebList {
+            entries: vec![term_ueb_list_entry_from_values(&self.values, &root)],
         })
     }
 
@@ -2904,6 +3013,42 @@ fn dauer_list_entry_from_values(
     }
 }
 
+fn term_ueb_list_entry_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> GvrTermUebListEntry {
+    let sepapain_raw = optional_value(values, &format!("{prefix}.sepapain"));
+    let pain_transfer = sepapain_raw
+        .as_deref()
+        .and_then(|pain| parse_pain_001_transfers(pain).ok())
+        .and_then(|transfers| transfers.into_iter().next());
+
+    GvrTermUebListEntry {
+        my: ktv_int_account_from_values(values, &format!("{prefix}.My")),
+        other: pain_transfer
+            .as_ref()
+            .map(|transfer| transfer.destination.clone())
+            .unwrap_or_default(),
+        value: pain_transfer
+            .as_ref()
+            .and_then(|transfer| transfer.value.clone()),
+        key: None,
+        addkey: None,
+        usage: pain_transfer
+            .as_ref()
+            .map(|transfer| transfer.usage.clone())
+            .unwrap_or_default(),
+        date: pain_transfer
+            .as_ref()
+            .and_then(|transfer| transfer.execution_date.clone()),
+        orderid: optional_value(values, &format!("{prefix}.orderid")),
+        can_change: optional_jn(values, &format!("{prefix}.canchange")).unwrap_or(true),
+        can_delete: optional_jn(values, &format!("{prefix}.candel")).unwrap_or(true),
+        sepadescr: optional_value(values, &format!("{prefix}.sepadescr")),
+        sepapain_raw,
+    }
+}
+
 fn ktv_int_account_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Konto {
     Konto {
         iban: optional_value(values, &format!("{prefix}.iban")),
@@ -3030,6 +3175,19 @@ fn update_passport_job_persistent_data_from_results(
                 };
                 let snapshot =
                     dauer_sepa_request_persistent_snapshot(job, passport, "TermUebSEPAEdit1");
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
+                }
+            }
+            "TermUebSEPAList" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot = dauer_persistent_snapshot(&result.result_data);
                 if !snapshot.is_empty() {
                     passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
                 }

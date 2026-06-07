@@ -694,6 +694,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
+        "TermUebSEPAList" => term_ueb_sepa_list_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
         "KUmsAll" => kums_all_constraints(),
         "KUmsAllCamt" => kums_all_camt_constraints(),
@@ -723,6 +724,27 @@ fn dauer_sepa_list_constraints() -> Vec<HbciJobConstraint> {
         ),
         HbciJobConstraint::new("orderid", "DauerSEPAList2.orderid", Some("")),
         HbciJobConstraint::new("maxentries", "DauerSEPAList2.maxentries", Some("")),
+    ]
+}
+
+fn term_ueb_sepa_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.bic", "TermUebSEPAList1.My.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "TermUebSEPAList1.My.iban", None::<String>),
+        HbciJobConstraint::new("src.bic", "TermUebSEPAList1.My.bic", Some("")),
+        HbciJobConstraint::new("src.iban", "TermUebSEPAList1.My.iban", Some("")),
+        HbciJobConstraint::new("my.country", "TermUebSEPAList1.My.KIK.country", Some("")),
+        HbciJobConstraint::new("my.blz", "TermUebSEPAList1.My.KIK.blz", Some("")),
+        HbciJobConstraint::new("my.number", "TermUebSEPAList1.My.number", Some("")),
+        HbciJobConstraint::new("my.subnumber", "TermUebSEPAList1.My.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "_sepadescriptor",
+            "TermUebSEPAList1.sepadescr",
+            Some(PAIN_001_001_02_URN),
+        ),
+        HbciJobConstraint::new("startdate", "TermUebSEPAList1.startdate", Some("")),
+        HbciJobConstraint::new("enddate", "TermUebSEPAList1.enddate", Some("")),
+        HbciJobConstraint::new("maxentries", "TermUebSEPAList1.maxentries", Some("")),
     ]
 }
 
