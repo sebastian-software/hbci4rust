@@ -65,15 +65,15 @@ jobs were removed because current recurring and scheduled domestic payment
 workflows use SEPA standing-order and scheduled-transfer jobs. They are not
 hidden PinTAN implementation holes.
 
-Some classic hbci4java payment jobs are currently still present for
-original-near compatibility, but they are not the product direction. See
-`docs/reference/modern-scope-audit.md` for the current split between modern v1
-surface, compatibility-carried legacy surface, and unsupported legacy surface.
-The original audit found 21 legacy candidates; after removing `COR1`, DTAUS
-bulk, classic direct-debit, and classic domestic transfer/account-transfer public
-jobs, and classic scheduled-transfer/standing-order public jobs, 1
-compatibility-carried legacy job remains. Its guarded cleanup path is
-documented in
+One classic-shaped hbci4java payment job, `UebForeign`, is still present for
+original-near compatibility, but it is not automatically the product direction.
+See `docs/reference/modern-scope-audit.md` for the current split between modern
+v1 surface, compatibility-carried legacy surface, and unsupported legacy
+surface. The original audit found 21 legacy candidates; after removing `COR1`,
+DTAUS bulk, classic direct-debit, classic domestic transfer/account-transfer,
+and classic scheduled-transfer/standing-order jobs from the public surface and
+their internal implementation branches, 1 compatibility-carried legacy job
+remains. Its guarded cleanup path is documented in
 `docs/architecture/legacy-cleanup-plan.md`.
 
 ## What V1 Includes
@@ -147,8 +147,8 @@ The detailed evidence and source links live in
 candidates are checked one by one in
 `docs/reference/legacy-job-relevance-audit.md`; after the COR1, DTAUS bulk,
 classic direct-debit, classic domestic transfer/account-transfer, and classic
-scheduled-transfer/standing-order cleanups, 1 compatibility-carried legacy
-candidate remains in the public registry.
+scheduled-transfer/standing-order public and internal cleanups, 1
+compatibility-carried legacy candidate remains in the public registry.
 
 ## Documentation Map
 

@@ -54,7 +54,8 @@ scheduled-transfer, and SEPA account-transfer jobs remain in scope.
 `GVTermUebEdit`, `GVTermUebDel`, and `GVTermUebList` were removed from the
 public registry because they are classic national standing-order or
 scheduled-transfer jobs. The SEPA standing-order and scheduled-transfer jobs
-remain in scope.
+remain in scope. ADR 0276 removed their remaining internal implementation
+branches.
 
 `WPStammData` is intentionally excluded because the upstream result class is
 documented around the lowlevel `WPStammList` path instead of a normal

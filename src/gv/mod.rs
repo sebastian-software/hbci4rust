@@ -64,8 +64,6 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "WPDepotUms",
 ];
 
-pub(crate) const CLASSIC_USAGE_LINE_COUNT: usize = 14;
-
 #[derive(Debug, Clone, Default)]
 pub struct JobRegistry {
     names: BTreeSet<&'static str>,
@@ -316,16 +314,6 @@ impl HbciJob {
         &self.lowlevel_params
     }
 
-    pub(crate) fn set_lowlevel_param_if_absent(
-        &mut self,
-        name: impl Into<String>,
-        value: impl Into<String>,
-    ) {
-        self.lowlevel_params
-            .entry(name.into())
-            .or_insert_with(|| value.into());
-    }
-
     pub fn constraints(&self) -> &[HbciJobConstraint] {
         &self.constraints
     }
@@ -480,17 +468,11 @@ impl HbciJob {
     ) -> HbciResult<()> {
         match self.name.as_str() {
             "CardList" | "CustomMsg" => self.check_account_crc("my", callback).await,
-            "DauerList" => self.check_account_crc("my", callback).await,
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" | "WPDepotList" | "WPDepotUms" => {
                 self.check_account_crc("my", callback).await
             }
             "FestList" | "FestListAll" => self.check_account_crc("my", callback).await,
-            "DauerEdit" | "DauerNew" | "TermUeb" | "TermUebEdit" => {
-                self.check_account_crc("src", callback).await?;
-                self.check_account_crc("dst", callback).await
-            }
-            "TermUebList" => self.check_account_crc("my", callback).await,
             "UebForeign" => self.check_account_crc("src", callback).await,
             _ => Ok(()),
         }
@@ -810,10 +792,6 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "CardList" => card_list_constraints(),
         "ChangePIN" => change_pin_constraints(),
         "CustomMsg" => custom_msg_constraints(),
-        "DauerDel" => dauer_del_constraints(),
-        "DauerEdit" => dauer_edit_constraints(),
-        "DauerList" => dauer_list_constraints(),
-        "DauerNew" => dauer_new_constraints(),
         "DauerSEPAEdit" => dauer_sepa_edit_constraints(),
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
@@ -831,15 +809,11 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "MultiLastSEPA" => multi_last_sepa_constraints("SammelLastSEPA1", "CORE"),
         "Kontoauszug" => kontoauszug_constraints(),
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
-        "TermUeb" => term_ueb_constraints(),
-        "TermUebDel" => term_ueb_del_constraints(),
-        "TermUebEdit" => term_ueb_edit_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
         "TermUebSEPAList" => term_ueb_sepa_list_constraints(),
         "TermMultiUebSEPA" => term_multi_ueb_sepa_constraints(),
-        "TermUebList" => term_ueb_list_constraints(),
         "InstUebSEPA" => inst_ueb_sepa_constraints(),
         "UebForeign" => ueb_foreign_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
@@ -923,130 +897,6 @@ fn dauer_last_sepa_list_constraints() -> Vec<HbciJobConstraint> {
     ]
 }
 
-fn dauer_list_constraints() -> Vec<HbciJobConstraint> {
-    vec![
-        HbciJobConstraint::new("my.country", "DauerList5.KTV.KIK.country", Some("DE")),
-        HbciJobConstraint::new("my.blz", "DauerList5.KTV.KIK.blz", None::<String>),
-        HbciJobConstraint::new("my.number", "DauerList5.KTV.number", None::<String>),
-        HbciJobConstraint::new("my.subnumber", "DauerList5.KTV.subnumber", Some("")),
-        HbciJobConstraint::new("orderid", "DauerList5.orderid", Some("")),
-        HbciJobConstraint::new("maxentries", "DauerList5.maxentries", Some("")),
-    ]
-}
-
-fn dauer_new_constraints() -> Vec<HbciJobConstraint> {
-    let mut constraints = vec![
-        HbciJobConstraint::new("src.number", "DauerNew5.My.number", None::<String>),
-        HbciJobConstraint::new("src.subnumber", "DauerNew5.My.subnumber", Some("")),
-        HbciJobConstraint::new("dst.blz", "DauerNew5.Other.KIK.blz", None::<String>),
-        HbciJobConstraint::new("dst.number", "DauerNew5.Other.number", None::<String>),
-        HbciJobConstraint::new("dst.subnumber", "DauerNew5.Other.subnumber", Some("")),
-        HbciJobConstraint::new("btg.value", "DauerNew5.BTG.value", None::<String>),
-        HbciJobConstraint::new("btg.curr", "DauerNew5.BTG.curr", None::<String>),
-        HbciJobConstraint::new("name", "DauerNew5.name", None::<String>),
-        HbciJobConstraint::new(
-            "firstdate",
-            "DauerNew5.DauerDetails.firstdate",
-            None::<String>,
-        ),
-        HbciJobConstraint::new(
-            "timeunit",
-            "DauerNew5.DauerDetails.timeunit",
-            None::<String>,
-        ),
-        HbciJobConstraint::new("turnus", "DauerNew5.DauerDetails.turnus", None::<String>),
-        HbciJobConstraint::new("execday", "DauerNew5.DauerDetails.execday", None::<String>),
-        HbciJobConstraint::new("src.blz", "DauerNew5.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("src.country", "DauerNew5.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("dst.country", "DauerNew5.Other.KIK.country", Some("DE")),
-        HbciJobConstraint::new("name2", "DauerNew5.name2", Some("")),
-        HbciJobConstraint::new("lastdate", "DauerNew5.DauerDetails.lastdate", Some("")),
-        HbciJobConstraint::new("key", "DauerNew5.key", Some("52")),
-    ];
-
-    for index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let frontend = classic_usage_name(index);
-        let destination = format!("DauerNew5.usage.{frontend}");
-        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
-    }
-
-    constraints
-}
-
-fn dauer_edit_constraints() -> Vec<HbciJobConstraint> {
-    let mut constraints = vec![
-        HbciJobConstraint::new("src.number", "DauerEdit5.My.number", None::<String>),
-        HbciJobConstraint::new("src.subnumber", "DauerEdit5.My.subnumber", Some("")),
-        HbciJobConstraint::new("dst.blz", "DauerEdit5.Other.KIK.blz", None::<String>),
-        HbciJobConstraint::new("dst.number", "DauerEdit5.Other.number", None::<String>),
-        HbciJobConstraint::new("dst.subnumber", "DauerEdit5.Other.subnumber", Some("")),
-        HbciJobConstraint::new("btg.value", "DauerEdit5.BTG.value", None::<String>),
-        HbciJobConstraint::new("btg.curr", "DauerEdit5.BTG.curr", None::<String>),
-        HbciJobConstraint::new("name", "DauerEdit5.name", None::<String>),
-        HbciJobConstraint::new(
-            "firstdate",
-            "DauerEdit5.DauerDetails.firstdate",
-            None::<String>,
-        ),
-        HbciJobConstraint::new(
-            "timeunit",
-            "DauerEdit5.DauerDetails.timeunit",
-            None::<String>,
-        ),
-        HbciJobConstraint::new("turnus", "DauerEdit5.DauerDetails.turnus", None::<String>),
-        HbciJobConstraint::new("execday", "DauerEdit5.DauerDetails.execday", None::<String>),
-        HbciJobConstraint::new("orderid", "DauerEdit5.orderid", None::<String>),
-        HbciJobConstraint::new("src.blz", "DauerEdit5.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("src.country", "DauerEdit5.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("dst.country", "DauerEdit5.Other.KIK.country", Some("DE")),
-        HbciJobConstraint::new("name2", "DauerEdit5.name2", Some("")),
-        HbciJobConstraint::new("key", "DauerEdit5.key", Some("52")),
-        HbciJobConstraint::new("date", "DauerEdit5.date", Some("")),
-        HbciJobConstraint::new("lastdate", "DauerEdit5.DauerDetails.lastdate", Some("")),
-    ];
-
-    for index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let frontend = classic_usage_name(index);
-        let destination = format!("DauerEdit5.usage.{frontend}");
-        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
-    }
-
-    constraints
-}
-
-fn dauer_del_constraints() -> Vec<HbciJobConstraint> {
-    let mut constraints = vec![
-        HbciJobConstraint::new("src.number", "DauerDel4.My.number", Some("")),
-        HbciJobConstraint::new("src.subnumber", "DauerDel4.My.subnumber", Some("")),
-        HbciJobConstraint::new("dst.blz", "DauerDel4.Other.KIK.blz", Some("")),
-        HbciJobConstraint::new("dst.number", "DauerDel4.Other.number", Some("")),
-        HbciJobConstraint::new("dst.subnumber", "DauerDel4.Other.subnumber", Some("")),
-        HbciJobConstraint::new("btg.value", "DauerDel4.BTG.value", Some("")),
-        HbciJobConstraint::new("btg.curr", "DauerDel4.BTG.curr", Some("")),
-        HbciJobConstraint::new("name", "DauerDel4.name", Some("")),
-        HbciJobConstraint::new("firstdate", "DauerDel4.DauerDetails.firstdate", Some("")),
-        HbciJobConstraint::new("timeunit", "DauerDel4.DauerDetails.timeunit", Some("")),
-        HbciJobConstraint::new("turnus", "DauerDel4.DauerDetails.turnus", Some("")),
-        HbciJobConstraint::new("execday", "DauerDel4.DauerDetails.execday", Some("")),
-        HbciJobConstraint::new("src.blz", "DauerDel4.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("src.country", "DauerDel4.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("dst.country", "DauerDel4.Other.KIK.country", Some("DE")),
-        HbciJobConstraint::new("name2", "DauerDel4.name2", Some("")),
-        HbciJobConstraint::new("key", "DauerDel4.key", Some("52")),
-        HbciJobConstraint::new("date", "DauerDel4.date", Some("")),
-        HbciJobConstraint::new("orderid", "DauerDel4.orderid", Some("")),
-        HbciJobConstraint::new("lastdate", "DauerDel4.DauerDetails.lastdate", Some("")),
-    ];
-
-    for index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let frontend = classic_usage_name(index);
-        let destination = format!("DauerDel4.usage.{frontend}");
-        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
-    }
-
-    constraints
-}
-
 fn term_ueb_sepa_list_constraints() -> Vec<HbciJobConstraint> {
     vec![
         HbciJobConstraint::new("my.bic", "TermUebSEPAList1.My.bic", None::<String>),
@@ -1066,89 +916,6 @@ fn term_ueb_sepa_list_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("enddate", "TermUebSEPAList1.enddate", Some("")),
         HbciJobConstraint::new("maxentries", "TermUebSEPAList1.maxentries", Some("")),
     ]
-}
-
-fn term_ueb_list_constraints() -> Vec<HbciJobConstraint> {
-    vec![
-        HbciJobConstraint::new("my.country", "TermUebList3.KTV.KIK.country", Some("DE")),
-        HbciJobConstraint::new("my.blz", "TermUebList3.KTV.KIK.blz", None::<String>),
-        HbciJobConstraint::new("my.number", "TermUebList3.KTV.number", None::<String>),
-        HbciJobConstraint::new("my.subnumber", "TermUebList3.KTV.subnumber", Some("")),
-        HbciJobConstraint::new("startdate", "TermUebList3.startdate", Some("")),
-        HbciJobConstraint::new("enddate", "TermUebList3.enddate", Some("")),
-        HbciJobConstraint::new("maxentries", "TermUebList3.maxentries", Some("")),
-    ]
-}
-
-fn term_ueb_constraints() -> Vec<HbciJobConstraint> {
-    let mut constraints = vec![
-        HbciJobConstraint::new("src.country", "TermUeb4.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("src.blz", "TermUeb4.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("src.number", "TermUeb4.My.number", None::<String>),
-        HbciJobConstraint::new("src.subnumber", "TermUeb4.My.subnumber", Some("")),
-        HbciJobConstraint::new("dst.country", "TermUeb4.Other.KIK.country", Some("DE")),
-        HbciJobConstraint::new("dst.blz", "TermUeb4.Other.KIK.blz", None::<String>),
-        HbciJobConstraint::new("dst.number", "TermUeb4.Other.number", None::<String>),
-        HbciJobConstraint::new("dst.subnumber", "TermUeb4.Other.subnumber", Some("")),
-        HbciJobConstraint::new("btg.value", "TermUeb4.BTG.value", None::<String>),
-        HbciJobConstraint::new("btg.curr", "TermUeb4.BTG.curr", None::<String>),
-        HbciJobConstraint::new("name", "TermUeb4.name", None::<String>),
-        HbciJobConstraint::new("date", "TermUeb4.date", None::<String>),
-        HbciJobConstraint::new("name2", "TermUeb4.name2", Some("")),
-        HbciJobConstraint::new("key", "TermUeb4.key", Some("51")),
-    ];
-
-    for index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let frontend = classic_usage_name(index);
-        let destination = format!("TermUeb4.usage.{frontend}");
-        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
-    }
-
-    constraints
-}
-
-fn term_ueb_del_constraints() -> Vec<HbciJobConstraint> {
-    vec![HbciJobConstraint::new(
-        "orderid",
-        "TermUebDel3.id",
-        None::<String>,
-    )]
-}
-
-fn term_ueb_edit_constraints() -> Vec<HbciJobConstraint> {
-    let mut constraints = vec![
-        HbciJobConstraint::new("src.country", "TermUebEdit4.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("src.blz", "TermUebEdit4.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("src.number", "TermUebEdit4.My.number", None::<String>),
-        HbciJobConstraint::new("src.subnumber", "TermUebEdit4.My.subnumber", Some("")),
-        HbciJobConstraint::new("dst.country", "TermUebEdit4.Other.KIK.country", Some("DE")),
-        HbciJobConstraint::new("dst.blz", "TermUebEdit4.Other.KIK.blz", None::<String>),
-        HbciJobConstraint::new("dst.number", "TermUebEdit4.Other.number", Some("")),
-        HbciJobConstraint::new("dst.subnumber", "TermUebEdit4.Other.subnumber", Some("")),
-        HbciJobConstraint::new("btg.value", "TermUebEdit4.BTG.value", None::<String>),
-        HbciJobConstraint::new("btg.curr", "TermUebEdit4.BTG.curr", None::<String>),
-        HbciJobConstraint::new("name", "TermUebEdit4.name", None::<String>),
-        HbciJobConstraint::new("date", "TermUebEdit4.date", None::<String>),
-        HbciJobConstraint::new("orderid", "TermUebEdit4.id", None::<String>),
-        HbciJobConstraint::new("name2", "TermUebEdit4.name2", Some("")),
-        HbciJobConstraint::new("key", "TermUebEdit4.key", Some("51")),
-    ];
-
-    for index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let frontend = classic_usage_name(index);
-        let destination = format!("TermUebEdit4.usage.{frontend}");
-        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
-    }
-
-    constraints
-}
-
-fn classic_usage_name(index: usize) -> String {
-    if index == 0 {
-        "usage".to_owned()
-    } else {
-        format!("usage_{}", index + 1)
-    }
 }
 
 fn ueb_foreign_constraints() -> Vec<HbciJobConstraint> {

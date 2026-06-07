@@ -233,3 +233,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0272: Remove DTAUS Bulk Internal Job Implementation
 - ADR 0273: Remove Classic Direct Debit Internals
 - ADR 0275: Remove Classic Domestic Transfer Internals
+- ADR 0276: Remove Classic Scheduled And Standing Internals

@@ -79,7 +79,7 @@ Completed cleanup:
 | DTAUS bulk jobs | `MultiUeb`, `MultiLast` | Removed from the public registry in ADR 0266; internal job implementation branches removed in ADR 0272. |
 | Classic direct debit and objection | `Last`, `StornoLast` | Removed from the public registry in ADR 0267; internal job implementation branches removed in ADR 0273. |
 | Classic domestic credit and account transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation` | Removed from the public registry in ADR 0268; internal job implementation branches removed in ADR 0275. |
-| Classic scheduled transfers and standing orders | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | Removed from the public registry in ADR 0269; shared lowlevel helpers, result normalization, and parser support remain temporarily. |
+| Classic scheduled transfers and standing orders | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | Removed from the public registry in ADR 0269; internal job implementation branches removed in ADR 0276. |
 
 Remaining recommended cleanup order:
 

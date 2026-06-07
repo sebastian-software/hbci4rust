@@ -8,7 +8,7 @@ use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallb
 use crate::comm::{CommClient, CommRequest, CommResponse, DefaultCommClient};
 use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
-use crate::gv::{CLASSIC_USAGE_LINE_COUNT, HbciJob, JobRegistry, PINTAN_JOB_NAMES};
+use crate::gv::{HbciJob, JobRegistry, PINTAN_JOB_NAMES};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrCardInfo, GvrCardList, GvrDauerEdit,
     GvrDauerList, GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond,
@@ -39,38 +39,6 @@ use super::{
     apply_pintan_user_sig_to_sig_tail, collect_pintan_segment_codes,
     collect_pintan_signature_range,
 };
-
-const CLASSIC_INLAND_USER4_SNAPSHOT_SUFFIXES: &[&str] = &[
-    "My.number",
-    "My.subnumber",
-    "My.KIK.country",
-    "My.KIK.blz",
-    "Other.number",
-    "Other.subnumber",
-    "Other.KIK.country",
-    "Other.KIK.blz",
-    "name",
-    "name2",
-    "BTG.value",
-    "BTG.curr",
-    "key",
-    "addkey",
-    "usage.usage",
-    "usage.usage_2",
-    "usage.usage_3",
-    "usage.usage_4",
-    "usage.usage_5",
-    "usage.usage_6",
-    "usage.usage_7",
-    "usage.usage_8",
-    "usage.usage_9",
-    "usage.usage_10",
-    "usage.usage_11",
-    "usage.usage_12",
-    "usage.usage_13",
-    "usage.usage_14",
-    "date",
-];
 
 #[derive(Clone)]
 pub struct HbciHandler<C = DefaultCommClient> {
@@ -234,7 +202,6 @@ where
 
     pub fn try_add_to_queue(&mut self, mut job: HbciJob) -> HbciResult<()> {
         ensure_public_job_supported(job.name())?;
-        self.prepare_job_from_passport(&mut job)?;
         job.verify_constraints()?;
         self.queue.push(job);
         Ok(())
@@ -242,7 +209,6 @@ where
 
     pub fn try_add_to_queue_with_initial_tan_job(&mut self, mut job: HbciJob) -> HbciResult<()> {
         ensure_public_job_supported(job.name())?;
-        self.prepare_job_from_passport(&mut job)?;
         job.verify_constraints()?;
         let hktan = self.initial_tan_job_for_queue(&job)?;
         self.queue.push(job);
@@ -257,22 +223,11 @@ where
         mut job: HbciJob,
     ) -> HbciResult<()> {
         ensure_public_job_supported(job.name())?;
-        self.prepare_job_from_passport(&mut job)?;
         job.verify_constraints()?;
         let callback = super::callback();
         job.verify_account_checks(callback.as_deref()).await?;
         self.queue.push(job);
         Ok(())
-    }
-
-    fn prepare_job_from_passport(&self, job: &mut HbciJob) -> HbciResult<()> {
-        match job.name() {
-            "DauerDel" => apply_dauer_snapshot_to_job(job, &self.passport, "DauerDel4"),
-            "DauerEdit" => apply_dauer_snapshot_to_job(job, &self.passport, "DauerEdit5"),
-            "TermUebDel" => apply_term_ueb_snapshot_to_job(job, &self.passport, "TermUebDel3"),
-            "TermUebEdit" => apply_term_ueb_snapshot_to_job(job, &self.passport, "TermUebEdit4"),
-            _ => Ok(()),
-        }
     }
 
     pub fn queued_jobs(&self) -> &[HbciJob] {
@@ -590,7 +545,6 @@ where
             ));
         }
 
-        self.prepare_job_from_passport(&mut job)?;
         job.verify_constraints()?;
         let mut hktan = self.new_tan2step_process1_job(&job, None)?;
         hktan.verify_constraints()?;
@@ -1291,10 +1245,6 @@ fn render_job_into_custom_message(
         "CardList" => render_card_list(message, job, index, passport),
         "ChangePIN" => render_change_pin(message, job, index),
         "CustomMsg" => render_custom_msg_job(message, job, index, passport),
-        "DauerDel" => render_dauer_del(message, job, index, passport),
-        "DauerEdit" => render_dauer_edit(message, job, index, passport),
-        "DauerList" => render_dauer_list(message, job, index, passport),
-        "DauerNew" => render_dauer_new(message, job, index, passport),
         "DauerSEPADel" => render_dauer_sepa_del(message, job, index, passport),
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
@@ -1325,10 +1275,6 @@ fn render_job_into_custom_message(
         "TANList" => render_tan_list(message, index),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
-        "TermUeb" => render_term_ueb(message, job, index, passport),
-        "TermUebDel" => render_term_ueb_del(message, job, index, passport),
-        "TermUebEdit" => render_term_ueb_edit(message, job, index, passport),
-        "TermUebList" => render_term_ueb_list(message, job, index, passport),
         "TermMultiUebSEPA" => render_term_multi_ueb_sepa(message, job, index, passport),
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
         "TermUebSEPADel" => render_term_ueb_sepa_del(message, job, index, passport),
@@ -1577,26 +1523,6 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "CustomMsg5",
             path: "CustomMsg.GV.CustomMsg5",
         }),
-        "DauerDel" => Ok(OrderhashSourceJobInfo {
-            code: "HKDAL",
-            lowlevel_segment: "DauerDel4",
-            path: "CustomMsg.GV.DauerDel4",
-        }),
-        "DauerEdit" => Ok(OrderhashSourceJobInfo {
-            code: "HKDAN",
-            lowlevel_segment: "DauerEdit5",
-            path: "CustomMsg.GV.DauerEdit5",
-        }),
-        "DauerList" => Ok(OrderhashSourceJobInfo {
-            code: "HKDAB",
-            lowlevel_segment: "DauerList5",
-            path: "CustomMsg.GV.DauerList5",
-        }),
-        "DauerNew" => Ok(OrderhashSourceJobInfo {
-            code: "HKDAE",
-            lowlevel_segment: "DauerNew5",
-            path: "CustomMsg.GV.DauerNew5",
-        }),
         "DauerSEPAList" => Ok(OrderhashSourceJobInfo {
             code: "HKCDB",
             lowlevel_segment: "DauerSEPAList2",
@@ -1626,26 +1552,6 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCDL",
             lowlevel_segment: "DauerSEPADel1",
             path: "CustomMsg.GV.DauerSEPADel1",
-        }),
-        "TermUebList" => Ok(OrderhashSourceJobInfo {
-            code: "HKTUB",
-            lowlevel_segment: "TermUebList3",
-            path: "CustomMsg.GV.TermUebList3",
-        }),
-        "TermUeb" => Ok(OrderhashSourceJobInfo {
-            code: "HKTUE",
-            lowlevel_segment: "TermUeb4",
-            path: "CustomMsg.GV.TermUeb4",
-        }),
-        "TermUebDel" => Ok(OrderhashSourceJobInfo {
-            code: "HKTUL",
-            lowlevel_segment: "TermUebDel3",
-            path: "CustomMsg.GV.TermUebDel3",
-        }),
-        "TermUebEdit" => Ok(OrderhashSourceJobInfo {
-            code: "HKTUA",
-            lowlevel_segment: "TermUebEdit4",
-            path: "CustomMsg.GV.TermUebEdit4",
         }),
         "TermUebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCSE",
@@ -1926,35 +1832,11 @@ fn dauer_sepa_list_response_root(index: usize) -> String {
     }
 }
 
-fn dauer_list_response_root(index: usize) -> String {
-    if index == 0 {
-        "CustomMsgRes.GVRes.DauerListRes5".to_owned()
-    } else {
-        format!("CustomMsgRes.GVRes_{}.DauerListRes5", index + 1)
-    }
-}
-
-fn dauer_edit_response_root(index: usize) -> String {
-    if index == 0 {
-        "CustomMsgRes.GVRes.DauerEditRes5".to_owned()
-    } else {
-        format!("CustomMsgRes.GVRes_{}.DauerEditRes5", index + 1)
-    }
-}
-
 fn dauer_sepa_edit_response_root(index: usize) -> String {
     if index == 0 {
         "CustomMsgRes.GVRes.DauerSEPAEditRes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.DauerSEPAEditRes1", index + 1)
-    }
-}
-
-fn dauer_new_response_root(index: usize) -> String {
-    if index == 0 {
-        "CustomMsgRes.GVRes.DauerNewRes5".to_owned()
-    } else {
-        format!("CustomMsgRes.GVRes_{}.DauerNewRes5", index + 1)
     }
 }
 
@@ -1998,27 +1880,11 @@ fn term_ueb_sepa_response_root(index: usize) -> String {
     }
 }
 
-fn term_ueb_response_root(index: usize) -> String {
-    if index == 0 {
-        "CustomMsgRes.GVRes.TermUebRes4".to_owned()
-    } else {
-        format!("CustomMsgRes.GVRes_{}.TermUebRes4", index + 1)
-    }
-}
-
 fn term_multi_ueb_sepa_response_root(index: usize) -> String {
     if index == 0 {
         "CustomMsgRes.GVRes.TermSammelUebSEPARes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermSammelUebSEPARes1", index + 1)
-    }
-}
-
-fn term_ueb_edit_response_root(index: usize) -> String {
-    if index == 0 {
-        "CustomMsgRes.GVRes.TermUebEditRes4".to_owned()
-    } else {
-        format!("CustomMsgRes.GVRes_{}.TermUebEditRes4", index + 1)
     }
 }
 
@@ -2075,14 +1941,6 @@ fn term_ueb_sepa_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TermUebSEPAListRes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermUebSEPAListRes1", index + 1)
-    }
-}
-
-fn term_ueb_list_response_root(index: usize) -> String {
-    if index == 0 {
-        "CustomMsgRes.GVRes.TermUebListRes3".to_owned()
-    } else {
-        format!("CustomMsgRes.GVRes_{}.TermUebListRes3", index + 1)
     }
 }
 
@@ -2832,41 +2690,6 @@ fn render_dauer_last_sepa_list(
     Ok(())
 }
 
-fn render_dauer_list(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let segment = format!("{root}.DauerList5");
-    let account = effective_job_account(job, passport, "DauerList5", "my");
-    if !has_account_identity(&account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "DauerList requires my.number or a passport account for the current DauerList5 renderer",
-        ));
-    }
-
-    set_national_account_values(message, &segment, &account)?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.orderid"),
-        job_param(job, "DauerList5.orderid", "orderid"),
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.maxentries"),
-        job_param(job, "DauerList5.maxentries", "maxentries"),
-    )?;
-
-    Ok(())
-}
-
 fn render_term_ueb_sepa_list(
     message: &mut HbciMessage,
     job: &HbciJob,
@@ -2907,653 +2730,6 @@ fn render_term_ueb_sepa_list(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "TermUebSEPAList1.maxentries", "maxentries"),
-    )?;
-
-    Ok(())
-}
-
-fn render_term_ueb_list(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let segment = format!("{root}.TermUebList3");
-    let account = effective_job_account(job, passport, "TermUebList3", "my");
-    if !has_account_identity(&account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "TermUebList requires my.number or a passport account for the current TermUebList3 renderer",
-        ));
-    }
-
-    set_national_account_values(message, &segment, &account)?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.startdate"),
-        job_param(job, "TermUebList3.startdate", "startdate"),
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.enddate"),
-        job_param(job, "TermUebList3.enddate", "enddate"),
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.maxentries"),
-        job_param(job, "TermUebList3.maxentries", "maxentries"),
-    )?;
-
-    Ok(())
-}
-
-fn render_dauer_new(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "DauerNew5";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let src_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "src",
-    );
-    if !has_account_identity(&src_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "DauerNew requires src.number or a passport account for the current DauerNew5 renderer",
-        ));
-    }
-    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
-    if !has_account_identity(&dst_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "DauerNew requires dst.number for the current DauerNew5 renderer",
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        "DauerNew5.name",
-        "name",
-        "DauerNew requires name",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, "DauerNew5.name2", "name2"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        "DauerNew5.BTG.value",
-        "btg.value",
-        "DauerNew requires btg.value",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        "DauerNew5.BTG.curr",
-        "btg.curr",
-        "DauerNew requires btg.curr",
-    )?;
-    message.set_value(
-        &format!("{segment}.key"),
-        job_param(job, "DauerNew5.key", "key").unwrap_or("52"),
-    )?;
-    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let usage_name = classic_usage_frontend_name(usage_index);
-        set_optional_message_value(
-            message,
-            &format!("{segment}.usage.{usage_name}"),
-            job_param(job, &format!("DauerNew5.usage.{usage_name}"), &usage_name),
-        )?;
-    }
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.firstdate"),
-        job,
-        "DauerNew5.DauerDetails.firstdate",
-        "firstdate",
-        "DauerNew requires firstdate",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.timeunit"),
-        job,
-        "DauerNew5.DauerDetails.timeunit",
-        "timeunit",
-        "DauerNew requires timeunit",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.turnus"),
-        job,
-        "DauerNew5.DauerDetails.turnus",
-        "turnus",
-        "DauerNew requires turnus",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.execday"),
-        job,
-        "DauerNew5.DauerDetails.execday",
-        "execday",
-        "DauerNew requires execday",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.DauerDetails.lastdate"),
-        job_param(job, "DauerNew5.DauerDetails.lastdate", "lastdate"),
-    )?;
-
-    Ok(())
-}
-
-fn render_dauer_edit(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "DauerEdit5";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let src_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "src",
-    );
-    if !has_account_identity(&src_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "DauerEdit requires src.number or a passport account for the current DauerEdit5 renderer",
-        ));
-    }
-    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
-    if !has_account_identity(&dst_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "DauerEdit requires dst.number for the current DauerEdit5 renderer",
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        "DauerEdit5.name",
-        "name",
-        "DauerEdit requires name",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, "DauerEdit5.name2", "name2"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        "DauerEdit5.BTG.value",
-        "btg.value",
-        "DauerEdit requires btg.value",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        "DauerEdit5.BTG.curr",
-        "btg.curr",
-        "DauerEdit requires btg.curr",
-    )?;
-    message.set_value(
-        &format!("{segment}.key"),
-        job_param(job, "DauerEdit5.key", "key").unwrap_or("52"),
-    )?;
-    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let usage_name = classic_usage_frontend_name(usage_index);
-        set_optional_message_value(
-            message,
-            &format!("{segment}.usage.{usage_name}"),
-            job_param(job, &format!("DauerEdit5.usage.{usage_name}"), &usage_name),
-        )?;
-    }
-    set_optional_message_value(
-        message,
-        &format!("{segment}.date"),
-        job_param(job, "DauerEdit5.date", "date"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.orderid"),
-        job,
-        "DauerEdit5.orderid",
-        "orderid",
-        "DauerEdit requires orderid",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.firstdate"),
-        job,
-        "DauerEdit5.DauerDetails.firstdate",
-        "firstdate",
-        "DauerEdit requires firstdate",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.timeunit"),
-        job,
-        "DauerEdit5.DauerDetails.timeunit",
-        "timeunit",
-        "DauerEdit requires timeunit",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.turnus"),
-        job,
-        "DauerEdit5.DauerDetails.turnus",
-        "turnus",
-        "DauerEdit requires turnus",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.execday"),
-        job,
-        "DauerEdit5.DauerDetails.execday",
-        "execday",
-        "DauerEdit requires execday",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.DauerDetails.lastdate"),
-        job_param(job, "DauerEdit5.DauerDetails.lastdate", "lastdate"),
-    )?;
-
-    Ok(())
-}
-
-fn render_dauer_del(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "DauerDel4";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let src_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "src",
-    );
-    if !has_account_identity(&src_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "DauerDel requires src.number or a passport account for the current DauerDel4 renderer",
-        ));
-    }
-    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
-    if !has_account_identity(&dst_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "DauerDel requires dst.number for the current DauerDel4 renderer",
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        "DauerDel4.name",
-        "name",
-        "DauerDel requires name",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, "DauerDel4.name2", "name2"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        "DauerDel4.BTG.value",
-        "btg.value",
-        "DauerDel requires btg.value",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        "DauerDel4.BTG.curr",
-        "btg.curr",
-        "DauerDel requires btg.curr",
-    )?;
-    message.set_value(
-        &format!("{segment}.key"),
-        job_param(job, "DauerDel4.key", "key").unwrap_or("52"),
-    )?;
-    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let usage_name = classic_usage_frontend_name(usage_index);
-        set_optional_message_value(
-            message,
-            &format!("{segment}.usage.{usage_name}"),
-            job_param(job, &format!("DauerDel4.usage.{usage_name}"), &usage_name),
-        )?;
-    }
-    set_optional_message_value(
-        message,
-        &format!("{segment}.date"),
-        job_param(job, "DauerDel4.date", "date"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.orderid"),
-        job,
-        "DauerDel4.orderid",
-        "orderid",
-        "DauerDel requires orderid",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.firstdate"),
-        job,
-        "DauerDel4.DauerDetails.firstdate",
-        "firstdate",
-        "DauerDel requires firstdate",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.timeunit"),
-        job,
-        "DauerDel4.DauerDetails.timeunit",
-        "timeunit",
-        "DauerDel requires timeunit",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.turnus"),
-        job,
-        "DauerDel4.DauerDetails.turnus",
-        "turnus",
-        "DauerDel requires turnus",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.DauerDetails.execday"),
-        job,
-        "DauerDel4.DauerDetails.execday",
-        "execday",
-        "DauerDel requires execday",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.DauerDetails.lastdate"),
-        job_param(job, "DauerDel4.DauerDetails.lastdate", "lastdate"),
-    )?;
-
-    Ok(())
-}
-
-fn render_term_ueb(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "TermUeb4";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let src_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "src",
-    );
-    if !has_account_identity(&src_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "TermUeb requires src.number or a passport account for the current TermUeb4 renderer",
-        ));
-    }
-    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
-    if !has_account_identity(&dst_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "TermUeb requires dst.number for the current TermUeb4 renderer",
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        "TermUeb4.name",
-        "name",
-        "TermUeb requires name",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, "TermUeb4.name2", "name2"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        "TermUeb4.BTG.value",
-        "btg.value",
-        "TermUeb requires btg.value",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        "TermUeb4.BTG.curr",
-        "btg.curr",
-        "TermUeb requires btg.curr",
-    )?;
-    message.set_value(
-        &format!("{segment}.key"),
-        job_param(job, "TermUeb4.key", "key").unwrap_or("51"),
-    )?;
-    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let usage_name = classic_usage_frontend_name(usage_index);
-        set_optional_message_value(
-            message,
-            &format!("{segment}.usage.{usage_name}"),
-            job_param(job, &format!("TermUeb4.usage.{usage_name}"), &usage_name),
-        )?;
-    }
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.date"),
-        job,
-        "TermUeb4.date",
-        "date",
-        "TermUeb requires date",
-    )?;
-
-    Ok(())
-}
-
-fn render_term_ueb_del(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "TermUebDel3";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let order_id = job_param_required(
-        job,
-        "TermUebDel3.id",
-        "orderid",
-        "TermUebDel requires orderid",
-    )?;
-    let snapshot_key = format!("termueb_{order_id}");
-    let snapshot = passport.get_persistent_data(&snapshot_key).ok_or_else(|| {
-        HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            format!("TermUebDel requires persistent data for {snapshot_key}"),
-        )
-    })?;
-
-    for suffix in CLASSIC_INLAND_USER4_SNAPSHOT_SUFFIXES {
-        if let Some(value) = snapshot.get(*suffix).filter(|value| !value.is_empty()) {
-            message.set_value(&format!("{segment}.{suffix}"), value)?;
-        }
-    }
-    message.set_value(&format!("{segment}.id"), order_id)?;
-
-    Ok(())
-}
-
-fn render_term_ueb_edit(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "TermUebEdit4";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let src_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "src",
-    );
-    if !has_account_identity(&src_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "TermUebEdit requires src.number or a passport account for the current TermUebEdit4 renderer",
-        ));
-    }
-    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
-    if !has_account_identity(&dst_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "TermUebEdit requires dst.number for the current TermUebEdit4 renderer",
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        "TermUebEdit4.name",
-        "name",
-        "TermUebEdit requires name",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, "TermUebEdit4.name2", "name2"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        "TermUebEdit4.BTG.value",
-        "btg.value",
-        "TermUebEdit requires btg.value",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        "TermUebEdit4.BTG.curr",
-        "btg.curr",
-        "TermUebEdit requires btg.curr",
-    )?;
-    message.set_value(
-        &format!("{segment}.key"),
-        job_param(job, "TermUebEdit4.key", "key").unwrap_or("51"),
-    )?;
-    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let usage_name = classic_usage_frontend_name(usage_index);
-        set_optional_message_value(
-            message,
-            &format!("{segment}.usage.{usage_name}"),
-            job_param(
-                job,
-                &format!("TermUebEdit4.usage.{usage_name}"),
-                &usage_name,
-            ),
-        )?;
-    }
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.date"),
-        job,
-        "TermUebEdit4.date",
-        "date",
-        "TermUebEdit requires date",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.id"),
-        job,
-        "TermUebEdit4.id",
-        "orderid",
-        "TermUebEdit requires orderid",
     )?;
 
     Ok(())
@@ -4926,64 +4102,6 @@ fn job_param_required<'a>(
         .ok_or_else(|| HbciError::new(HbciErrorKind::InvalidArgument, message))
 }
 
-fn apply_term_ueb_snapshot_to_job(
-    job: &mut HbciJob,
-    passport: &PinTanPassport,
-    lowlevel_segment: &str,
-) -> HbciResult<()> {
-    let order_id = job
-        .lowlevel_param(&format!("{lowlevel_segment}.id"))
-        .or_else(|| job.param("orderid"))
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_owned());
-    let Some(order_id) = order_id else {
-        return Ok(());
-    };
-    let snapshot_key = format!("termueb_{order_id}");
-    let snapshot = passport.get_persistent_data(&snapshot_key).ok_or_else(|| {
-        HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            format!("{} requires persistent data for {snapshot_key}", job.name()),
-        )
-    })?;
-
-    for suffix in CLASSIC_INLAND_USER4_SNAPSHOT_SUFFIXES {
-        if let Some(value) = snapshot.get(*suffix).filter(|value| !value.is_empty()) {
-            job.set_lowlevel_param_if_absent(format!("{lowlevel_segment}.{suffix}"), value.clone());
-        }
-    }
-
-    Ok(())
-}
-
-fn apply_dauer_snapshot_to_job(
-    job: &mut HbciJob,
-    passport: &PinTanPassport,
-    lowlevel_segment: &str,
-) -> HbciResult<()> {
-    let order_id = job
-        .lowlevel_param(&format!("{lowlevel_segment}.orderid"))
-        .or_else(|| job.param("orderid"))
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_owned());
-    let Some(order_id) = order_id else {
-        return Ok(());
-    };
-    let snapshot_key = format!("dauer_{order_id}");
-    let Some(snapshot) = passport.get_persistent_data(&snapshot_key) else {
-        return Ok(());
-    };
-
-    for (key, value) in snapshot {
-        if value.is_empty() || key == "date" || key.starts_with("Aussetzung.") {
-            continue;
-        }
-        job.set_lowlevel_param_if_absent(format!("{lowlevel_segment}.{key}"), value.clone());
-    }
-
-    Ok(())
-}
-
 fn set_required_message_value_from_job(
     message: &mut HbciMessage,
     path: &str,
@@ -5101,14 +4219,6 @@ fn has_account_identity(account: &Konto) -> bool {
             .number
             .as_deref()
             .is_some_and(|value| !value.is_empty())
-}
-
-fn classic_usage_frontend_name(index: usize) -> String {
-    if index == 0 {
-        "usage".to_owned()
-    } else {
-        format!("usage_{}", index + 1)
-    }
 }
 
 fn set_account_values(message: &mut HbciMessage, segment: &str, account: &Konto) -> HbciResult<()> {
@@ -5344,15 +4454,6 @@ impl ParsedResponseStatus {
             "CardList" => self
                 .card_list_result_for_root(card_list_response_root(index))
                 .map(HbciJobResultData::CardList),
-            "DauerEdit" => self
-                .dauer_edit_result_for_root(dauer_edit_response_root(index))
-                .map(HbciJobResultData::DauerEdit),
-            "DauerList" => self
-                .dauer_list_result_for_root(dauer_list_response_root(index))
-                .map(HbciJobResultData::DauerList),
-            "DauerNew" => self
-                .dauer_new_result_for_root(dauer_new_response_root(index))
-                .map(HbciJobResultData::DauerNew),
             "DauerSEPADel" => self
                 .dauer_edit_result_for_root(dauer_sepa_edit_response_root(index))
                 .map(HbciJobResultData::DauerEdit),
@@ -5405,12 +4506,6 @@ impl ParsedResponseStatus {
                 .kontoauszug_pdf_result_for_root(kontoauszug_pdf_response_root(index))
                 .map(HbciJobResultData::Kontoauszug),
             "Status" => self.status_result().map(HbciJobResultData::Status),
-            "TermUeb" => self
-                .term_ueb_result_for_root(term_ueb_response_root(index))
-                .map(HbciJobResultData::TermUeb),
-            "TermUebEdit" => self
-                .term_ueb_edit_result_for_root(term_ueb_edit_response_root(index))
-                .map(HbciJobResultData::TermUebEdit),
             "TermUebSEPA" => self
                 .term_ueb_result_for_root(term_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::TermUeb),
@@ -5420,9 +4515,6 @@ impl ParsedResponseStatus {
             "TermUebSEPAEdit" => self
                 .term_ueb_edit_result_for_root(term_ueb_sepa_edit_response_root(index))
                 .map(HbciJobResultData::TermUebEdit),
-            "TermUebList" => self
-                .term_ueb_list_result_for_root(term_ueb_list_response_root(index))
-                .map(HbciJobResultData::TermUebList),
             "TermUebSEPAList" => self
                 .term_ueb_list_result_for_root(term_ueb_sepa_list_response_root(index))
                 .map(HbciJobResultData::TermUebList),
@@ -5462,9 +4554,6 @@ impl ParsedResponseStatus {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
             "CardList" => self.content_result_data([card_list_response_root(index)]),
-            "DauerEdit" => self.content_result_data([dauer_edit_response_root(index)]),
-            "DauerList" => self.content_result_data([dauer_list_response_root(index)]),
-            "DauerNew" => self.content_result_data([dauer_new_response_root(index)]),
             "DauerSEPADel" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
@@ -5490,8 +4579,6 @@ impl ParsedResponseStatus {
             "MultiLastSEPA" => self.content_result_data([multi_last_sepa_response_root(index)]),
             "Kontoauszug" => self.content_result_data([kontoauszug_response_root(index)]),
             "KontoauszugPdf" => self.content_result_data([kontoauszug_pdf_response_root(index)]),
-            "TermUeb" => self.content_result_data([term_ueb_response_root(index)]),
-            "TermUebEdit" => self.content_result_data([term_ueb_edit_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermMultiUebSEPA" => {
                 self.content_result_data([term_multi_ueb_sepa_response_root(index)])
@@ -5499,7 +4586,6 @@ impl ParsedResponseStatus {
             "TermUebSEPAEdit" => {
                 self.content_result_data([term_ueb_sepa_edit_response_root(index)])
             }
-            "TermUebList" => self.content_result_data([term_ueb_list_response_root(index)]),
             "TermUebSEPAList" => {
                 self.content_result_data([term_ueb_sepa_list_response_root(index)])
             }
@@ -6462,7 +5548,7 @@ fn update_passport_job_persistent_data_from_results(
 ) {
     for (job, result) in jobs.iter().zip(results) {
         match result.job_name.as_str() {
-            "DauerList" | "DauerSEPAList" | "DauerLastSEPAList" => {
+            "DauerSEPAList" | "DauerLastSEPAList" => {
                 let Some(order_id) = result
                     .result_data
                     .get("content.orderid")
@@ -6531,68 +5617,6 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
                 }
             }
-            "DauerNew" => {
-                let Some(order_id) = result
-                    .result_data
-                    .get("content.orderid")
-                    .filter(|order_id| !order_id.is_empty())
-                else {
-                    continue;
-                };
-                let snapshot =
-                    classic_inland_request_persistent_snapshot(job, passport, "DauerNew5");
-                if !snapshot.is_empty() {
-                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
-                }
-            }
-            "DauerEdit" => {
-                let Some(order_id) = result
-                    .result_data
-                    .get("content.orderid")
-                    .filter(|order_id| !order_id.is_empty())
-                else {
-                    continue;
-                };
-                let snapshot = classic_inland_request_persistent_snapshot_without_orderid(
-                    job,
-                    passport,
-                    "DauerEdit5",
-                );
-                if !snapshot.is_empty() {
-                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
-                }
-            }
-            "TermUeb" => {
-                let Some(order_id) = result
-                    .result_data
-                    .get("content.orderid")
-                    .filter(|order_id| !order_id.is_empty())
-                else {
-                    continue;
-                };
-                let snapshot =
-                    classic_inland_request_persistent_snapshot(job, passport, "TermUeb4");
-                if !snapshot.is_empty() {
-                    passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
-                }
-            }
-            "TermUebEdit" => {
-                let Some(order_id) = result
-                    .result_data
-                    .get("content.orderid")
-                    .filter(|order_id| !order_id.is_empty())
-                else {
-                    continue;
-                };
-                let snapshot = classic_inland_request_persistent_snapshot_without_id(
-                    job,
-                    passport,
-                    "TermUebEdit4",
-                );
-                if !snapshot.is_empty() {
-                    passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
-                }
-            }
             "TermUebSEPA" => {
                 let Some(order_id) = result
                     .result_data
@@ -6655,7 +5679,7 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("termlast_{order_id}"), snapshot);
                 }
             }
-            "TermUebList" | "TermUebSEPAList" => {
+            "TermUebSEPAList" => {
                 let Some(order_id) = result
                     .result_data
                     .get("content.orderid")
@@ -6811,80 +5835,6 @@ fn last_sepa_request_persistent_snapshot(
     }
 
     snapshot
-}
-
-fn classic_inland_request_persistent_snapshot(
-    job: &HbciJob,
-    passport: &PinTanPassport,
-    lowlevel_segment: &str,
-) -> Properties {
-    let mut snapshot = Properties::new();
-    let prefix = format!("{lowlevel_segment}.");
-
-    for (key, value) in job.lowlevel_params() {
-        let Some(suffix) = key.strip_prefix(&prefix) else {
-            continue;
-        };
-        snapshot.insert(suffix.to_owned(), value.clone());
-    }
-
-    let source_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "src",
-    );
-    insert_classic_account_snapshot(&mut snapshot, "My", &source_account);
-
-    let destination_account =
-        classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
-    insert_classic_account_snapshot(&mut snapshot, "Other", &destination_account);
-
-    snapshot
-}
-
-fn classic_inland_request_persistent_snapshot_without_id(
-    job: &HbciJob,
-    passport: &PinTanPassport,
-    lowlevel_segment: &str,
-) -> Properties {
-    let mut snapshot = classic_inland_request_persistent_snapshot(job, passport, lowlevel_segment);
-    snapshot.retain(|key, _value| key != "id" && !key.ends_with(".id"));
-    snapshot
-}
-
-fn classic_inland_request_persistent_snapshot_without_orderid(
-    job: &HbciJob,
-    passport: &PinTanPassport,
-    lowlevel_segment: &str,
-) -> Properties {
-    let mut snapshot = classic_inland_request_persistent_snapshot(job, passport, lowlevel_segment);
-    snapshot.retain(|key, _value| key != "orderid" && !key.ends_with(".orderid"));
-    snapshot
-}
-
-fn insert_classic_account_snapshot(snapshot: &mut Properties, prefix: &str, account: &Konto) {
-    insert_optional_snapshot_value(
-        snapshot,
-        &format!("{prefix}.number"),
-        account.number.as_deref(),
-    );
-    insert_optional_snapshot_value(
-        snapshot,
-        &format!("{prefix}.subnumber"),
-        account.subnumber.as_deref(),
-    );
-    insert_optional_snapshot_value(
-        snapshot,
-        &format!("{prefix}.KIK.country"),
-        account.country.as_deref().or(Some("DE")),
-    );
-    insert_optional_snapshot_value(
-        snapshot,
-        &format!("{prefix}.KIK.blz"),
-        account.blz.as_deref(),
-    );
 }
 
 fn snapshot_value_for_request_suffix(suffix: &str, value: &str) -> String {

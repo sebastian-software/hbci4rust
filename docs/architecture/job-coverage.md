@@ -55,7 +55,8 @@ jobs remain in scope.
 `TermUebDel`, and `TermUebList` were intentionally removed from the public
 registry in ADR 0269 because they are classic national standing-order and
 scheduled-transfer jobs. The modern SEPA standing-order and scheduled-transfer
-jobs remain in scope.
+jobs remain in scope. ADR 0276 removed the now-unreachable internal
+implementation branches for those classic jobs.
 
 ## How To Recheck
 
@@ -87,5 +88,6 @@ not vendored and CI remains offline-only.
 - `docs/adr/0267-remove-classic-direct-debit-public-jobs.md`
 - `docs/adr/0268-remove-classic-domestic-transfer-public-jobs.md`
 - `docs/adr/0269-remove-classic-scheduled-standing-public-jobs.md`
+- `docs/adr/0276-remove-classic-scheduled-standing-internals.md`
 - `docs/reference/unsupported-surfaces.md`
 - `scripts/audit-job-coverage.sh`
