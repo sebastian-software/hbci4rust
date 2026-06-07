@@ -1103,6 +1103,7 @@ fn render_job_into_custom_message(
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
         "CardList" => render_card_list(message, job, index, passport),
+        "ChangePIN" => render_change_pin(message, job, index),
         "DauerDel" => render_dauer_del(message, job, index, passport),
         "DauerEdit" => render_dauer_edit(message, job, index, passport),
         "DauerList" => render_dauer_list(message, job, index, passport),
@@ -1342,6 +1343,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKAZK",
             lowlevel_segment: "CardList2",
             path: "CustomMsg.GV.CardList2",
+        }),
+        "ChangePIN" => Ok(OrderhashSourceJobInfo {
+            code: "HKPAE",
+            lowlevel_segment: "ChangePIN1",
+            path: "CustomMsg.GV.ChangePIN1",
         }),
         "DauerDel" => Ok(OrderhashSourceJobInfo {
             code: "HKDAL",
@@ -2301,6 +2307,25 @@ fn render_tan_list(message: &mut HbciMessage, index: usize) -> HbciResult<()> {
         format!("CustomMsg.GV_{}", index + 1)
     };
     message.set_value(&format!("{root}.TANListList1"), "requested")
+}
+
+fn render_change_pin(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.ChangePIN1");
+
+    message.set_value(&segment, "requested")?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.newpin"),
+        job,
+        "ChangePIN1.newpin",
+        "newpin",
+        "ChangePIN requires newpin",
+    )
 }
 
 fn render_vop_auth(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {

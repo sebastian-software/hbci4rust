@@ -708,6 +708,34 @@ fn tan_list_exposes_original_near_empty_constraints() {
 }
 
 #[test]
+fn change_pin_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("ChangePIN").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 1);
+    assert_eq!(
+        job.constraint("newpin")
+            .expect("newpin constraint")
+            .destination_name,
+        "ChangePIN1.newpin"
+    );
+    assert_eq!(
+        job.constraint("newpin")
+            .expect("newpin constraint")
+            .default_value
+            .as_deref(),
+        None
+    );
+    assert!(job.constraint("oldpin").is_none());
+
+    job.try_set_param("newpin", "98765")
+        .expect("newpin is accepted");
+    assert_eq!(job.param("newpin"), Some("98765"));
+    assert_eq!(job.lowlevel_param("ChangePIN1.newpin"), Some("98765"));
+}
+
+#[test]
 fn vop_auth_exposes_original_near_constraints_and_binary_vopid() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -11690,6 +11718,38 @@ async fn handler_renders_tan_list_request_like_original() {
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
     assert!(body.contains("HKTAZ:3:1'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_change_pin_request_like_original_without_switching_cached_pin() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("ChangePIN").expect("job is in registry");
+    job.try_set_param("newpin", "98765")
+        .expect("newpin is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "ChangePIN");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert!(
+        !status.job_results[0]
+            .result_data
+            .keys()
+            .any(|key| key.starts_with("content."))
+    );
+    assert_eq!(handler.passport().pin(), Some("12345"));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert!(body.contains("HKPAE:3:1+98765'"), "{body}");
     assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 

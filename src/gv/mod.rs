@@ -17,6 +17,7 @@ use crate::tools::Properties;
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
     "CardList",
+    "ChangePIN",
     "DauerDel",
     "DauerEdit",
     "DauerLastSEPAList",
@@ -849,6 +850,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "AccInfo" => acc_info_constraints(),
         "CardList" => card_list_constraints(),
+        "ChangePIN" => change_pin_constraints(),
         "DauerDel" => dauer_del_constraints(),
         "DauerEdit" => dauer_edit_constraints(),
         "DauerList" => dauer_list_constraints(),
@@ -922,6 +924,14 @@ fn dauer_sepa_list_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("orderid", "DauerSEPAList2.orderid", Some("")),
         HbciJobConstraint::new("maxentries", "DauerSEPAList2.maxentries", Some("")),
     ]
+}
+
+fn change_pin_constraints() -> Vec<HbciJobConstraint> {
+    vec![HbciJobConstraint::new(
+        "newpin",
+        "ChangePIN1.newpin",
+        None::<String>,
+    )]
 }
 
 fn dauer_last_sepa_list_constraints() -> Vec<HbciJobConstraint> {
