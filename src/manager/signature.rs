@@ -1,6 +1,6 @@
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::passport::{ONESTEP_TAN_METHOD_ID, PinTanPassport, UserSig};
-use crate::protocol::HbciMessage;
+use crate::protocol::{HbciMessage, SyntaxElement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinTanSigHead {
@@ -176,6 +176,33 @@ pub fn apply_pintan_signature_shell(
     apply_pintan_user_sig_to_sig_tail(message, sig_tail_path, signature)
 }
 
+pub fn collect_pintan_signature_range(
+    message: &HbciMessage,
+    sig_head_path: &str,
+    sig_tail_path: &str,
+) -> HbciResult<String> {
+    let children = message.root().children();
+    let sig_head_index = top_level_child_index(children, sig_head_path)?;
+    let sig_tail_index = top_level_child_index(children, sig_tail_path)?;
+
+    if sig_tail_index <= sig_head_index {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("signature tail {sig_tail_path} does not follow head {sig_head_path}"),
+        ));
+    }
+
+    let mut range = String::new();
+    for child in &children[sig_head_index..sig_tail_index] {
+        if child.min_num() == 0 && !has_explicit_message_content(child) {
+            continue;
+        }
+        range.push_str(&child.to_fints_string()?);
+    }
+
+    Ok(range)
+}
+
 pub fn apply_pintan_user_sig_to_sig_tail(
     message: &mut HbciMessage,
     sig_tail_path: &str,
@@ -189,6 +216,24 @@ pub fn apply_pintan_user_sig_to_sig_tail(
     }
 
     Ok(())
+}
+
+fn top_level_child_index(children: &[SyntaxElement], path: &str) -> HbciResult<usize> {
+    children
+        .iter()
+        .position(|child| child.path() == path)
+        .ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("message has no top-level signature element {path}"),
+            )
+        })
+}
+
+fn has_explicit_message_content(element: &SyntaxElement) -> bool {
+    element.value().is_some()
+        || element.is_requested()
+        || element.children().iter().any(has_explicit_message_content)
 }
 
 fn required_passport_value<'a>(value: &'a str, message: &str) -> HbciResult<&'a str> {

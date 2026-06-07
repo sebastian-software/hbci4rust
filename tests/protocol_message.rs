@@ -1,7 +1,7 @@
 use hbci4rust::{
     HbciErrorKind, PinTanPassport, PinTanPassportData, PinTanSigHead, UserSig,
     apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_signature_shell,
-    apply_pintan_user_sig_to_sig_tail,
+    apply_pintan_user_sig_to_sig_tail, collect_pintan_signature_range,
     protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec},
 };
 
@@ -401,6 +401,66 @@ fn applies_pintan_signature_shell_like_hbci4java_sign_sequence() {
             msg_size,
         )
     );
+}
+
+#[test]
+fn collects_pintan_signature_range_like_hbci4java_collect_hash_data() {
+    let mut message = dialog_end_message_shell();
+    let passport = pintan_passport_with_tan_method("921");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF5", "3", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+    let signature = UserSig::encode(Some("12345"), Some("987654")).expect("usersig encodes");
+    apply_pintan_signature_shell(
+        &mut message,
+        "DialogEnd.SigHead",
+        "DialogEnd.SigTail",
+        &sig_head,
+        &signature,
+    )
+    .expect("signature shell applies");
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+
+    let range = collect_pintan_signature_range(&message, "DialogEnd.SigHead", "DialogEnd.SigTail")
+        .expect("signature range collects");
+
+    assert_eq!(
+        range,
+        concat!(
+            "HNSHK:2:4+PIN:2+921+REF5+1+1+1::0+3+1:20240229:070809+1:999:1+6:10:16+280:12345678:user:S:0:0'",
+            "HKEND:3:1+DIALOG1'",
+        )
+    );
+    assert!(!range.contains("HNHBK"));
+    assert!(!range.contains("HNSHA"));
+    assert!(!range.contains("HNHBS"));
+}
+
+#[test]
+fn rejects_pintan_signature_range_when_tail_path_is_missing() {
+    let mut message = dialog_end_message_shell();
+    let passport = pintan_passport_with_tan_method("921");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF6", "3", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+    let signature = UserSig::encode(Some("12345"), None).expect("usersig encodes");
+    apply_pintan_signature_shell(
+        &mut message,
+        "DialogEnd.SigHead",
+        "DialogEnd.SigTail",
+        &sig_head,
+        &signature,
+    )
+    .expect("signature shell applies");
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+
+    let err = collect_pintan_signature_range(&message, "DialogEnd.SigHead", "DialogEnd.SigTail_2")
+        .expect_err("missing signature tail path is rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::InvalidArgument);
+    assert!(err.message().contains("DialogEnd.SigTail_2"), "{err}");
 }
 
 #[test]
