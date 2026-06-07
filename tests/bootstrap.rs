@@ -70,7 +70,11 @@ struct ScriptedCallback {
 #[async_trait]
 impl HbciCallback for ScriptedCallback {
     async fn handle(&self, event: CallbackEvent) -> HbciResult<CallbackResponse> {
+        let reason = event.reason;
         self.events.lock().expect("callback event lock").push(event);
+        if !callback_reason_expects_response(reason) {
+            return Ok(CallbackResponse::empty());
+        }
         Ok(self
             .responses
             .lock()
@@ -78,6 +82,26 @@ impl HbciCallback for ScriptedCallback {
             .pop_front()
             .unwrap_or_else(CallbackResponse::empty))
     }
+}
+
+fn callback_reason_expects_response(reason: CallbackReason) -> bool {
+    matches!(
+        reason,
+        CallbackReason::NeedCountry
+            | CallbackReason::NeedBlz
+            | CallbackReason::NeedHost
+            | CallbackReason::NeedPort
+            | CallbackReason::NeedFilter
+            | CallbackReason::NeedUserId
+            | CallbackReason::NeedCustomerId
+            | CallbackReason::NeedPtPin
+            | CallbackReason::NeedPtTan
+            | CallbackReason::NeedPtSecMech
+            | CallbackReason::NeedPtTanMedia
+            | CallbackReason::HaveCrcError
+            | CallbackReason::HaveError
+            | CallbackReason::HaveIbanError
+    )
 }
 
 #[derive(Debug)]
@@ -5708,14 +5732,16 @@ async fn handler_init_requests_pin_for_signed_dialog_init() {
         .iter()
         .map(|event| event.reason)
         .collect::<Vec<_>>();
-    assert_eq!(
-        reasons,
-        [
-            CallbackReason::NeedPtPin,
+    let pin_events = reasons
+        .iter()
+        .filter(|reason| **reason == CallbackReason::NeedPtPin)
+        .count();
+    assert_eq!(pin_events, 1);
+    assert!(reasons.windows(2).any(|window| window
+        == [
             CallbackReason::NeedConnection,
             CallbackReason::CloseConnection,
-        ]
-    );
+        ]));
     done().expect("runtime reset");
 }
 
@@ -12160,7 +12186,16 @@ async fn handler_signs_pintan_usersig_for_sca_challenge() {
     assert_eq!(handler.passport().pin(), Some("12345"));
 
     let events = events.lock().expect("callback event lock");
-    let reasons = events.iter().map(|event| event.reason).collect::<Vec<_>>();
+    let reasons = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.reason,
+                CallbackReason::NeedPtPin | CallbackReason::NeedPtTan
+            )
+        })
+        .map(|event| event.reason)
+        .collect::<Vec<_>>();
     assert_eq!(
         reasons,
         [CallbackReason::NeedPtPin, CallbackReason::NeedPtTan]
@@ -13743,11 +13778,14 @@ async fn handler_requests_onestep_tan_for_required_signed_segment() {
     assert_eq!(sig_tail_parts.get(3).copied(), Some("12345:987654"));
 
     let events = events.lock().expect("callback event lock");
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].reason, CallbackReason::NeedPtTan);
-    assert_eq!(events[0].data_type, CallbackDataType::Text);
-    assert_eq!(events[0].message, "Please enter a TAN now");
-    assert_eq!(events[0].current_value, None);
+    let tan_events = events
+        .iter()
+        .filter(|event| event.reason == CallbackReason::NeedPtTan)
+        .collect::<Vec<_>>();
+    assert_eq!(tan_events.len(), 1);
+    assert_eq!(tan_events[0].data_type, CallbackDataType::Text);
+    assert_eq!(tan_events[0].message, "Please enter a TAN now");
+    assert_eq!(tan_events[0].current_value, None);
     drop(events);
     done().expect("runtime reset");
 }

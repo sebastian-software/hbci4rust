@@ -322,19 +322,12 @@ where
             .render_dialog_init(&request_ref, callback.as_deref())
             .await?;
 
-        if let Some(callback) = callback.as_ref() {
-            callback
-                .handle(CallbackEvent::new(CallbackReason::NeedConnection))
-                .await?;
-        }
-
-        let response = self.comm.send(CommRequest::new(host, body)).await?;
-
-        if let Some(callback) = callback.as_ref() {
-            callback
-                .handle(CallbackEvent::new(CallbackReason::CloseConnection))
-                .await?;
-        }
+        let response = send_with_connection_callbacks(
+            &self.comm,
+            CommRequest::new(host, body),
+            callback.as_deref(),
+        )
+        .await?;
 
         if response.status >= 400 {
             return Err(HbciError::new(
@@ -403,7 +396,12 @@ where
             .render_queued_jobs(&request_ref, callback.as_deref())
             .await?;
 
-        let response = self.comm.send(CommRequest::new(host, body)).await?;
+        let response = send_with_connection_callbacks(
+            &self.comm,
+            CommRequest::new(host, body),
+            callback.as_deref(),
+        )
+        .await?;
         self.dialog.advance_message_number();
         let http_success = response.status < 400;
         let response_status = if http_success {
@@ -643,7 +641,12 @@ where
             .render_dialog_end(&request_ref, callback.as_deref())
             .await?;
 
-        let response = self.comm.send(CommRequest::new(host, body)).await?;
+        let response = send_with_connection_callbacks(
+            &self.comm,
+            CommRequest::new(host, body),
+            callback.as_deref(),
+        )
+        .await?;
         if response.status >= 400 {
             return Err(HbciError::new(
                 HbciErrorKind::Network,
@@ -781,6 +784,31 @@ where
         message.prepare_outgoing()?;
         message.to_fints_bytes()
     }
+}
+
+async fn send_with_connection_callbacks<C>(
+    comm: &C,
+    request: CommRequest,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<CommResponse>
+where
+    C: CommClient,
+{
+    if let Some(callback) = callback {
+        callback
+            .handle(CallbackEvent::new(CallbackReason::NeedConnection))
+            .await?;
+    }
+
+    let response = comm.send(request).await?;
+
+    if let Some(callback) = callback {
+        callback
+            .handle(CallbackEvent::new(CallbackReason::CloseConnection))
+            .await?;
+    }
+
+    Ok(response)
 }
 
 fn merge_exec_status(target: &mut HbciExecStatus, mut source: HbciExecStatus) {

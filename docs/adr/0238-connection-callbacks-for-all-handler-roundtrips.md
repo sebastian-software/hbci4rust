@@ -47,6 +47,7 @@ The callback API stays async-first and does not introduce Java's mutable
 
 - `src/manager/handler.rs`
 - `tests/bootstrap.rs`
+- `tests/runtime_callbacks.rs`
 - `docs/adr/0004-async-tokio-architecture.md`
 - `docs/adr/0069-dialog-init-institute-message-callback-tracer.md`
 - `docs/adr/0236-optional-live-bank-test-hooks.md`
