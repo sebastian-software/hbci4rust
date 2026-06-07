@@ -7,7 +7,9 @@ for current relevance before removal or feature-gating work. ADR 0265 removed
 the two `COR1` candidates from the public registry, ADR 0266 removed the two
 DTAUS bulk candidates, and ADR 0267 removed the two classic direct-debit
 candidates. ADR 0268 removed the six classic domestic transfer/account-transfer
-candidates. That leaves 9 compatibility-carried legacy candidates in
+candidates. ADR 0269 removed the eight classic scheduled-transfer and
+standing-order candidates. That leaves 1 compatibility-carried legacy candidate
+in
 `scripts/audit-modern-scope.sh`.
 
 ## Finding
@@ -29,9 +31,11 @@ German domestic payment jobs, but it is not precise enough for the whole set.
 
 ## Local Evidence
 
-The current Rust port keeps the original-near field shapes:
+The current Rust port still keeps some original-near implementation field
+shapes internally:
 
-- classic transfer, scheduled-transfer, and standing-order jobs expose
+- removed classic transfer, scheduled-transfer, and standing-order helpers
+  expose
   `*.KIK.blz`, `*.number`, `*.subnumber`, `name2`, `key`, and repeated DTAUS
   `usage` lines;
 - `MultiUeb` and `MultiLast` accept an already serialized DTAUS payload as
@@ -44,10 +48,10 @@ The current Rust port keeps the original-near field shapes:
 
 | Job | Current relevance finding | Modern or strategic alternative | Cleanup stance |
 | --- | --- | --- | --- |
-| `DauerDel` | Classic standing-order deletion with national account fields and stored classic order data. | `DauerSEPADel` | Legacy; remove or hide with the classic standing-order slice. |
-| `DauerEdit` | Classic standing-order edit with national account fields and DTAUS-style usage. | `DauerSEPAEdit` | Legacy; remove or hide with the classic standing-order slice. |
-| `DauerList` | Classic standing-order list query keyed by national account identity. | `DauerSEPAList` | Legacy; remove or hide with the classic standing-order slice. |
-| `DauerNew` | Classic standing-order creation with national account fields and DTAUS-style usage. | `DauerSEPANew` | Legacy; remove or hide with the classic standing-order slice. |
+| `DauerDel` | Classic standing-order deletion with national account fields and stored classic order data. | `DauerSEPADel` | Removed from public registry by ADR 0269. |
+| `DauerEdit` | Classic standing-order edit with national account fields and DTAUS-style usage. | `DauerSEPAEdit` | Removed from public registry by ADR 0269. |
+| `DauerList` | Classic standing-order list query keyed by national account identity. | `DauerSEPAList` | Removed from public registry by ADR 0269. |
+| `DauerNew` | Classic standing-order creation with national account fields and DTAUS-style usage. | `DauerSEPANew` | Removed from public registry by ADR 0269. |
 | `Donation` | hbci4java alias over classic `Ueb5` with donation-specific DTAUS usage fields. | `UebSEPA` plus caller-side remittance purpose handling | Removed from public registry by ADR 0268. |
 | `Last` | Classic domestic direct-debit submission predating the SEPA direct-debit rail. | `LastSEPA`, `LastB2BSEPA` | Removed from public registry by ADR 0267. |
 | `LastCOR1SEPA` | SEPA job, but `COR1` is obsolete for new SDD Core collections. | `LastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
@@ -55,10 +59,10 @@ The current Rust port keeps the original-near field shapes:
 | `MultiLastCOR1SEPA` | SEPA bulk job, but `COR1` is obsolete for new SDD Core collections. | `MultiLastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
 | `MultiUeb` | Classic domestic bulk transfer with serialized DTAUS payload. | `MultiUebSEPA` | Removed from public registry by ADR 0266. |
 | `StornoLast` | Classic domestic direct-debit objection path, tied to the pre-SEPA direct-debit surface. | Explicit future dispute/return workflow if needed | Removed from public registry by ADR 0267. |
-| `TermUeb` | Classic scheduled transfer with national source and destination account fields. | `TermUebSEPA`, `TermMultiUebSEPA` | Legacy; remove or hide with classic scheduled transfers. |
-| `TermUebDel` | Classic scheduled-transfer deletion using stored classic order data. | `TermUebSEPADel` | Legacy; remove or hide with classic scheduled transfers. |
-| `TermUebEdit` | Classic scheduled-transfer edit with national account fields and DTAUS-style usage. | `TermUebSEPAEdit` | Legacy; remove or hide with classic scheduled transfers. |
-| `TermUebList` | Classic scheduled-transfer list query keyed by national account identity. | `TermUebSEPAList` | Legacy; remove or hide with classic scheduled transfers. |
+| `TermUeb` | Classic scheduled transfer with national source and destination account fields. | `TermUebSEPA`, `TermMultiUebSEPA` | Removed from public registry by ADR 0269. |
+| `TermUebDel` | Classic scheduled-transfer deletion using stored classic order data. | `TermUebSEPADel` | Removed from public registry by ADR 0269. |
+| `TermUebEdit` | Classic scheduled-transfer edit with national account fields and DTAUS-style usage. | `TermUebSEPAEdit` | Removed from public registry by ADR 0269. |
+| `TermUebList` | Classic scheduled-transfer list query keyed by national account identity. | `TermUebSEPAList` | Removed from public registry by ADR 0269. |
 | `Ueb` | Classic domestic credit transfer using account-number/bank-sort-code and DTAUS-style usage. | `UebSEPA`, `InstUebSEPA` | Removed from public registry by ADR 0268. |
 | `UebBZU` | Classic domestic transfer variant over `Ueb5` with special reference/check-digit data. | `UebSEPA` plus caller-side remittance handling when applicable | Removed from public registry by ADR 0268. |
 | `UebEil` | Classic urgent domestic transfer segment. | `InstUebSEPA` or bank-specific modern urgent-payment support | Removed from public registry by ADR 0268. |
@@ -75,11 +79,11 @@ removed from the public registry by ADR 0265. `MultiUeb` and `MultiLast` were
 already removed from the public registry by ADR 0266. `Last` and `StornoLast`
 were already removed from the public registry by ADR 0267. `Ueb`, `UebEil`,
 `UebGar`, `UebBZU`, `Umb`, and `Donation` were already removed from the public
-registry by ADR 0268.
+registry by ADR 0268. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`,
+`DauerNew`, `DauerEdit`, `DauerDel`, and `DauerList` were already removed from
+the public registry by ADR 0269.
 
-1. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`,
-   `DauerEdit`, `DauerDel`, `DauerList`
-2. `UebForeign`
+1. `UebForeign`
 
 ## Source Links
 
@@ -91,6 +95,12 @@ registry by ADR 0268.
   `https://www.bundesbank.de/en/tasks/payment-systems/services/sepa/content/sepa-direct-debit-626654`
 - Deutsche Bundesbank SEPA migration completed:
   `https://www.bundesbank.de/de/presse/pressenotizen/sepa-umstellung-erfolgreich-abgeschlossen-664750`
+- Sparkasse standing orders:
+  `https://www.sparkasse.de/pk/produkte/konten-und-karten/banking/online-services/dauerauftrag.html`
+- Sparkasse transfers:
+  `https://www.sparkasse.de/pk/produkte/konten-und-karten/banking/ueberweisung.html`
+- ING standing orders:
+  `https://www.ing.de/hilfe/zahlungsverkehr/ueberweisen/dauerauftraege/`
 - European Payments Council COR1 note:
   `https://www.europeanpaymentscouncil.eu/document-library/guidance-documents/explanatory-note-use-cor1-and-smnda-sdd-r-transactions`
 - Swift ISO 20022 for financial institutions:

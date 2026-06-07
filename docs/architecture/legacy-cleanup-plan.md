@@ -56,9 +56,9 @@ The machine-checkable source of truth is `scripts/audit-modern-scope.sh`.
 Current snapshot:
 
 ```text
-registry=55
+registry=47
 modern=46
-legacy=9
+legacy=1
 unclassified=<none>
 stale=<none>
 duplicates=<none>
@@ -79,13 +79,13 @@ Completed cleanup:
 | DTAUS bulk jobs | `MultiUeb`, `MultiLast` | Removed from the public registry in ADR 0266; shared lowlevel DTAUS helpers remain temporarily. |
 | Classic direct debit and objection | `Last`, `StornoLast` | Removed from the public registry in ADR 0267; shared lowlevel helpers remain temporarily. |
 | Classic domestic credit and account transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation` | Removed from the public registry in ADR 0268; shared lowlevel helpers remain temporarily. |
+| Classic scheduled transfers and standing orders | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | Removed from the public registry in ADR 0269; shared lowlevel helpers, result normalization, and parser support remain temporarily. |
 
 Remaining recommended cleanup order:
 
 | Order | Category | Job names | Why this order |
 | --- | --- | --- | --- |
-| 1 | Classic scheduled and standing orders | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | Highest persistence/test coupling because order snapshots and result shapes overlap with modern standing-order behavior. |
-| 2 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments remain current, so this old HKAOM/UebForeign2 job needs a separate product-boundary ADR before removal. |
+| 1 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments remain current, so this old HKAOM/UebForeign2 job needs a separate product-boundary ADR before removal. |
 
 ## Slice Template
 

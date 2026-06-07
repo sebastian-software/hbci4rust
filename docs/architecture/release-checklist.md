@@ -58,8 +58,9 @@ and full logs under `target/release-gates/`.
 
 - [x] Static high-level job registry covers all in-scope upstream `GV*.java`
   classes except the intentional `GVTemplate` lowlevel boundary and the
-  unsupported `COR1`, DTAUS bulk, classic direct-debit, and classic domestic
-  transfer/account-transfer jobs.
+  unsupported `COR1`, DTAUS bulk, classic direct-debit, classic domestic
+  transfer/account-transfer, classic scheduled-transfer, and classic
+  standing-order jobs.
 - [x] Normalized typed result coverage covers all in-scope upstream `GVR*.java`
   shapes except the intentional `WPStammData` lowlevel boundary.
 - [x] Coverage audit docs are current after the final release-candidate commit.
@@ -76,6 +77,7 @@ Evidence:
 - ADR 0266
 - ADR 0267
 - ADR 0268
+- ADR 0269
 
 ## Protocol And Offline Parity
 

@@ -49,7 +49,7 @@ show:
 
 | Audit | Upstream surface | Rust v1 coverage | Intentional gap |
 | --- | --- | --- | --- |
-| Jobs | 68 `GV*.java` classes | 55 registered jobs | `GVTemplate`, `GVDonation`, `GVLast`, `GVLastCOR1SEPA`, `GVMultiLast`, `GVMultiLastCOR1SEPA`, `GVMultiUeb`, `GVStornoLast`, `GVUeb`, `GVUebBZU`, `GVUebEil`, `GVUebGar`, `GVUmb` |
+| Jobs | 68 `GV*.java` classes | 47 registered jobs | `GVDauerDel`, `GVDauerEdit`, `GVDauerList`, `GVDauerNew`, `GVTemplate`, `GVDonation`, `GVLast`, `GVLastCOR1SEPA`, `GVMultiLast`, `GVMultiLastCOR1SEPA`, `GVMultiUeb`, `GVStornoLast`, `GVTermUeb`, `GVTermUebDel`, `GVTermUebEdit`, `GVTermUebList`, `GVUeb`, `GVUebBZU`, `GVUebEil`, `GVUebGar`, `GVUmb` |
 | Results | 24 normalized `GVR*.java` shapes | 23 typed result shapes | `WPStammData` |
 
 The audit gaps are explicit v1 boundaries. `GVTemplate` is Java's dynamic
@@ -60,7 +60,10 @@ jobs were removed because German national transfer/direct-debit schemes were
 replaced by SEPA, the classic national direct-debit jobs were removed for the
 same reason, and the classic domestic transfer/account-transfer jobs were
 removed because current domestic transfer workflows use SEPA, instant SEPA, and
-SEPA account-transfer jobs. They are not hidden PinTAN implementation holes.
+SEPA account-transfer jobs. The classic scheduled-transfer and standing-order
+jobs were removed because current recurring and scheduled domestic payment
+workflows use SEPA standing-order and scheduled-transfer jobs. They are not
+hidden PinTAN implementation holes.
 
 Some classic hbci4java payment jobs are currently still present for
 original-near compatibility, but they are not the product direction. See
@@ -68,7 +71,8 @@ original-near compatibility, but they are not the product direction. See
 surface, compatibility-carried legacy surface, and unsupported legacy surface.
 The original audit found 21 legacy candidates; after removing `COR1`, DTAUS
 bulk, classic direct-debit, and classic domestic transfer/account-transfer public
-jobs, 9 compatibility-carried legacy jobs remain. Their guarded cleanup path is
+jobs, and classic scheduled-transfer/standing-order public jobs, 1
+compatibility-carried legacy job remains. Its guarded cleanup path is
 documented in
 `docs/architecture/legacy-cleanup-plan.md`.
 
@@ -123,6 +127,10 @@ Current evidence supports that stance:
 - Bundesbank SEPA documentation records that national credit transfer and
   direct-debit schemes were replaced by SEPA, with German transition allowances
   ending in 2016.
+- Sparkasse and ING document current standing-order creation, editing, and
+  deletion through online/app banking with IBAN and TAN/app approval; that
+  supports keeping SEPA standing-order jobs while removing classic national
+  `Dauer*` jobs.
 - EPC guidance says the SEPA `COR1` local instrument is no longer relevant for
   new SDD Core collections from 20 November 2016.
 - EU/ECB instant-payment guidance makes `InstUebSEPA` and verification-style

@@ -69,7 +69,15 @@ public registry:
 - `UebBZU`;
 - `UebEil`;
 - `UebGar`;
-- `Umb`.
+- `Umb`;
+- `DauerNew`;
+- `DauerEdit`;
+- `DauerDel`;
+- `DauerList`;
+- `TermUeb`;
+- `TermUebEdit`;
+- `TermUebDel`;
+- `TermUebList`.
 
 `LastCOR1SEPA` and `MultiLastCOR1SEPA` were compatibility-carried SEPA `COR1`
 direct-debit variants. EPC guidance states that `COR1` is no longer relevant
@@ -95,6 +103,13 @@ account-transfer workflows. Donation remittance can be represented through
 caller-chosen SEPA purpose or remittance data rather than the old `Donation`
 alias.
 
+`DauerNew`, `DauerEdit`, `DauerDel`, `DauerList`, `TermUeb`, `TermUebEdit`,
+`TermUebDel`, and `TermUebList` were compatibility-carried classic national
+standing-order and scheduled-transfer jobs. Use the modern SEPA jobs instead:
+`DauerSEPANew`, `DauerSEPAEdit`, `DauerSEPADel`, `DauerSEPAList`,
+`TermUebSEPA`, `TermUebSEPAEdit`, `TermUebSEPADel`, `TermUebSEPAList`, or
+`TermMultiUebSEPA`.
+
 ## Dynamic Lowlevel Boundary
 
 The public v1 job surface is a static PinTAN-compatible registry. It does not
@@ -111,10 +126,12 @@ class. It is not treated as permission to construct arbitrary lowlevel jobs.
 available for original-near rendering, result inspection, and tests. They do
 not widen v1 into a dynamic lowlevel API.
 
-The current job coverage audit therefore allows exactly thirteen missing
-upstream `GV*.java` classes: `Donation`, `Last`, `LastCOR1SEPA`, `MultiLast`,
-`MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, `Template`, `Ueb`, `UebBZU`,
-`UebEil`, `UebGar`, and `Umb`.
+The current job coverage audit therefore allows exactly twenty-one missing
+upstream `GV*.java` classes: `DauerDel`, `DauerEdit`, `DauerList`,
+`DauerNew`, `Donation`, `Last`, `LastCOR1SEPA`, `MultiLast`,
+`MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, `Template`, `TermUeb`,
+`TermUebDel`, `TermUebEdit`, `TermUebList`, `Ueb`, `UebBZU`, `UebEil`,
+`UebGar`, and `Umb`.
 
 ## Typed Result Boundary
 
@@ -206,3 +223,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0266: Remove DTAUS Bulk Public Jobs
 - ADR 0267: Remove Classic Direct Debit Public Jobs
 - ADR 0268: Remove Classic Domestic Transfer Jobs From Public Registry
+- ADR 0269: Remove Classic Scheduled And Standing Public Jobs

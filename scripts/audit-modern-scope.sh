@@ -53,14 +53,6 @@ modern_jobs=(
 )
 
 legacy_jobs=(
-  DauerDel
-  DauerEdit
-  DauerList
-  DauerNew
-  TermUeb
-  TermUebDel
-  TermUebEdit
-  TermUebList
   UebForeign
 )
 

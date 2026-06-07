@@ -18,8 +18,8 @@ security-media holes:
 ```text
 $ scripts/audit-job-coverage.sh
 upstream=68
-rust=55
-missing=Donation,Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template,Ueb,UebBZU,UebEil,UebGar,Umb
+rust=47
+missing=DauerDel,DauerEdit,DauerList,DauerNew,Donation,Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template,TermUeb,TermUebDel,TermUebEdit,TermUebList,Ueb,UebBZU,UebEil,UebGar,Umb
 extra=<none>
 
 $ scripts/audit-result-coverage.sh
@@ -49,6 +49,12 @@ remain in scope.
 removed from the public registry because they are classic national domestic
 transfer or account-transfer jobs. The SEPA transfer, instant-transfer, bulk,
 scheduled-transfer, and SEPA account-transfer jobs remain in scope.
+
+`GVDauerNew`, `GVDauerEdit`, `GVDauerDel`, `GVDauerList`, `GVTermUeb`,
+`GVTermUebEdit`, `GVTermUebDel`, and `GVTermUebList` were removed from the
+public registry because they are classic national standing-order or
+scheduled-transfer jobs. The SEPA standing-order and scheduled-transfer jobs
+remain in scope.
 
 `WPStammData` is intentionally excluded because the upstream result class is
 documented around the lowlevel `WPStammList` path instead of a normal

@@ -40,6 +40,9 @@ External evidence:
   documents two-step TAN procedures such as chipTAN and mobileTAN.
 - Sparkasse describes classic HBCI chipcard banking as secure but laborious and
   says it is not recommended today.
+- Sparkasse and ING document current standing-order workflows through online or
+  app banking using recipient IBAN plus TAN/app approval, which supports the
+  SEPA standing-order surface rather than the old national `Dauer*` jobs.
 - ING documents FinTS/HBCI with PIN/password and explicitly says it does not
   offer HBCI with chipcard; its current FinTS payment support is bank-specific
   and narrower than its account-information support.
@@ -77,8 +80,6 @@ A detailed per-job current-relevance audit lives in
 | Category | Current job names | Reason for lower relevance |
 | --- | --- | --- |
 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments are current, but this HKAOM/UebForeign2 job is an old FinTS shape rather than a modern ISO 20022-oriented cross-border payment surface. |
-| Classic scheduled transfers | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList` | They are the non-SEPA counterparts to the SEPA scheduled-transfer jobs. |
-| Classic standing orders | `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | They are the non-SEPA counterparts to the SEPA standing-order jobs. |
 
 ## Intentionally Unsupported Legacy Surface
 
@@ -92,6 +93,8 @@ These surfaces remain out of scope, not merely deferred:
 - `MultiUeb` and `MultiLast`;
 - `Last` and `StornoLast`;
 - `Donation`, `Ueb`, `UebBZU`, `UebEil`, `UebGar`, and `Umb`;
+- `DauerNew`, `DauerEdit`, `DauerDel`, and `DauerList`;
+- `TermUeb`, `TermUebEdit`, `TermUebDel`, and `TermUebList`;
 - arbitrary dynamic lowlevel jobs through public `newLowlevelJob(...)`;
 - `GVTemplate`;
 - `WPStammData` / lowlevel `WPStammList`.
@@ -120,9 +123,9 @@ scripts/audit-modern-scope.sh
 Current output:
 
 ```text
-registry=55
+registry=47
 modern=46
-legacy=9
+legacy=1
 duplicates=<none>
 unclassified=<none>
 stale=<none>
@@ -142,6 +145,12 @@ legacy-carried jobs.
   `https://www.bundesbank.de/en/tasks/payment-systems/services/sepa/content/sepa-credit-transfer-626664`
 - Deutsche Bundesbank SEPA direct debit:
   `https://www.bundesbank.de/en/tasks/payment-systems/services/sepa/content/sepa-direct-debit-626654`
+- Sparkasse standing orders:
+  `https://www.sparkasse.de/pk/produkte/konten-und-karten/banking/online-services/dauerauftrag.html`
+- Sparkasse transfers:
+  `https://www.sparkasse.de/pk/produkte/konten-und-karten/banking/ueberweisung.html`
+- ING standing orders:
+  `https://www.ing.de/hilfe/zahlungsverkehr/ueberweisen/dauerauftraege/`
 - European Payments Council COR1 note:
   `https://www.europeanpaymentscouncil.eu/document-library/guidance-documents/explanatory-note-use-cor1-and-smnda-sdd-r-transactions`
 - Swift ISO 20022 for financial institutions:

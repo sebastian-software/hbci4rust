@@ -22,8 +22,8 @@ Last checked: 2026-06-07.
 
 ```text
 upstream=68
-rust=55
-missing=Donation,Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template,Ueb,UebBZU,UebEil,UebGar,Umb
+rust=47
+missing=DauerDel,DauerEdit,DauerList,DauerNew,Donation,Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template,TermUeb,TermUebDel,TermUebEdit,TermUebList,Ueb,UebBZU,UebEil,UebGar,Umb
 extra=<none>
 ```
 
@@ -51,6 +51,12 @@ domestic credit-transfer or account-transfer jobs. The modern SEPA transfer,
 instant-transfer, bulk-transfer, scheduled-transfer, and SEPA account-transfer
 jobs remain in scope.
 
+`DauerNew`, `DauerEdit`, `DauerDel`, `DauerList`, `TermUeb`, `TermUebEdit`,
+`TermUebDel`, and `TermUebList` were intentionally removed from the public
+registry in ADR 0269 because they are classic national standing-order and
+scheduled-transfer jobs. The modern SEPA standing-order and scheduled-transfer
+jobs remain in scope.
+
 ## How To Recheck
 
 ```sh
@@ -60,9 +66,11 @@ scripts/audit-job-coverage.sh
 
 The audit exits successfully only when:
 
-- the only missing upstream `GV*.java` names are `Donation`, `Last`,
-  `LastCOR1SEPA`, `MultiLast`, `MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`,
-  `Template`, `Ueb`, `UebBZU`, `UebEil`, `UebGar`, and `Umb`;
+- the only missing upstream `GV*.java` names are `DauerDel`, `DauerEdit`,
+  `DauerList`, `DauerNew`, `Donation`, `Last`, `LastCOR1SEPA`, `MultiLast`,
+  `MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, `Template`, `TermUeb`,
+  `TermUebDel`, `TermUebEdit`, `TermUebList`, `Ueb`, `UebBZU`, `UebEil`,
+  `UebGar`, and `Umb`;
 - the Rust registry has no job names without a matching upstream `GV*.java`
   class.
 
@@ -78,5 +86,6 @@ not vendored and CI remains offline-only.
 - `docs/adr/0266-remove-dtaus-bulk-public-jobs.md`
 - `docs/adr/0267-remove-classic-direct-debit-public-jobs.md`
 - `docs/adr/0268-remove-classic-domestic-transfer-public-jobs.md`
+- `docs/adr/0269-remove-classic-scheduled-standing-public-jobs.md`
 - `docs/reference/unsupported-surfaces.md`
 - `scripts/audit-job-coverage.sh`

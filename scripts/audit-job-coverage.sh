@@ -4,7 +4,7 @@ set -euo pipefail
 target="${HBCI4RUST_UPSTREAM_TARGET:-target/reference/hbci4java}"
 upstream_dir="$target/src/main/java/org/kapott/hbci/GV"
 registry_file="${HBCI4RUST_REGISTRY_FILE:-src/gv/mod.rs}"
-expected_missing="${HBCI4RUST_EXPECTED_MISSING_GV:-Donation,Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template,Ueb,UebBZU,UebEil,UebGar,Umb}"
+expected_missing="${HBCI4RUST_EXPECTED_MISSING_GV:-DauerDel,DauerEdit,DauerList,DauerNew,Donation,Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template,TermUeb,TermUebDel,TermUebEdit,TermUebList,Ueb,UebBZU,UebEil,UebGar,Umb}"
 
 join_csv() {
   awk 'BEGIN { first = 1 } { if (!first) printf ","; printf "%s", $0; first = 0 }'
