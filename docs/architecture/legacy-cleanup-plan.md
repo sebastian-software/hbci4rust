@@ -64,8 +64,8 @@ stale=<none>
 duplicates=<none>
 ```
 
-The human-readable rationale lives in
-`docs/reference/modern-scope-audit.md`.
+The human-readable rationale lives in `docs/reference/modern-scope-audit.md`
+and `docs/reference/legacy-job-relevance-audit.md`.
 
 ## Cleanup Order
 
@@ -76,8 +76,9 @@ Recommended cleanup order:
 | 1 | COR1 variants | `LastCOR1SEPA`, `MultiLastCOR1SEPA` | Small surface and strong external evidence: EPC says `COR1` is no longer relevant for new SDD Core collections from 20 November 2016. |
 | 2 | DTAUS bulk jobs | `MultiUeb`, `MultiLast` | Clear legacy payload format; keep any useful binary/protocol tests internal if needed. |
 | 3 | Classic direct debit and objection | `Last`, `StornoLast` | Pre-SEPA direct-debit rail; separate from SEPA Core/B2B direct debits. |
-| 4 | Classic domestic credit transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `UebForeign`, `Umb`, `Donation` | Larger helper-sharing surface; remove only after SEPA transfer tests prove no regression. |
+| 4 | Classic domestic credit and account transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation` | Larger helper-sharing surface; remove only after SEPA transfer tests prove no regression. |
 | 5 | Classic scheduled and standing orders | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | Highest persistence/test coupling because order snapshots and result shapes overlap with modern standing-order behavior. |
+| 6 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments remain current, so this old HKAOM/UebForeign2 job needs a separate product-boundary ADR before removal. |
 
 ## Slice Template
 

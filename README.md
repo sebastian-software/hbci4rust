@@ -121,7 +121,8 @@ Current evidence supports that stance:
 
 The detailed evidence and source links live in
 `docs/reference/security-media-scope.md` and
-`docs/reference/modern-scope-audit.md`.
+`docs/reference/modern-scope-audit.md`. The 21 legacy cleanup candidates are
+checked one by one in `docs/reference/legacy-job-relevance-audit.md`.
 
 ## Documentation Map
 
@@ -139,6 +140,8 @@ The detailed evidence and source links live in
 - `docs/reference/security-media-scope.md`: PinTAN-only scope evidence.
 - `docs/reference/modern-scope-audit.md`: modern versus legacy-carried surface
   audit.
+- `docs/reference/legacy-job-relevance-audit.md`: current relevance check for
+  every compatibility-carried legacy job candidate.
 - `docs/architecture/legacy-cleanup-plan.md`: guarded cleanup order for
   compatibility-carried jobs.
 - `docs/reference/unsupported-surfaces.md`: public v1 boundaries.

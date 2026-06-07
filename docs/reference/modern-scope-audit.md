@@ -43,6 +43,13 @@ External evidence:
 - ING documents FinTS/HBCI with PIN/password and explicitly says it does not
   offer HBCI with chipcard; its current FinTS payment support is bank-specific
   and narrower than its account-information support.
+- Deutsche Bank documents foreign and foreign-currency payments as a current
+  online-banking need, but its corporate ISO 20022 guidance treats DTAZV and
+  other non-XML or old XML payment formats as legacy formats to migrate away
+  from by November 2026.
+- Swift records the cross-border payment-instruction migration toward ISO 20022
+  and the November 2025 end of the MT/ISO 20022 coexistence period for payment
+  instructions.
 
 ## Modern V1 Surface
 
@@ -64,9 +71,13 @@ These job names are currently present because the port was originally
 package-near and original-near to hbci4java. They should not be used as examples
 for new integrations and should be reviewed before public API stabilization.
 
+A detailed per-job current-relevance audit lives in
+`docs/reference/legacy-job-relevance-audit.md`.
+
 | Category | Current job names | Reason for lower relevance |
 | --- | --- | --- |
-| Classic domestic credit transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `UebForeign`, `Umb`, `Donation` | They use national account data, classic FinTS segments, and DTAUS-style usage fields instead of SEPA payment rails. |
+| Classic domestic credit and account transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation` | They use national account data, classic FinTS segments, and DTAUS-style usage fields instead of SEPA payment rails. |
+| Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments are current, but this HKAOM/UebForeign2 job is an old FinTS shape rather than a modern ISO 20022-oriented cross-border payment surface. |
 | Classic scheduled transfers | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList` | They are the non-SEPA counterparts to the SEPA scheduled-transfer jobs. |
 | Classic standing orders | `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | They are the non-SEPA counterparts to the SEPA standing-order jobs. |
 | Classic direct debit and objection jobs | `Last`, `StornoLast` | They predate the SEPA direct-debit rail. |
@@ -127,8 +138,18 @@ legacy-carried jobs.
   `https://www.bundesbank.de/en/tasks/payment-systems/services/sepa/content`
 - Deutsche Bundesbank SEPA migration completed:
   `https://www.bundesbank.de/de/presse/pressenotizen/sepa-umstellung-erfolgreich-abgeschlossen-664750`
+- Deutsche Bundesbank SEPA credit transfer:
+  `https://www.bundesbank.de/en/tasks/payment-systems/services/sepa/content/sepa-credit-transfer-626664`
+- Deutsche Bundesbank SEPA direct debit:
+  `https://www.bundesbank.de/en/tasks/payment-systems/services/sepa/content/sepa-direct-debit-626654`
 - European Payments Council COR1 note:
   `https://www.europeanpaymentscouncil.eu/document-library/guidance-documents/explanatory-note-use-cor1-and-smnda-sdd-r-transactions`
+- Swift ISO 20022 for financial institutions:
+  `https://www.swift.com/standards/iso-20022/iso-20022-programme`
+- Deutsche Bank ISO 20022 migration:
+  `https://www.deutsche-bank.de/ub/unsere-loesungen/konto-zahlungsverkehr/iso-20022.html`
+- Deutsche Bank foreign and foreign-currency payment FAQ:
+  `https://www.deutsche-bank.de/pk/service-und-kontakt/services/fragen-antworten/konto-und-debitkarten/wie-ueberweise-ich-ausserhalb-europas-oder-in-einer-fremdwaehrung.html`
 - Council of the EU instant payments regulation:
   `https://www.consilium.europa.eu/en/press/press-releases/2024/02/26/council-adopts-regulation-on-instant-payments/`
 - ECB instant payments:
