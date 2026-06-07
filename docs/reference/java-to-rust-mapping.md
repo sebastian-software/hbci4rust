@@ -156,6 +156,9 @@ covered by callback code mapping tests.
 Replay tests inspect actual FinTS wire payloads, including signed `CustomMsg`
 requests.
 
+Optional live smoke hooks are documented in `docs/reference/live-bank-tests.md`.
+They are ignored, env-gated, and not part of CI acceptance.
+
 ## V1 Boundaries
 
 The following hbci4java concepts are intentionally outside v1:
