@@ -65,12 +65,17 @@ decryption.
 `tests/passport.rs` pins the reviewed shape:
 
 - envelope metadata values;
+- loading of a checked-in version-1 encrypted envelope fixture;
 - salt and nonce lengths;
 - rejection of empty passphrases on save and load;
 - rejection of wrong passphrases;
 - rejection of unsupported AEAD and KDF metadata;
 - rejection of invalid nonce length before decryption;
 - absence of obvious plaintext passport fields in the serialized envelope.
+
+The persisted v1 fixture lives at
+`tests/fixtures/passport/pintan-v1-envelope.json`. It uses only dummy values and
+the dummy passphrase `hbci4rust-v1-fixture-passphrase`.
 
 ## Remaining Work
 
@@ -79,7 +84,8 @@ Before the first published release:
 - rerun the release-candidate gates after the final commit;
 - decide whether to bind envelope metadata as AEAD associated data or keep v1's
   explicit metadata validation policy;
-- add persisted-format migration tests before changing the envelope version.
+- keep the checked-in v1 fixture loading or add explicit migration fixtures
+  before changing the envelope version.
 
 Reviewed sources:
 

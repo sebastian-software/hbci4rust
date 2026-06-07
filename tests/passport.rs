@@ -2,6 +2,8 @@ use hbci4rust::tools::Properties;
 use hbci4rust::{HbciErrorKind, PassportStorage, PinTanPassport, PinTanPassportData, UserSig};
 use serde_json::Value;
 
+const V1_FIXTURE_PASSPHRASE: &[u8] = b"hbci4rust-v1-fixture-passphrase";
+
 #[test]
 fn usersig_encodes_pin_and_tan_like_hbci4java() {
     let encoded = UserSig::encode(Some("12345"), Some("987654")).expect("usersig encodes");
@@ -124,6 +126,68 @@ fn passport_storage_envelope_records_reviewed_crypto_metadata() {
     assert!(!text.contains("secret-user"));
     assert!(!text.contains("secret-tan-media"));
     assert!(!text.contains("dauer_SECRET"));
+}
+
+#[test]
+fn passport_storage_loads_persisted_v1_fixture() {
+    let bytes = include_bytes!("fixtures/passport/pintan-v1-envelope.json");
+    let envelope: Value = serde_json::from_slice(bytes).expect("v1 fixture envelope parses");
+
+    assert_eq!(envelope["format"], "hbci4rust-pintan-passport");
+    assert_eq!(envelope["version"], 1);
+    assert_eq!(envelope["kdf"]["algorithm"], "argon2id");
+    assert_eq!(envelope["kdf"]["memory_cost_kib"], 19 * 1024);
+    assert_eq!(envelope["kdf"]["time_cost"], 2);
+    assert_eq!(envelope["kdf"]["parallelism"], 1);
+    assert_eq!(envelope["aead"], "xchacha20poly1305");
+    assert_eq!(envelope["salt"].as_array().expect("salt array").len(), 16);
+    assert_eq!(envelope["nonce"].as_array().expect("nonce array").len(), 24);
+    assert!(
+        !envelope["ciphertext"]
+            .as_array()
+            .expect("ciphertext array")
+            .is_empty()
+    );
+
+    let restored = PassportStorage::load_from_slice(bytes, V1_FIXTURE_PASSPHRASE)
+        .expect("persisted v1 passport fixture loads");
+
+    assert_eq!(restored.country, "DE");
+    assert_eq!(restored.blz, "12345678");
+    assert_eq!(
+        restored.host.as_deref(),
+        Some("https://fints.example.test/fints")
+    );
+    assert_eq!(restored.user_id, "fixture-user");
+    assert_eq!(restored.customer_id.as_deref(), Some("fixture-customer"));
+    assert_eq!(restored.filter.as_deref(), Some("Base64"));
+    assert_eq!(restored.tan_method.as_deref(), Some("921"));
+    assert_eq!(restored.tan_media.as_deref(), Some("fixture-medium"));
+    assert_eq!(
+        restored.tan_media_names,
+        vec!["fixture-medium".to_owned(), "backup-medium".to_owned()]
+    );
+    assert_eq!(restored.tan_segment_version.as_deref(), Some("5"));
+    assert_eq!(restored.bpd_version.as_deref(), Some("6"));
+    assert_eq!(restored.upd_version.as_deref(), Some("8"));
+    assert_eq!(restored.bank_name.as_deref(), Some("Fixture Bank"));
+    assert_eq!(
+        restored.supported_hbci_versions,
+        vec!["300".to_owned(), "220".to_owned()]
+    );
+    assert_eq!(
+        restored
+            .persistent_data
+            .get("dauer_FIXTURE")
+            .and_then(|data| data.get("DauerDetails.firstdate"))
+            .map(String::as_str),
+        Some("2026-01-02")
+    );
+
+    let text = std::str::from_utf8(bytes).expect("fixture is utf-8 JSON");
+    assert!(!text.contains("fixture-user"));
+    assert!(!text.contains("fixture-medium"));
+    assert!(!text.contains("dauer_FIXTURE"));
 }
 
 #[test]

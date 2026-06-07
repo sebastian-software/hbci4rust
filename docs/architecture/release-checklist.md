@@ -136,7 +136,7 @@ Evidence:
 - [x] Runtime PIN caching and clearing are tested.
 - [x] Release candidate reviews KDF, AEAD, and envelope metadata against ADR
   0008 and current dependency docs.
-- [ ] A persisted-format migration test is added before the first storage
+- [x] A persisted-format migration test is added before the first storage
   format revision.
 
 Evidence:
@@ -144,9 +144,11 @@ Evidence:
 - `src/passport/storage.rs`
 - `src/passport/pintan.rs`
 - `tests/passport.rs`
+- `tests/fixtures/passport/pintan-v1-envelope.json`
 - `docs/reference/passport-storage-security.md`
 - ADR 0008
 - ADR 0251
+- ADR 0256
 
 ## License, Packaging, And Metadata
 
