@@ -1065,6 +1065,7 @@ fn render_job_into_custom_message(
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
         "TermUebSEPAList" => render_term_ueb_sepa_list(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
+        "UmbSEPA" => render_umb_sepa(message, job, index, passport),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
@@ -1293,6 +1294,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCCS",
             lowlevel_segment: "UebSEPA1",
             path: "CustomMsg.GV.UebSEPA1",
+        }),
+        "UmbSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKCUM",
+            lowlevel_segment: "UmbSEPA1",
+            path: "CustomMsg.GV.UmbSEPA1",
         }),
         "KUmsAll" => Ok(OrderhashSourceJobInfo {
             code: "HKKAZ",
@@ -1739,6 +1745,43 @@ fn render_inst_ueb_sepa(
         "InstUebSEPA1.sepapain",
         "_sepapain",
         "InstUebSEPA requires _sepapain or SEPA parameters for PAIN generation",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    Ok(())
+}
+
+fn render_umb_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "UmbSEPA1";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "UmbSEPA requires src.iban, src.number, or a passport account for the current UmbSEPA1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "UmbSEPA1.sepadescr", "_sepadescriptor").unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "UmbSEPA1.sepapain",
+        "_sepapain",
+        "UmbSEPA requires _sepapain or SEPA parameters for PAIN generation",
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
 
