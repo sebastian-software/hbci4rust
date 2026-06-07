@@ -405,7 +405,7 @@ impl HbciJob {
                 }
                 generate_pain_008_001_01_direct_debits(&params)?
             }
-            "MultiUebSEPA" => {
+            "MultiUebSEPA" | "TermMultiUebSEPA" => {
                 let total = sum_sepa_transaction_values(&params)?;
                 self.set_frontend_and_lowlevel_param("Total.value", total.value);
                 if let Some(currency) = total.curr {
@@ -433,6 +433,7 @@ impl HbciJob {
             "MultiLastCOR1SEPA" => Some("SammelLastCOR1SEPA1"),
             "MultiLastSEPA" => Some("SammelLastSEPA1"),
             "MultiUebSEPA" => Some("SammelUebSEPA1"),
+            "TermMultiUebSEPA" => Some("TermSammelUebSEPA1"),
             "TermUebSEPA" => Some("TermUebSEPA1"),
             "TermUebSEPADel" => Some("TermUebSEPADel1"),
             "TermUebSEPAEdit" => Some("TermUebSEPAEdit1"),
@@ -483,7 +484,11 @@ impl HbciJob {
     fn sepa_generation_param_name(&self, name: &str) -> String {
         if matches!(
             self.name.as_str(),
-            "MultiLastB2BSEPA" | "MultiLastCOR1SEPA" | "MultiLastSEPA" | "MultiUebSEPA"
+            "MultiLastB2BSEPA"
+                | "MultiLastCOR1SEPA"
+                | "MultiLastSEPA"
+                | "MultiUebSEPA"
+                | "TermMultiUebSEPA"
         ) {
             name.to_owned()
         } else {
@@ -880,6 +885,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
         "TermUebSEPAList" => term_ueb_sepa_list_constraints(),
+        "TermMultiUebSEPA" => term_multi_ueb_sepa_constraints(),
         "TermUebList" => term_ueb_list_constraints(),
         "InstUebSEPA" => inst_ueb_sepa_constraints(),
         "Ueb" => ueb_constraints(),
@@ -1451,43 +1457,56 @@ fn ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
 }
 
 fn multi_ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
+    multi_ueb_sepa_constraints_for("SammelUebSEPA1")
+}
+
+fn term_multi_ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = multi_ueb_sepa_constraints_for("TermSammelUebSEPA1");
+    constraints.push(HbciJobConstraint::new(
+        "date",
+        "TermSammelUebSEPA1.sepa.date",
+        None::<String>,
+    ));
+    constraints
+}
+
+fn multi_ueb_sepa_constraints_for(lowlevel_segment: &str) -> Vec<HbciJobConstraint> {
+    let lowlevel = |suffix: &str| format!("{lowlevel_segment}.{suffix}");
+
     vec![
-        HbciJobConstraint::new("src.bic", "SammelUebSEPA1.My.bic", None::<String>),
-        HbciJobConstraint::new("src.iban", "SammelUebSEPA1.My.iban", None::<String>),
-        HbciJobConstraint::new("src.country", "SammelUebSEPA1.My.KIK.country", Some("")),
-        HbciJobConstraint::new("src.blz", "SammelUebSEPA1.My.KIK.blz", Some("")),
-        HbciJobConstraint::new("src.number", "SammelUebSEPA1.My.number", Some("")),
-        HbciJobConstraint::new("src.subnumber", "SammelUebSEPA1.My.subnumber", Some("")),
+        HbciJobConstraint::new("src.bic", lowlevel("My.bic"), None::<String>),
+        HbciJobConstraint::new("src.iban", lowlevel("My.iban"), None::<String>),
+        HbciJobConstraint::new("src.country", lowlevel("My.KIK.country"), Some("")),
+        HbciJobConstraint::new("src.blz", lowlevel("My.KIK.blz"), Some("")),
+        HbciJobConstraint::new("src.number", lowlevel("My.number"), Some("")),
+        HbciJobConstraint::new("src.subnumber", lowlevel("My.subnumber"), Some("")),
         HbciJobConstraint::new(
             "_sepadescriptor",
-            "SammelUebSEPA1.sepadescr",
+            lowlevel("sepadescr"),
             Some(PAIN_001_001_02_URN),
         ),
-        HbciJobConstraint::new("_sepapain", "SammelUebSEPA1.sepapain", None::<String>),
-        HbciJobConstraint::new("src.bic", "SammelUebSEPA1.sepa.src.bic", Some("")),
-        HbciJobConstraint::new("src.iban", "SammelUebSEPA1.sepa.src.iban", Some("")),
-        HbciJobConstraint::new("src.name", "SammelUebSEPA1.sepa.src.name", Some("")),
-        HbciJobConstraint::new("dst.bic", "SammelUebSEPA1.sepa.dst.bic", Some("")).indexed(true),
-        HbciJobConstraint::new("dst.iban", "SammelUebSEPA1.sepa.dst.iban", Some("")).indexed(true),
-        HbciJobConstraint::new("dst.name", "SammelUebSEPA1.sepa.dst.name", Some("")).indexed(true),
-        HbciJobConstraint::new("btg.value", "SammelUebSEPA1.sepa.btg.value", Some(""))
-            .indexed(true),
-        HbciJobConstraint::new("btg.curr", "SammelUebSEPA1.sepa.btg.curr", Some("EUR"))
-            .indexed(true),
-        HbciJobConstraint::new("usage", "SammelUebSEPA1.sepa.usage", Some("")).indexed(true),
-        HbciJobConstraint::new("batchbook", "SammelUebSEPA1.sepa.batchbook", Some("")),
-        HbciJobConstraint::new("Total.value", "SammelUebSEPA1.Total.value", None::<String>),
-        HbciJobConstraint::new("Total.curr", "SammelUebSEPA1.Total.curr", None::<String>),
-        HbciJobConstraint::new("sepaid", "SammelUebSEPA1.sepa.sepaid", Some("")),
-        HbciJobConstraint::new("pmtinfid", "SammelUebSEPA1.sepa.pmtinfid", Some("")),
+        HbciJobConstraint::new("_sepapain", lowlevel("sepapain"), None::<String>),
+        HbciJobConstraint::new("src.bic", lowlevel("sepa.src.bic"), Some("")),
+        HbciJobConstraint::new("src.iban", lowlevel("sepa.src.iban"), Some("")),
+        HbciJobConstraint::new("src.name", lowlevel("sepa.src.name"), Some("")),
+        HbciJobConstraint::new("dst.bic", lowlevel("sepa.dst.bic"), Some("")).indexed(true),
+        HbciJobConstraint::new("dst.iban", lowlevel("sepa.dst.iban"), Some("")).indexed(true),
+        HbciJobConstraint::new("dst.name", lowlevel("sepa.dst.name"), Some("")).indexed(true),
+        HbciJobConstraint::new("btg.value", lowlevel("sepa.btg.value"), Some("")).indexed(true),
+        HbciJobConstraint::new("btg.curr", lowlevel("sepa.btg.curr"), Some("EUR")).indexed(true),
+        HbciJobConstraint::new("usage", lowlevel("sepa.usage"), Some("")).indexed(true),
+        HbciJobConstraint::new("batchbook", lowlevel("sepa.batchbook"), Some("")),
+        HbciJobConstraint::new("Total.value", lowlevel("Total.value"), None::<String>),
+        HbciJobConstraint::new("Total.curr", lowlevel("Total.curr"), None::<String>),
+        HbciJobConstraint::new("sepaid", lowlevel("sepa.sepaid"), Some("")),
+        HbciJobConstraint::new("pmtinfid", lowlevel("sepa.pmtinfid"), Some("")),
         HbciJobConstraint::new(
             "endtoendid",
-            "SammelUebSEPA1.sepa.endtoendid",
+            lowlevel("sepa.endtoendid"),
             Some("NOTPROVIDED"),
         )
         .indexed(true),
-        HbciJobConstraint::new("purposecode", "SammelUebSEPA1.sepa.purposecode", Some(""))
-            .indexed(true),
+        HbciJobConstraint::new("purposecode", lowlevel("sepa.purposecode"), Some("")).indexed(true),
     ]
 }
 

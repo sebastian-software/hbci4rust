@@ -1144,6 +1144,7 @@ fn render_job_into_custom_message(
         "TermUebDel" => render_term_ueb_del(message, job, index, passport),
         "TermUebEdit" => render_term_ueb_edit(message, job, index, passport),
         "TermUebList" => render_term_ueb_list(message, job, index, passport),
+        "TermMultiUebSEPA" => render_term_multi_ueb_sepa(message, job, index, passport),
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
         "TermUebSEPADel" => render_term_ueb_sepa_del(message, job, index, passport),
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
@@ -1438,6 +1439,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCSB",
             lowlevel_segment: "TermUebSEPAList1",
             path: "CustomMsg.GV.TermUebSEPAList1",
+        }),
+        "TermMultiUebSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKCME",
+            lowlevel_segment: "TermSammelUebSEPA1",
+            path: "CustomMsg.GV.TermSammelUebSEPA1",
         }),
         "InstUebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKIPZ",
@@ -1785,6 +1791,14 @@ fn term_ueb_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TermUebRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermUebRes4", index + 1)
+    }
+}
+
+fn term_multi_ueb_sepa_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.TermSammelUebSEPARes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.TermSammelUebSEPARes1", index + 1)
     }
 }
 
@@ -3536,18 +3550,53 @@ fn render_multi_ueb_sepa(
     index: usize,
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
+    render_multi_ueb_sepa_job(
+        message,
+        job,
+        index,
+        passport,
+        "MultiUebSEPA",
+        "SammelUebSEPA1",
+    )
+}
+
+fn render_term_multi_ueb_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_multi_ueb_sepa_job(
+        message,
+        job,
+        index,
+        passport,
+        "TermMultiUebSEPA",
+        "TermSammelUebSEPA1",
+    )
+}
+
+fn render_multi_ueb_sepa_job(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+    job_name: &str,
+    lowlevel_segment: &str,
+) -> HbciResult<()> {
     let root = if index == 0 {
         "CustomMsg.GV".to_owned()
     } else {
         format!("CustomMsg.GV_{}", index + 1)
     };
-    let lowlevel_segment = "SammelUebSEPA1";
     let segment = format!("{root}.{lowlevel_segment}");
     let account = standing_order_sepa_account(job, passport, lowlevel_segment);
     if !has_account_identity(&account) {
         return Err(HbciError::new(
             HbciErrorKind::InvalidArgument,
-            "MultiUebSEPA requires src.iban, src.number, or a passport account for the current SammelUebSEPA1 renderer",
+            format!(
+                "{job_name} requires src.iban, src.number, or a passport account for the current {lowlevel_segment} renderer"
+            ),
         ));
     }
 
@@ -3556,28 +3605,32 @@ fn render_multi_ueb_sepa(
         message,
         &format!("{segment}.Total.value"),
         job,
-        "SammelUebSEPA1.Total.value",
+        &format!("{lowlevel_segment}.Total.value"),
         "Total.value",
-        "MultiUebSEPA requires Total.value or generated SEPA parameters",
+        &format!("{job_name} requires Total.value or generated SEPA parameters"),
     )?;
     set_required_message_value_from_job(
         message,
         &format!("{segment}.Total.curr"),
         job,
-        "SammelUebSEPA1.Total.curr",
+        &format!("{lowlevel_segment}.Total.curr"),
         "Total.curr",
-        "MultiUebSEPA requires Total.curr or generated SEPA parameters",
+        &format!("{job_name} requires Total.curr or generated SEPA parameters"),
     )?;
     message.set_value(
         &format!("{segment}.sepadescr"),
-        job_param(job, "SammelUebSEPA1.sepadescr", "_sepadescriptor")
-            .unwrap_or(PAIN_001_001_02_URN),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.sepadescr"),
+            "_sepadescriptor",
+        )
+        .unwrap_or(PAIN_001_001_02_URN),
     )?;
     let sepapain = job_param_required(
         job,
-        "SammelUebSEPA1.sepapain",
+        &format!("{lowlevel_segment}.sepapain"),
         "_sepapain",
-        "MultiUebSEPA requires _sepapain or SEPA parameters for PAIN generation",
+        &format!("{job_name} requires _sepapain or SEPA parameters for PAIN generation"),
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
 
@@ -5167,6 +5220,9 @@ impl ParsedResponseStatus {
             "TermUebSEPA" => self
                 .term_ueb_result_for_root(term_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::TermUeb),
+            "TermMultiUebSEPA" => self
+                .term_ueb_result_for_root(term_multi_ueb_sepa_response_root(index))
+                .map(HbciJobResultData::TermUeb),
             "TermUebSEPAEdit" => self
                 .term_ueb_edit_result_for_root(term_ueb_sepa_edit_response_root(index))
                 .map(HbciJobResultData::TermUebEdit),
@@ -5236,6 +5292,9 @@ impl ParsedResponseStatus {
             "TermUeb" => self.content_result_data([term_ueb_response_root(index)]),
             "TermUebEdit" => self.content_result_data([term_ueb_edit_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
+            "TermMultiUebSEPA" => {
+                self.content_result_data([term_multi_ueb_sepa_response_root(index)])
+            }
             "TermUebSEPAEdit" => {
                 self.content_result_data([term_ueb_sepa_edit_response_root(index)])
             }
@@ -6277,6 +6336,20 @@ fn update_passport_job_persistent_data_from_results(
                 };
                 let snapshot =
                     dauer_sepa_request_persistent_snapshot(job, passport, "TermUebSEPA1");
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
+                }
+            }
+            "TermMultiUebSEPA" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot =
+                    dauer_sepa_request_persistent_snapshot(job, passport, "TermSammelUebSEPA1");
                 if !snapshot.is_empty() {
                     passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
                 }
