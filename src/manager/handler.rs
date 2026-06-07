@@ -1110,6 +1110,7 @@ fn render_job_into_custom_message(
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
+        "DauerLastSEPANew" => render_dauer_last_sepa_new(message, job, index, passport),
         "FestCondList" => render_fest_cond_list(message, job, index),
         "FestList" => render_fest_list(message, job, index, passport),
         "InfoList" => render_info_list(message, job, index),
@@ -1365,6 +1366,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCDE",
             lowlevel_segment: "DauerSEPANew1",
             path: "CustomMsg.GV.DauerSEPANew1",
+        }),
+        "DauerLastSEPANew" => Ok(OrderhashSourceJobInfo {
+            code: "HKDDE",
+            lowlevel_segment: "DauerLastSEPANew1",
+            path: "CustomMsg.GV.DauerLastSEPANew1",
         }),
         "DauerSEPAEdit" => Ok(OrderhashSourceJobInfo {
             code: "HKCDN",
@@ -1702,6 +1708,14 @@ fn dauer_sepa_new_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.DauerSEPANewRes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.DauerSEPANewRes1", index + 1)
+    }
+}
+
+fn dauer_last_sepa_new_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.DauerLastSEPANewRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.DauerLastSEPANewRes1", index + 1)
     }
 }
 
@@ -3323,6 +3337,28 @@ fn render_dauer_sepa_new(
         DauerSepaOrderRenderSpec {
             job_name: "DauerSEPANew",
             lowlevel_segment: "DauerSEPANew1",
+            sepa_descriptor: PAIN_001_001_02_URN,
+            include_order_id: false,
+            include_date: false,
+        },
+    )
+}
+
+fn render_dauer_last_sepa_new(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_dauer_sepa_order_job(
+        message,
+        job,
+        index,
+        passport,
+        DauerSepaOrderRenderSpec {
+            job_name: "DauerLastSEPANew",
+            lowlevel_segment: "DauerLastSEPANew1",
+            sepa_descriptor: PAIN_008_001_01_URN,
             include_order_id: false,
             include_date: false,
         },
@@ -3689,6 +3725,7 @@ fn render_dauer_sepa_edit(
         DauerSepaOrderRenderSpec {
             job_name: "DauerSEPAEdit",
             lowlevel_segment: "DauerSEPAEdit1",
+            sepa_descriptor: PAIN_001_001_02_URN,
             include_order_id: true,
             include_date: true,
         },
@@ -3709,6 +3746,7 @@ fn render_dauer_sepa_del(
         DauerSepaOrderRenderSpec {
             job_name: "DauerSEPADel",
             lowlevel_segment: "DauerSEPADel1",
+            sepa_descriptor: PAIN_001_001_02_URN,
             include_order_id: true,
             include_date: true,
         },
@@ -3719,6 +3757,7 @@ fn render_dauer_sepa_del(
 struct DauerSepaOrderRenderSpec {
     job_name: &'static str,
     lowlevel_segment: &'static str,
+    sepa_descriptor: &'static str,
     include_order_id: bool,
     include_date: bool,
 }
@@ -3756,7 +3795,7 @@ fn render_dauer_sepa_order_job(
             &format!("{lowlevel_segment}.sepadescr"),
             "_sepadescriptor",
         )
-        .unwrap_or(PAIN_001_001_02_URN),
+        .unwrap_or(spec.sepa_descriptor),
     )?;
     let sepapain = job_param_required(
         job,
@@ -4775,6 +4814,9 @@ impl ParsedResponseStatus {
             "DauerSEPANew" => self
                 .dauer_new_result_for_root(dauer_sepa_new_response_root(index))
                 .map(HbciJobResultData::DauerNew),
+            "DauerLastSEPANew" => self
+                .dauer_new_result_for_root(dauer_last_sepa_new_response_root(index))
+                .map(HbciJobResultData::DauerNew),
             "FestCondList" => self
                 .fest_cond_list_result_for_root(fest_cond_list_response_root(index))
                 .map(HbciJobResultData::FestCondList),
@@ -4858,6 +4900,9 @@ impl ParsedResponseStatus {
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
+            "DauerLastSEPANew" => {
+                self.content_result_data([dauer_last_sepa_new_response_root(index)])
+            }
             "FestCondList" => self.content_result_data([fest_cond_list_response_root(index)]),
             "FestList" => self.content_result_data([fest_list_response_root(index)]),
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
@@ -5747,6 +5792,20 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
                 }
             }
+            "DauerLastSEPANew" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot =
+                    dauer_last_sepa_request_persistent_snapshot(job, passport, "DauerLastSEPANew1");
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+                }
+            }
             "DauerNew" => {
                 let Some(order_id) = result
                     .result_data
@@ -5934,6 +5993,30 @@ fn dauer_sepa_request_persistent_snapshot(
     {
         snapshot.insert("sepapain".to_owned(), sepa_binary_value(sepapain));
     }
+
+    for (suffix, frontend) in [
+        ("DauerDetails.firstdate", "firstdate"),
+        ("DauerDetails.timeunit", "timeunit"),
+        ("DauerDetails.turnus", "turnus"),
+        ("DauerDetails.execday", "execday"),
+        ("DauerDetails.lastdate", "lastdate"),
+    ] {
+        if !snapshot.contains_key(suffix)
+            && let Some(value) = job_param(job, &format!("{lowlevel_segment}.{suffix}"), frontend)
+        {
+            snapshot.insert(suffix.to_owned(), value.to_owned());
+        }
+    }
+
+    snapshot
+}
+
+fn dauer_last_sepa_request_persistent_snapshot(
+    job: &HbciJob,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+) -> Properties {
+    let mut snapshot = last_sepa_request_persistent_snapshot(job, passport, lowlevel_segment);
 
     for (suffix, frontend) in [
         ("DauerDetails.firstdate", "firstdate"),

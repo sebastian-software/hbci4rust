@@ -391,7 +391,7 @@ impl HbciJob {
 
         let params = self.sepa_generation_params(lowlevel_segment);
         let xml = match self.name.as_str() {
-            "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
+            "DauerLastSEPANew" | "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
                 generate_pain_008_001_01_direct_debit(&params)?
             }
             _ => generate_pain_001_001_02_transfer(&params)?,
@@ -405,6 +405,7 @@ impl HbciJob {
             "DauerSEPADel" => Some("DauerSEPADel1"),
             "DauerSEPAEdit" => Some("DauerSEPAEdit1"),
             "DauerSEPANew" => Some("DauerSEPANew1"),
+            "DauerLastSEPANew" => Some("DauerLastSEPANew1"),
             "InstUebSEPA" => Some("InstUebSEPA1"),
             "LastB2BSEPA" => Some("LastB2BSEPA1"),
             "LastCOR1SEPA" => Some("LastCOR1SEPA1"),
@@ -823,6 +824,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
         "DauerSEPANew" => dauer_sepa_new_constraints(),
+        "DauerLastSEPANew" => dauer_last_sepa_new_constraints(),
         "FestCondList" => fest_cond_list_constraints(),
         "FestList" => fest_list_constraints(),
         "InfoList" => info_list_constraints(),
@@ -1383,9 +1385,17 @@ fn ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
 }
 
 fn last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {
+    last_sepa_constraints_for(lowlevel_segment, debit_type, true)
+}
+
+fn last_sepa_constraints_for(
+    lowlevel_segment: &str,
+    debit_type: &str,
+    include_batchbook: bool,
+) -> Vec<HbciJobConstraint> {
     let lowlevel = |suffix: &str| format!("{lowlevel_segment}.{suffix}");
 
-    vec![
+    let mut constraints = vec![
         HbciJobConstraint::new("src.bic", lowlevel("My.bic"), None::<String>),
         HbciJobConstraint::new("src.iban", lowlevel("My.iban"), None::<String>),
         HbciJobConstraint::new("src.country", lowlevel("My.KIK.country"), Some("")),
@@ -1450,8 +1460,49 @@ fn last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJo
             Some("1999-01-01"),
         ),
         HbciJobConstraint::new("type", lowlevel("sepa.type"), Some(debit_type)),
-        HbciJobConstraint::new("batchbook", lowlevel("sepa.batchbook"), Some("0")),
-    ]
+    ];
+
+    if include_batchbook {
+        constraints.push(HbciJobConstraint::new(
+            "batchbook",
+            lowlevel("sepa.batchbook"),
+            Some("0"),
+        ));
+    }
+
+    constraints
+}
+
+fn dauer_last_sepa_new_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = last_sepa_constraints_for("DauerLastSEPANew1", "CORE", false);
+    constraints.extend([
+        HbciJobConstraint::new(
+            "firstdate",
+            "DauerLastSEPANew1.DauerDetails.firstdate",
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "timeunit",
+            "DauerLastSEPANew1.DauerDetails.timeunit",
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "turnus",
+            "DauerLastSEPANew1.DauerDetails.turnus",
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "execday",
+            "DauerLastSEPANew1.DauerDetails.execday",
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "lastdate",
+            "DauerLastSEPANew1.DauerDetails.lastdate",
+            Some(""),
+        ),
+    ]);
+    constraints
 }
 
 fn inst_ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
