@@ -441,7 +441,7 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
-            "TermUeb" | "Ueb" => {
+            "TermUeb" | "Ueb" | "UebEil" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -777,6 +777,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TermUebList" => term_ueb_list_constraints(),
         "InstUebSEPA" => inst_ueb_sepa_constraints(),
         "Ueb" => ueb_constraints(),
+        "UebEil" => ueb_eil_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
         "UmbSEPA" => umb_sepa_constraints(),
         "KUmsAll" => kums_all_constraints(),
@@ -895,25 +896,73 @@ fn classic_usage_name(index: usize) -> String {
 }
 
 fn ueb_constraints() -> Vec<HbciJobConstraint> {
+    classic_transfer_constraints("Ueb5")
+}
+
+fn ueb_eil_constraints() -> Vec<HbciJobConstraint> {
+    classic_transfer_constraints("UebEil1")
+}
+
+fn classic_transfer_constraints(lowlevel_segment: &str) -> Vec<HbciJobConstraint> {
     let mut constraints = vec![
-        HbciJobConstraint::new("src.country", "Ueb5.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("src.blz", "Ueb5.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("src.number", "Ueb5.My.number", None::<String>),
-        HbciJobConstraint::new("src.subnumber", "Ueb5.My.subnumber", Some("")),
-        HbciJobConstraint::new("dst.country", "Ueb5.Other.KIK.country", Some("DE")),
-        HbciJobConstraint::new("dst.blz", "Ueb5.Other.KIK.blz", None::<String>),
-        HbciJobConstraint::new("dst.number", "Ueb5.Other.number", None::<String>),
-        HbciJobConstraint::new("dst.subnumber", "Ueb5.Other.subnumber", Some("")),
-        HbciJobConstraint::new("btg.value", "Ueb5.BTG.value", None::<String>),
-        HbciJobConstraint::new("btg.curr", "Ueb5.BTG.curr", None::<String>),
-        HbciJobConstraint::new("name", "Ueb5.name", None::<String>),
-        HbciJobConstraint::new("name2", "Ueb5.name2", Some("")),
-        HbciJobConstraint::new("key", "Ueb5.key", Some("51")),
+        HbciJobConstraint::new(
+            "src.country",
+            format!("{lowlevel_segment}.My.KIK.country"),
+            Some("DE"),
+        ),
+        HbciJobConstraint::new(
+            "src.blz",
+            format!("{lowlevel_segment}.My.KIK.blz"),
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "src.number",
+            format!("{lowlevel_segment}.My.number"),
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "src.subnumber",
+            format!("{lowlevel_segment}.My.subnumber"),
+            Some(""),
+        ),
+        HbciJobConstraint::new(
+            "dst.country",
+            format!("{lowlevel_segment}.Other.KIK.country"),
+            Some("DE"),
+        ),
+        HbciJobConstraint::new(
+            "dst.blz",
+            format!("{lowlevel_segment}.Other.KIK.blz"),
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "dst.number",
+            format!("{lowlevel_segment}.Other.number"),
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "dst.subnumber",
+            format!("{lowlevel_segment}.Other.subnumber"),
+            Some(""),
+        ),
+        HbciJobConstraint::new(
+            "btg.value",
+            format!("{lowlevel_segment}.BTG.value"),
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "btg.curr",
+            format!("{lowlevel_segment}.BTG.curr"),
+            None::<String>,
+        ),
+        HbciJobConstraint::new("name", format!("{lowlevel_segment}.name"), None::<String>),
+        HbciJobConstraint::new("name2", format!("{lowlevel_segment}.name2"), Some("")),
+        HbciJobConstraint::new("key", format!("{lowlevel_segment}.key"), Some("51")),
     ];
 
     for index in 0..CLASSIC_USAGE_LINE_COUNT {
         let frontend = classic_usage_name(index);
-        let destination = format!("Ueb5.usage.{frontend}");
+        let destination = format!("{lowlevel_segment}.usage.{frontend}");
         constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
     }
 

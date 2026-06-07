@@ -1085,6 +1085,7 @@ fn render_job_into_custom_message(
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
         "TermUebSEPAList" => render_term_ueb_sepa_list(message, job, index, passport),
         "Ueb" => render_ueb(message, job, index, passport),
+        "UebEil" => render_ueb_eil(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
         "VoPAuth" => render_vop_auth(message, job, index),
@@ -1340,6 +1341,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKUEB",
             lowlevel_segment: "Ueb5",
             path: "CustomMsg.GV.Ueb5",
+        }),
+        "UebEil" => Ok(OrderhashSourceJobInfo {
+            code: "HKEIL",
+            lowlevel_segment: "UebEil1",
+            path: "CustomMsg.GV.UebEil1",
         }),
         "InfoList" => Ok(OrderhashSourceJobInfo {
             code: "HKKIA",
@@ -2355,12 +2361,31 @@ fn render_ueb(
     index: usize,
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
+    render_classic_ueb(message, job, index, passport, "Ueb5", "Ueb")
+}
+
+fn render_ueb_eil(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_classic_ueb(message, job, index, passport, "UebEil1", "UebEil")
+}
+
+fn render_classic_ueb(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+    job_name: &str,
+) -> HbciResult<()> {
     let root = if index == 0 {
         "CustomMsg.GV".to_owned()
     } else {
         format!("CustomMsg.GV_{}", index + 1)
     };
-    let lowlevel_segment = "Ueb5";
     let segment = format!("{root}.{lowlevel_segment}");
     let src_account = classic_national_job_account(
         job,
@@ -2372,14 +2397,16 @@ fn render_ueb(
     if !has_account_identity(&src_account) {
         return Err(HbciError::new(
             HbciErrorKind::InvalidArgument,
-            "Ueb requires src.number or a passport account for the current Ueb5 renderer",
+            format!(
+                "{job_name} requires src.number or a passport account for the current {lowlevel_segment} renderer"
+            ),
         ));
     }
     let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
     if !has_account_identity(&dst_account) {
         return Err(HbciError::new(
             HbciErrorKind::InvalidArgument,
-            "Ueb requires dst.number for the current Ueb5 renderer",
+            format!("{job_name} requires dst.number for the current {lowlevel_segment} renderer"),
         ));
     }
 
@@ -2389,41 +2416,45 @@ fn render_ueb(
         message,
         &format!("{segment}.name"),
         job,
-        "Ueb5.name",
+        &format!("{lowlevel_segment}.name"),
         "name",
-        "Ueb requires name",
+        &format!("{job_name} requires name"),
     )?;
     set_optional_message_value(
         message,
         &format!("{segment}.name2"),
-        job_param(job, "Ueb5.name2", "name2"),
+        job_param(job, &format!("{lowlevel_segment}.name2"), "name2"),
     )?;
     set_required_message_value_from_job(
         message,
         &format!("{segment}.BTG.value"),
         job,
-        "Ueb5.BTG.value",
+        &format!("{lowlevel_segment}.BTG.value"),
         "btg.value",
-        "Ueb requires btg.value",
+        &format!("{job_name} requires btg.value"),
     )?;
     set_required_message_value_from_job(
         message,
         &format!("{segment}.BTG.curr"),
         job,
-        "Ueb5.BTG.curr",
+        &format!("{lowlevel_segment}.BTG.curr"),
         "btg.curr",
-        "Ueb requires btg.curr",
+        &format!("{job_name} requires btg.curr"),
     )?;
     message.set_value(
         &format!("{segment}.key"),
-        job_param(job, "Ueb5.key", "key").unwrap_or("51"),
+        job_param(job, &format!("{lowlevel_segment}.key"), "key").unwrap_or("51"),
     )?;
     for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
         let usage_name = classic_usage_frontend_name(usage_index);
         set_optional_message_value(
             message,
             &format!("{segment}.usage.{usage_name}"),
-            job_param(job, &format!("Ueb5.usage.{usage_name}"), &usage_name),
+            job_param(
+                job,
+                &format!("{lowlevel_segment}.usage.{usage_name}"),
+                &usage_name,
+            ),
         )?;
     }
 
