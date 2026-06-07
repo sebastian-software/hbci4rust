@@ -39,13 +39,19 @@ Provide:
 - deterministic constructors for tests and replay fixtures;
 - a runtime constructor that generates an hbci4java-like positive random
   `seccheckref`, uses `secref = "1"` for PinTAN, and formats the current system
-  timestamp as FinTS `YYYYMMDD` / `HHMMSS`;
+  timestamp as message-tree values `YYYY-MM-DD` / `HH:MM:SS`;
 - a helper that turns the context plus `PinTanPassport` into `PinTanSigHead`.
 
+The protocol datatype renderer still emits compact FinTS wire values
+`YYYYMMDD` / `HHMMSS`. The context keeps the normalized message-tree shape so it
+can pass through the same validation and rendering path as caller-provided
+values.
+
 Use UTC for the first Rust runtime timestamp formatter. This is not byte-for-byte
-identical to hbci4java's local `Date` formatting in all time zones, but the field
-shape is protocol-compatible and keeps this slice dependency-free. If live-bank
-evidence shows that local time matters, record and port that as a later ADR.
+identical to hbci4java's local `Date` formatting in all time zones, but the
+rendered field shape is protocol-compatible and keeps this slice dependency-free.
+If live-bank evidence shows that local time matters, record and port that as a
+later ADR.
 
 ## Consequences
 
