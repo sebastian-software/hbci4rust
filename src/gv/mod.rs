@@ -441,7 +441,7 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
-            "TermUeb" => {
+            "TermUeb" | "Ueb" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -776,6 +776,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TermUebSEPAList" => term_ueb_sepa_list_constraints(),
         "TermUebList" => term_ueb_list_constraints(),
         "InstUebSEPA" => inst_ueb_sepa_constraints(),
+        "Ueb" => ueb_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
         "UmbSEPA" => umb_sepa_constraints(),
         "KUmsAll" => kums_all_constraints(),
@@ -891,6 +892,32 @@ fn classic_usage_name(index: usize) -> String {
     } else {
         format!("usage_{}", index + 1)
     }
+}
+
+fn ueb_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = vec![
+        HbciJobConstraint::new("src.country", "Ueb5.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("src.blz", "Ueb5.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.number", "Ueb5.My.number", None::<String>),
+        HbciJobConstraint::new("src.subnumber", "Ueb5.My.subnumber", Some("")),
+        HbciJobConstraint::new("dst.country", "Ueb5.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dst.blz", "Ueb5.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new("dst.number", "Ueb5.Other.number", None::<String>),
+        HbciJobConstraint::new("dst.subnumber", "Ueb5.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "Ueb5.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "Ueb5.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "Ueb5.name", None::<String>),
+        HbciJobConstraint::new("name2", "Ueb5.name2", Some("")),
+        HbciJobConstraint::new("key", "Ueb5.key", Some("51")),
+    ];
+
+    for index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let frontend = classic_usage_name(index);
+        let destination = format!("Ueb5.usage.{frontend}");
+        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
+    }
+
+    constraints
 }
 
 fn term_ueb_sepa_del_constraints() -> Vec<HbciJobConstraint> {
