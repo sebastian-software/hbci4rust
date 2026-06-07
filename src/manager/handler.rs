@@ -8,8 +8,8 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
-    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
+    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrInstUebSepa, GvrKUms, GvrSaldoReq,
+    GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
     GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
     HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
@@ -1051,6 +1051,7 @@ fn render_job_into_custom_message(
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
+        "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
@@ -1283,6 +1284,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "TermUebSEPAList1",
             path: "CustomMsg.GV.TermUebSEPAList1",
         }),
+        "InstUebSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKIPZ",
+            lowlevel_segment: "InstUebSEPA1",
+            path: "CustomMsg.GV.InstUebSEPA1",
+        }),
         "UebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCCS",
             lowlevel_segment: "UebSEPA1",
@@ -1400,6 +1406,14 @@ fn term_ueb_sepa_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TermUebSEPARes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermUebSEPARes1", index + 1)
+    }
+}
+
+fn inst_ueb_sepa_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.InstUebSEPARes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.InstUebSEPARes1", index + 1)
     }
 }
 
@@ -1688,6 +1702,43 @@ fn render_ueb_sepa(
         "UebSEPA1.sepapain",
         "_sepapain",
         "UebSEPA requires _sepapain or SEPA parameters for PAIN generation",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    Ok(())
+}
+
+fn render_inst_ueb_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "InstUebSEPA1";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "InstUebSEPA requires src.iban, src.number, or a passport account for the current InstUebSEPA1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "InstUebSEPA1.sepadescr", "_sepadescriptor").unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "InstUebSEPA1.sepapain",
+        "_sepapain",
+        "InstUebSEPA requires _sepapain or SEPA parameters for PAIN generation",
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
 
@@ -2666,6 +2717,9 @@ impl ParsedResponseStatus {
             "DauerSEPANew" => self
                 .dauer_new_result_for_root(dauer_sepa_new_response_root(index))
                 .map(HbciJobResultData::DauerNew),
+            "InstUebSEPA" => self
+                .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
+                .map(HbciJobResultData::InstUebSepa),
             "TermUebSEPA" => self
                 .term_ueb_result_for_root(term_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::TermUeb),
@@ -2701,6 +2755,7 @@ impl ParsedResponseStatus {
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
+            "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermUebSEPAEdit" => {
                 self.content_result_data([term_ueb_sepa_edit_response_root(index)])
@@ -2803,6 +2858,15 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         Some(GvrTermUeb {
             order_id: optional_value(&self.values, &format!("{root}.orderid")),
+        })
+    }
+
+    fn inst_ueb_sepa_result_for_root(&self, root: String) -> Option<GvrInstUebSepa> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrInstUebSepa {
+            order_id: optional_value(&self.values, &format!("{root}.orderid")),
+            order_status: optional_value(&self.values, &format!("{root}.orderstatus")),
+            cancellation_code: optional_value(&self.values, &format!("{root}.ccode")),
         })
     }
 

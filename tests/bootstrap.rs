@@ -733,6 +733,57 @@ fn ueb_sepa_exposes_original_near_v1_constraints() {
 }
 
 #[test]
+fn inst_ueb_sepa_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("InstUebSEPA").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 22);
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban constraint")
+            .destination_name,
+        "InstUebSEPA1.My.iban"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_001_001_02_URN)
+    );
+    assert_eq!(
+        job.constraint("_sepapain")
+            .expect("sepa pain")
+            .destination_name,
+        "InstUebSEPA1.sepapain"
+    );
+    assert!(
+        job.constraint("dst.iban")
+            .expect("destination iban dummy constraint")
+            .indexed
+    );
+    assert_eq!(
+        job.constraint("batchbook")
+            .expect("batchbook dummy constraint")
+            .destination_name,
+        "InstUebSEPA1.sepa.batchbook"
+    );
+    assert_eq!(
+        job.constraint("batchbook")
+            .expect("batchbook dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("0")
+    );
+    assert!(
+        job.constraint("endtoendid")
+            .expect("endtoendid dummy constraint")
+            .indexed
+    );
+}
+
+#[test]
 fn term_ueb_sepa_exposes_original_near_v1_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -3969,6 +4020,80 @@ async fn handler_renders_ueb_sepa_with_generated_pain_like_original() {
     assert!(body.contains("<PmtInfId>SEPA-UEB</PmtInfId>"), "{body}");
     assert!(body.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
     assert!(body.contains("<Ustrd>Transfer usage</Ustrd>"));
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_inst_ueb_sepa_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIIPZ:3:1+ORDERIPZ+4+2",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("InstUebSEPA").expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param("src.name", "Sender Name")
+        .expect("source name is accepted");
+    job.try_set_param("dst.name", "Receiver Name")
+        .expect("destination name is accepted");
+    job.try_set_param("dst.iban", "DE99123456780000000000")
+        .expect("destination iban is accepted");
+    job.try_set_param("dst.bic", "DEUTDEDB277")
+        .expect("destination bic is accepted");
+    job.try_set_param("btg.value", "12.30")
+        .expect("amount value is accepted");
+    job.try_set_param("usage", "Instant usage")
+        .expect("usage is accepted");
+    job.try_set_param("sepaid", "SEPA-INST")
+        .expect("sepa id is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "InstUebSEPA");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderid")
+            .map(String::as_str),
+        Some("ORDERIPZ")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.ccode")
+            .map(String::as_str),
+        Some("4")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderstatus")
+            .map(String::as_str),
+        Some("2")
+    );
+    let Some(HbciJobResultData::InstUebSepa(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected InstUebSepa result data");
+    };
+    assert_eq!(result.order_id.as_deref(), Some("ORDERIPZ"));
+    assert_eq!(result.cancellation_code.as_deref(), Some("4"));
+    assert_eq!(result.order_status.as_deref(), Some("2"));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKIPZ:3:1+DE02123456780000000000:MARKDEF1100+"));
+    assert!(body.contains("<MsgId>SEPA-INST</MsgId>"), "{body}");
+    assert!(body.contains("<PmtInfId>SEPA-INST</PmtInfId>"), "{body}");
+    assert!(body.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
+    assert!(body.contains("<Ustrd>Instant usage</Ustrd>"));
 }
 
 #[tokio::test]
