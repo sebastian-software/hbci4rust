@@ -18,6 +18,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
     "CardList",
     "ChangePIN",
+    "CustomMsg",
     "DauerDel",
     "DauerEdit",
     "DauerLastSEPAList",
@@ -508,7 +509,7 @@ impl HbciJob {
         callback: Option<&dyn HbciCallback>,
     ) -> HbciResult<()> {
         match self.name.as_str() {
-            "CardList" => self.check_account_crc("my", callback).await,
+            "CardList" | "CustomMsg" => self.check_account_crc("my", callback).await,
             "DauerList" => self.check_account_crc("my", callback).await,
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" | "WPDepotList" | "WPDepotUms" => {
@@ -883,6 +884,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "AccInfo" => acc_info_constraints(),
         "CardList" => card_list_constraints(),
         "ChangePIN" => change_pin_constraints(),
+        "CustomMsg" => custom_msg_constraints(),
         "DauerDel" => dauer_del_constraints(),
         "DauerEdit" => dauer_edit_constraints(),
         "DauerList" => dauer_list_constraints(),
@@ -975,6 +977,19 @@ fn change_pin_constraints() -> Vec<HbciJobConstraint> {
         "ChangePIN1.newpin",
         None::<String>,
     )]
+}
+
+fn custom_msg_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("msg", "CustomMsg5.msg", None::<String>),
+        HbciJobConstraint::new("my.country", "CustomMsg5.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "CustomMsg5.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "CustomMsg5.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "CustomMsg5.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("my.curr", "CustomMsg5.curr", Some("EUR")),
+        HbciJobConstraint::new("betreff", "CustomMsg5.betreff", Some("")),
+        HbciJobConstraint::new("recpt", "CustomMsg5.recpt", Some("")),
+    ]
 }
 
 fn dauer_last_sepa_list_constraints() -> Vec<HbciJobConstraint> {

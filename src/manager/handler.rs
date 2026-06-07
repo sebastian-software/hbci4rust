@@ -1105,6 +1105,7 @@ fn render_job_into_custom_message(
         "AccInfo" => render_acc_info(message, job, index, passport),
         "CardList" => render_card_list(message, job, index, passport),
         "ChangePIN" => render_change_pin(message, job, index),
+        "CustomMsg" => render_custom_msg_job(message, job, index, passport),
         "DauerDel" => render_dauer_del(message, job, index, passport),
         "DauerEdit" => render_dauer_edit(message, job, index, passport),
         "DauerList" => render_dauer_list(message, job, index, passport),
@@ -1362,6 +1363,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKPAE",
             lowlevel_segment: "ChangePIN1",
             path: "CustomMsg.GV.ChangePIN1",
+        }),
+        "CustomMsg" => Ok(OrderhashSourceJobInfo {
+            code: "HKKDM",
+            lowlevel_segment: "CustomMsg5",
+            path: "CustomMsg.GV.CustomMsg5",
         }),
         "DauerDel" => Ok(OrderhashSourceJobInfo {
             code: "HKDAL",
@@ -2056,6 +2062,49 @@ fn render_card_list(
     }
 
     set_national_account_values(message, &segment, &account)?;
+
+    Ok(())
+}
+
+fn render_custom_msg_job(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.CustomMsg5");
+    let account = effective_job_account(job, passport, "CustomMsg5", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "CustomMsg requires my.number or a passport account for the current CustomMsg5 renderer",
+        ));
+    }
+
+    set_national_account_values(message, &segment, &account)?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.msg"),
+        job,
+        "CustomMsg5.msg",
+        "msg",
+        "CustomMsg requires msg",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.betreff"),
+        job_param(job, "CustomMsg5.betreff", "betreff"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.recpt"),
+        job_param(job, "CustomMsg5.recpt", "recpt"),
+    )?;
 
     Ok(())
 }

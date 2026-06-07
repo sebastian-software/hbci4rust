@@ -736,6 +736,83 @@ fn change_pin_exposes_original_near_constraints() {
 }
 
 #[test]
+fn custom_msg_exposes_original_near_v5_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("CustomMsg").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 8);
+    assert_eq!(
+        job.constraint("msg")
+            .expect("message constraint")
+            .destination_name,
+        "CustomMsg5.msg"
+    );
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("account number constraint")
+            .destination_name,
+        "CustomMsg5.KTV.number"
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("bank code constraint")
+            .destination_name,
+        "CustomMsg5.KTV.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("my.curr")
+            .expect("currency constraint")
+            .destination_name,
+        "CustomMsg5.curr"
+    );
+    assert_eq!(
+        job.constraint("my.curr")
+            .expect("currency constraint")
+            .default_value
+            .as_deref(),
+        Some("EUR")
+    );
+    assert_eq!(
+        job.constraint("betreff")
+            .expect("subject constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("recpt")
+            .expect("recipient constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+
+    job.try_set_param("msg", "Hello bank message")
+        .expect("message is accepted");
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+    let resolved = job.verify_constraints().expect("constraints resolve");
+    assert_eq!(
+        resolved.get("CustomMsg5.msg").map(String::as_str),
+        Some("Hello bank message")
+    );
+    assert_eq!(
+        resolved.get("CustomMsg5.curr").map(String::as_str),
+        Some("EUR")
+    );
+}
+
+#[test]
 fn vop_auth_exposes_original_near_constraints_and_binary_vopid() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -6379,6 +6456,51 @@ async fn handler_renders_card_list_request_like_original() {
         body.contains("HKAZK:3:2+1234567890::280:10020030'"),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn handler_renders_custom_msg_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("CustomMsg").expect("job is in registry");
+    job.try_set_param("msg", "Hello bank message")
+        .expect("message is accepted");
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+    job.try_set_param("betreff", "Support")
+        .expect("subject is accepted");
+    job.try_set_param("recpt", "Bank Mailbox")
+        .expect("recipient is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "CustomMsg");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert!(
+        status.job_results[0]
+            .result_data
+            .keys()
+            .all(|key| !key.starts_with("content."))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKKDM:3:5+1234567890::280:10020030+Hello bank message+Support+Bank Mailbox'"
+        ),
+        "{body}"
+    );
+    assert!(!body.contains("EUR+Hello bank message"), "{body}");
 }
 
 #[tokio::test]
