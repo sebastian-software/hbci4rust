@@ -142,6 +142,28 @@ pub fn apply_pintan_sig_head(
     Ok(())
 }
 
+pub fn apply_pintan_sig_tail_from_head(
+    message: &mut HbciMessage,
+    sig_head_path: &str,
+    sig_tail_path: &str,
+) -> HbciResult<()> {
+    let sig_head_checkref_path = format!("{sig_head_path}.seccheckref");
+    let checkref = message
+        .value(&sig_head_checkref_path)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("PinTAN SigHead has no check reference at {sig_head_checkref_path}"),
+            )
+        })?
+        .to_owned();
+
+    message.set_value(&format!("{sig_tail_path}.seccheckref"), &checkref)?;
+
+    Ok(())
+}
+
 pub fn apply_pintan_user_sig_to_sig_tail(
     message: &mut HbciMessage,
     sig_tail_path: &str,

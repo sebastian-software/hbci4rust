@@ -1,6 +1,6 @@
 use hbci4rust::{
-    PinTanPassport, PinTanPassportData, PinTanSigHead, UserSig, apply_pintan_sig_head,
-    apply_pintan_user_sig_to_sig_tail,
+    HbciErrorKind, PinTanPassport, PinTanPassportData, PinTanSigHead, UserSig,
+    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_user_sig_to_sig_tail,
     protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec},
 };
 
@@ -300,6 +300,54 @@ fn derives_pintan_sighead_profile_version_two_for_twostep_method() {
     assert_eq!(message.value("DialogEnd.SigHead.secfunc"), Some("921"));
     assert_eq!(message.value("DialogEnd.SigHead.seccheckref"), Some("REF2"));
     assert_eq!(message.value("DialogEnd.SigHead.secref"), Some("7"));
+}
+
+#[test]
+fn applies_pintan_sigtail_checkref_from_sighead_like_hbci4java_fill_sig_tail() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+    let passport = pintan_passport_with_tan_method("999");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF3", "1", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+    apply_pintan_sig_head(&mut message, "DialogEnd.SigHead", &sig_head).expect("sighead applies");
+
+    apply_pintan_sig_tail_from_head(&mut message, "DialogEnd.SigHead", "DialogEnd.SigTail")
+        .expect("sigtail checkref applies");
+
+    assert_eq!(message.value("DialogEnd.SigTail.seccheckref"), Some("REF3"));
+
+    message
+        .set_value("DialogEnd.SigTail.SegHead.seq", "4")
+        .expect("segment sequence can be fixed for segment render");
+    let rendered = message
+        .element("DialogEnd.SigTail")
+        .expect("signature tail exists")
+        .to_fints_string()
+        .expect("signature tail renders");
+
+    assert_eq!(rendered, "HNSHA:4:2+REF3'");
+}
+
+#[test]
+fn rejects_pintan_sigtail_checkref_when_sighead_has_none() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+
+    let err =
+        apply_pintan_sig_tail_from_head(&mut message, "DialogEnd.SigHead", "DialogEnd.SigTail")
+            .expect_err("missing sighead checkref is rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::InvalidArgument);
+    assert!(
+        err.message().contains("DialogEnd.SigHead.seccheckref"),
+        "{err}"
+    );
 }
 
 #[test]
