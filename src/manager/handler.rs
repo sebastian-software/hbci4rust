@@ -360,6 +360,13 @@ where
             "CustomMsgRes",
             &message_status,
         );
+        if http_success {
+            update_passport_accounts_from_sepa_info(
+                &mut self.passport,
+                &self.queue,
+                &response_status,
+            );
+        }
         if self.dialog_status.init_status.is_some() {
             self.dialog_status.message_statuses.push(message_status);
         }
@@ -1034,6 +1041,7 @@ fn render_job_into_custom_message(
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
+        "SEPAInfo" => render_sepa_info(message, index),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         "TANMediaList" => render_tan_media_list(message, job, index),
@@ -1227,6 +1235,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "KUmsNew7",
             path: "CustomMsg.GV.KUmsNew7",
         }),
+        "SEPAInfo" => Ok(OrderhashSourceJobInfo {
+            code: "HKSPA",
+            lowlevel_segment: "SEPAInfo1",
+            path: "CustomMsg.GV.SEPAInfo1",
+        }),
         "SaldoReq" | "SaldoReqAll" => Ok(OrderhashSourceJobInfo {
             code: "HKSAL",
             lowlevel_segment: "Saldo7",
@@ -1279,6 +1292,14 @@ fn tan_media_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TANMediaListRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TANMediaListRes4", index + 1)
+    }
+}
+
+fn sepa_info_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.SEPAInfoRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.SEPAInfoRes1", index + 1)
     }
 }
 
@@ -1464,6 +1485,15 @@ fn render_kums_all_camt(
     )?;
 
     Ok(())
+}
+
+fn render_sepa_info(message: &mut HbciMessage, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    message.set_value(&format!("{root}.SEPAInfo1"), "requested")
 }
 
 fn render_tan_media_list(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
@@ -1874,6 +1904,7 @@ impl ParsedResponseStatus {
                 self.content_result_data([kums_response_root("KUmsZeitCamtRes1", index)])
             }
             "KUmsNew" => self.content_result_data([kums_response_root("KUmsNewRes7", index)]),
+            "SEPAInfo" => self.content_result_data([sepa_info_response_root(index)]),
             "SaldoReq" => self.content_result_data([saldo_response_root(index)]),
             "SaldoReqAll" => self.content_result_data(
                 counted_prefixes(&self.values, "CustomMsgRes.GVRes")
@@ -2019,6 +2050,21 @@ fn update_passport_tan_media_names_from_results(
         let names = data.active_media_names();
         if !names.is_empty() {
             passport.set_tan_media_names(names);
+        }
+    }
+}
+
+fn update_passport_accounts_from_sepa_info(
+    passport: &mut PinTanPassport,
+    jobs: &[HbciJob],
+    response_status: &ParsedResponseStatus,
+) {
+    for (index, job) in jobs.iter().enumerate() {
+        if job.name() == "SEPAInfo" {
+            passport.update_accounts_from_sepa_info_values(
+                &response_status.values,
+                &sepa_info_response_root(index),
+            );
         }
     }
 }

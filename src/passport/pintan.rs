@@ -502,6 +502,47 @@ impl PinTanPassport {
         updated
     }
 
+    pub fn update_accounts_from_sepa_info_values(
+        &mut self,
+        values: &BTreeMap<String, String>,
+        prefix: &str,
+    ) -> usize {
+        let mut updated = 0;
+
+        for account_prefix in counted_prefixes(values, &format!("{prefix}.Acc")) {
+            if optional_value(values, &format!("{account_prefix}.sepa")).as_deref() == Some("N") {
+                continue;
+            }
+
+            let country = optional_value(values, &format!("{account_prefix}.KIK.country"));
+            let blz = optional_value(values, &format!("{account_prefix}.KIK.blz"));
+            let number = optional_value(values, &format!("{account_prefix}.number"));
+            let iban = optional_value(values, &format!("{account_prefix}.iban"));
+            let bic = optional_value(values, &format!("{account_prefix}.bic"));
+
+            let Some(account) = self.data.accounts.iter_mut().find(|account| {
+                account.country == country && account.blz == blz && account.number == number
+            }) else {
+                continue;
+            };
+
+            let mut account_updated = false;
+            if iban.as_deref().is_some_and(|value| !value.is_empty()) {
+                account.iban = iban;
+                account_updated = true;
+            }
+            if bic.as_deref().is_some_and(|value| !value.is_empty()) {
+                account.bic = bic;
+                account_updated = true;
+            }
+            if account_updated {
+                updated += 1;
+            }
+        }
+
+        updated
+    }
+
     pub fn update_allowed_twostep_mechanisms_from_status(
         &mut self,
         status: &HbciMsgStatus,

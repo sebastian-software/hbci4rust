@@ -545,6 +545,17 @@ fn kums_all_camt_exposes_original_near_constraints() {
 }
 
 #[test]
+fn sepa_info_exposes_original_near_empty_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("SEPAInfo").expect("job is in registry");
+
+    assert!(job.constraints().is_empty());
+    let lowlevel = job.verify_constraints().expect("constraints resolve");
+    assert!(lowlevel.is_empty());
+}
+
+#[test]
 fn tan_media_list_exposes_original_near_v4_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -3049,6 +3060,67 @@ async fn handler_renders_and_collects_tan_media_list_like_original() {
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
     assert_signed_custom_msg_request(&body, "0", "1", 5);
     assert!(body.contains("HKTAB:3:4+0+A'"), "{body}");
+}
+
+#[tokio::test]
+async fn handler_renders_sepa_info_and_updates_passport_accounts_like_original() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        accounts: vec![Konto {
+            country: Some("DE".to_owned()),
+            blz: Some("12345678".to_owned()),
+            number: Some("0000000000".to_owned()),
+            curr: Some("EUR".to_owned()),
+            ..Konto::default()
+        }],
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HISPA:3:1+J:DE02123456780000000000:MARKDEF1100:0000000000::280:12345678+N:DE99123456780000000000:MARKDEF1200:9999999999::280:12345678",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("SEPAInfo").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "SEPAInfo");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.Acc.sepa")
+            .map(String::as_str),
+        Some("J")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.Acc.iban")
+            .map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.Acc_2.sepa")
+            .map(String::as_str),
+        Some("N")
+    );
+
+    let accounts = handler.passport().accounts();
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(accounts[0].bic.as_deref(), Some("MARKDEF1100"));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKSPA:3:1'"), "{body}");
 }
 
 #[tokio::test]
