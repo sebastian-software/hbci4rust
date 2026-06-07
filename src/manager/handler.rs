@@ -1047,6 +1047,7 @@ fn render_job_into_custom_message(
 ) -> HbciResult<()> {
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
+        "DauerSEPADel" => render_dauer_sepa_del(message, job, index, passport),
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
@@ -1251,6 +1252,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCDN",
             lowlevel_segment: "DauerSEPAEdit1",
             path: "CustomMsg.GV.DauerSEPAEdit1",
+        }),
+        "DauerSEPADel" => Ok(OrderhashSourceJobInfo {
+            code: "HKCDL",
+            lowlevel_segment: "DauerSEPADel1",
+            path: "CustomMsg.GV.DauerSEPADel1",
         }),
         "KUmsAll" => Ok(OrderhashSourceJobInfo {
             code: "HKKAZ",
@@ -1566,6 +1572,26 @@ fn render_dauer_sepa_edit(
         DauerSepaOrderRenderSpec {
             job_name: "DauerSEPAEdit",
             lowlevel_segment: "DauerSEPAEdit1",
+            include_order_id: true,
+            include_date: true,
+        },
+    )
+}
+
+fn render_dauer_sepa_del(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_dauer_sepa_order_job(
+        message,
+        job,
+        index,
+        passport,
+        DauerSepaOrderRenderSpec {
+            job_name: "DauerSEPADel",
+            lowlevel_segment: "DauerSEPADel1",
             include_order_id: true,
             include_date: true,
         },
@@ -2326,6 +2352,9 @@ impl ParsedResponseStatus {
             "AccInfo" => self
                 .acc_info_result_for_root(acc_info_response_root(index))
                 .map(HbciJobResultData::AccInfo),
+            "DauerSEPADel" => self
+                .dauer_edit_result_for_root(dauer_sepa_edit_response_root(index))
+                .map(HbciJobResultData::DauerEdit),
             "DauerSEPAEdit" => self
                 .dauer_edit_result_for_root(dauer_sepa_edit_response_root(index))
                 .map(HbciJobResultData::DauerEdit),
@@ -2357,6 +2386,7 @@ impl ParsedResponseStatus {
     fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
+            "DauerSEPADel" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
@@ -2713,6 +2743,20 @@ fn update_passport_dauer_persistent_data_from_results(
                 };
                 let snapshot =
                     dauer_sepa_request_persistent_snapshot(job, passport, "DauerSEPAEdit1");
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+                }
+            }
+            "DauerSEPADel" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot =
+                    dauer_sepa_request_persistent_snapshot(job, passport, "DauerSEPADel1");
                 if !snapshot.is_empty() {
                     passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
                 }
