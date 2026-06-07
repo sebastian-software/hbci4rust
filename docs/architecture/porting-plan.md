@@ -39,3 +39,6 @@ Out:
 
 - `docs/architecture/job-coverage.md` records the current upstream `GV*.java`
   to Rust registry coverage and the intentional `GVTemplate` boundary.
+- `docs/architecture/result-coverage.md` records the current upstream
+  `GVR*.java` to Rust typed result coverage and the intentional
+  `WPStammData` boundary.
