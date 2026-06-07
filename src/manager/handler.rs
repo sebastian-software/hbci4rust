@@ -1060,6 +1060,7 @@ fn render_job_into_custom_message(
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
+        "TermUebSEPADel" => render_term_ueb_sepa_del(message, job, index, passport),
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         name => Err(HbciError::new(
@@ -1265,6 +1266,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCSE",
             lowlevel_segment: "TermUebSEPA1",
             path: "CustomMsg.GV.TermUebSEPA1",
+        }),
+        "TermUebSEPADel" => Ok(OrderhashSourceJobInfo {
+            code: "HKCSL",
+            lowlevel_segment: "TermUebSEPADel1",
+            path: "CustomMsg.GV.TermUebSEPADel1",
         }),
         "TermUebSEPAEdit" => Ok(OrderhashSourceJobInfo {
             code: "HKCSA",
@@ -1662,6 +1668,52 @@ fn render_term_ueb_sepa(
         "TermUebSEPA requires _sepapain or SEPA parameters for PAIN generation",
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    Ok(())
+}
+
+fn render_term_ueb_sepa_del(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "TermUebSEPADel1";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "TermUebSEPADel requires src.iban, src.number, or a passport account for the current TermUebSEPADel1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "TermUebSEPADel1.sepadescr", "_sepadescriptor")
+            .unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "TermUebSEPADel1.sepapain",
+        "_sepapain",
+        "TermUebSEPADel requires _sepapain or SEPA parameters for PAIN generation",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.orderid"),
+        job,
+        "TermUebSEPADel1.orderid",
+        "orderid",
+        "TermUebSEPADel requires orderid",
+    )?;
 
     Ok(())
 }
