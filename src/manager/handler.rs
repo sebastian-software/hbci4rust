@@ -10,9 +10,10 @@ use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
     GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrInfoList, GvrInfoListInfo,
     GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
-    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrStatus, GvrStatusEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit,
+    GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
+    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
+    Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1063,6 +1064,7 @@ fn render_job_into_custom_message(
         "SEPAInfo" => render_sepa_info(message, index),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
+        "Status" => render_status(message, job, index),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
@@ -1344,6 +1346,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKSPA",
             lowlevel_segment: "SEPAInfo1",
             path: "CustomMsg.GV.SEPAInfo1",
+        }),
+        "Status" => Ok(OrderhashSourceJobInfo {
+            code: "HKPRO",
+            lowlevel_segment: "Status4",
+            path: "CustomMsg.GV.Status4",
         }),
         "SaldoReq" | "SaldoReqAll" => Ok(OrderhashSourceJobInfo {
             code: "HKSAL",
@@ -1702,6 +1709,34 @@ fn render_info_order(message: &mut HbciMessage, job: &HbciJob, index: usize) -> 
             job_param(job, &format!("InfoDetails4.Address.{suffix}"), frontend),
         )?;
     }
+
+    Ok(())
+}
+
+fn render_status(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.Status4");
+
+    message.set_value(&segment, "requested")?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.startdate"),
+        job_param(job, "Status4.startdate", "startdate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.enddate"),
+        job_param(job, "Status4.enddate", "enddate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "Status4.maxentries", "maxentries"),
+    )?;
 
     Ok(())
 }
@@ -2950,6 +2985,7 @@ impl ParsedResponseStatus {
             "InstUebSEPA" => self
                 .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::InstUebSepa),
+            "Status" => self.status_result().map(HbciJobResultData::Status),
             "TermUebSEPA" => self
                 .term_ueb_result_for_root(term_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::TermUeb),
@@ -3013,6 +3049,7 @@ impl ParsedResponseStatus {
                     .into_iter()
                     .map(|prefix| format!("{prefix}.SaldoRes7")),
             ),
+            "Status" => self.content_result_data(self.status_response_roots()),
             "TANMediaList" => self.content_result_data([tan_media_list_response_root(index)]),
             _ => BTreeMap::new(),
         }
@@ -3102,6 +3139,24 @@ impl ParsedResponseStatus {
             .collect();
 
         Some(GvrInfoOrder { entries })
+    }
+
+    fn status_response_roots(&self) -> Vec<String> {
+        counted_prefixes(&self.values, "CustomMsgRes.GVRes")
+            .into_iter()
+            .map(|prefix| format!("{prefix}.StatusRes4"))
+            .filter(|root| self.values.contains_key(&format!("{root}.SegHead.code")))
+            .collect()
+    }
+
+    fn status_result(&self) -> Option<GvrStatus> {
+        let entries = self
+            .status_response_roots()
+            .into_iter()
+            .filter_map(|root| status_entry_from_values(&self.values, &root))
+            .collect::<Vec<_>>();
+
+        (!entries.is_empty()).then_some(GvrStatus { entries })
     }
 
     fn dauer_edit_result_for_root(&self, root: String) -> Option<GvrDauerEdit> {
@@ -3250,6 +3305,30 @@ fn info_order_info_from_values(
     Some(GvrInfoOrderInfo {
         code: Some(code),
         message: optional_value(values, &format!("{prefix}.msg")),
+    })
+}
+
+fn status_entry_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrStatusEntry> {
+    values.get(&format!("{prefix}.SegHead.code"))?;
+    let segment_ref = optional_value(values, &format!("{prefix}.segref"));
+    let mut return_value = collect_return_values(values, prefix, ReturnValueScope::Segment)
+        .into_iter()
+        .next();
+    if let Some(value) = return_value.as_mut() {
+        value.segment_ref = segment_ref.clone();
+        value.element = None;
+    }
+
+    Some(GvrStatusEntry {
+        dialog_id: optional_value(values, &format!("{prefix}.MsgRef.dialogid")),
+        msg_num: optional_value(values, &format!("{prefix}.MsgRef.msgnum")),
+        segment_ref,
+        date: optional_value(values, &format!("{prefix}.date")),
+        time: optional_value(values, &format!("{prefix}.time")),
+        return_value,
     })
 }
 

@@ -600,6 +600,54 @@ fn info_order_exposes_original_near_v4_constraints() {
 }
 
 #[test]
+fn status_exposes_original_near_v4_constraints_and_jobid_helper() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("Status").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 4);
+    assert_eq!(
+        job.constraint("startdate")
+            .expect("startdate constraint")
+            .destination_name,
+        "Status4.startdate"
+    );
+    assert_eq!(
+        job.constraint("enddate")
+            .expect("enddate constraint")
+            .destination_name,
+        "Status4.enddate"
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "Status4.maxentries"
+    );
+    assert_eq!(
+        job.constraint("jobid")
+            .expect("jobid pseudo constraint")
+            .destination_name,
+        ""
+    );
+    assert!(job.constraint("offset").is_none());
+
+    job.try_set_param("jobid", "20240229/DIALOG1/2/3")
+        .expect("jobid helper accepts original job id shape");
+    assert_eq!(job.param("jobid"), Some("20240229/DIALOG1/2/3"));
+    assert_eq!(job.param("startdate"), Some("2024-02-29"));
+    assert_eq!(job.param("enddate"), Some("2024-02-29"));
+    assert_eq!(job.lowlevel_param("Status4.startdate"), Some("2024-02-29"));
+    assert_eq!(job.lowlevel_param("Status4.enddate"), Some("2024-02-29"));
+    assert!(job.lowlevel_param("").is_none());
+
+    let mut unchecked_job = handler.new_job("Status").expect("job is in registry");
+    unchecked_job.set_param("jobid", "20240301/DIALOG2/3/4");
+    assert_eq!(unchecked_job.param("startdate"), Some("2024-03-01"));
+    assert_eq!(unchecked_job.param("enddate"), Some("2024-03-01"));
+}
+
+#[test]
 fn dauer_sepa_list_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -7090,6 +7138,97 @@ async fn handler_collects_info_order_result_like_original() {
     assert_eq!(info_order.entries[0].message.as_deref(), Some("Text one"));
     assert_eq!(info_order.entries[1].code.as_deref(), Some("INFO2"));
     assert_eq!(info_order.entries[1].message.as_deref(), Some("Text two"));
+}
+
+#[tokio::test]
+async fn handler_renders_status_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut status_job = handler.new_job("Status").expect("job is in registry");
+    status_job
+        .try_set_param("jobid", "20240229/DIALOG1/2/3")
+        .expect("jobid helper is accepted");
+    status_job
+        .try_set_param_int("maxentries", 5)
+        .expect("maxentries is accepted");
+
+    handler.add_to_queue(status_job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "Status");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKPRO:3:4+20240229+20240229+5'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_collects_status_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIPRO:3:4+DIALOG1:2+5+20240229+070809+0010::Accepted",
+        "HIPRO:4:4+DIALOG1:3+6+20240301+081500+9010::Failed",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut job = handler.new_job("Status").expect("job is in registry");
+    job.try_set_param_date("startdate", "2024-02-29")
+        .expect("startdate is accepted");
+    job.try_set_param_date("enddate", "2024-03-01")
+        .expect("enddate is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "Status");
+    assert_eq!(
+        result
+            .result_data
+            .get("content.MsgRef.dialogid")
+            .map(String::as_str),
+        Some("DIALOG1")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content_2.RetVal.text")
+            .map(String::as_str),
+        Some("Failed")
+    );
+
+    let Some(HbciJobResultData::Status(status_result)) = result.result.as_ref() else {
+        panic!("expected Status result data");
+    };
+    assert_eq!(status_result.entries.len(), 2);
+    assert_eq!(
+        status_result.entries[0].dialog_id.as_deref(),
+        Some("DIALOG1")
+    );
+    assert_eq!(status_result.entries[0].msg_num.as_deref(), Some("2"));
+    assert_eq!(status_result.entries[0].segment_ref.as_deref(), Some("5"));
+    assert_eq!(status_result.entries[0].date.as_deref(), Some("2024-02-29"));
+    assert_eq!(status_result.entries[0].time.as_deref(), Some("07:08:09"));
+    let first_return = status_result.entries[0]
+        .return_value
+        .as_ref()
+        .expect("first return value");
+    assert_eq!(first_return.code, "0010");
+    assert_eq!(first_return.segment_ref.as_deref(), Some("5"));
+    assert_eq!(first_return.text, "Accepted");
+    let second_return = status_result.entries[1]
+        .return_value
+        .as_ref()
+        .expect("second return value");
+    assert_eq!(second_return.code, "9010");
+    assert_eq!(second_return.segment_ref.as_deref(), Some("6"));
+    assert_eq!(second_return.text, "Failed");
 }
 
 #[tokio::test]

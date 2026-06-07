@@ -127,7 +127,18 @@ impl HbciJob {
     }
 
     pub fn set_param(&mut self, name: impl Into<String>, value: impl Into<String>) {
-        self.params.insert(name.into(), value.into());
+        let name = name.into();
+        let value = value.into();
+
+        if self.name == "Status"
+            && name == "jobid"
+            && let Ok(date) = status_jobid_date(&value)
+        {
+            self.set_frontend_and_lowlevel_param("startdate", date.clone());
+            self.set_frontend_and_lowlevel_param("enddate", date);
+        }
+
+        self.params.insert(name, value);
     }
 
     pub fn set_param_int(&mut self, name: impl Into<String>, value: i32) {
@@ -154,6 +165,11 @@ impl HbciJob {
                 HbciErrorKind::InvalidArgument,
                 format!("job parameter {name} must not be empty for {}", self.name),
             ));
+        }
+
+        if self.name == "Status" && name == "jobid" {
+            self.set_status_jobid_param(value)?;
+            return Ok(());
         }
 
         self.set_frontend_and_lowlevel_param(name, value);
@@ -428,6 +444,10 @@ impl HbciJob {
         &self,
         constraint: &HbciJobConstraint,
     ) -> HbciResult<Option<ResolvedConstraintValue>> {
+        if constraint.destination_name.is_empty() {
+            return Ok(None);
+        }
+
         if let Some(value) = self
             .lowlevel_param(&constraint.destination_name)
             .filter(|value| !value.is_empty())
@@ -569,6 +589,7 @@ impl HbciJob {
             .constraints
             .iter()
             .filter(|constraint| constraint.frontend_name == frontend_name)
+            .filter(|constraint| !constraint.destination_name.is_empty())
             .map(|constraint| constraint.destination_name.clone())
             .collect::<Vec<_>>();
         let lowlevel_value = self.lowlevel_value_for_frontend(frontend_name, value);
@@ -585,6 +606,14 @@ impl HbciJob {
         }
 
         value.to_owned()
+    }
+
+    fn set_status_jobid_param(&mut self, value: String) -> HbciResult<()> {
+        let date = status_jobid_date(&value)?;
+        self.set_frontend_and_lowlevel_param("startdate", date.clone());
+        self.set_frontend_and_lowlevel_param("enddate", date);
+        self.params.insert("jobid".to_owned(), value);
+        Ok(())
     }
 
     fn set_indexed_lowlevel_params_for_frontend(
@@ -631,6 +660,23 @@ fn iban_crc_ok(iban: &str) -> bool {
         ..Konto::default()
     }
     .check_iban()
+}
+
+fn status_jobid_date(value: &str) -> HbciResult<String> {
+    let Some((date, _rest)) = value.split_once('/') else {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Status jobid must start with yyyyMMdd/: {value}"),
+        ));
+    };
+    if date.len() != 8 || !date.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("Status jobid must start with yyyyMMdd/: {value}"),
+        ));
+    }
+
+    normalize_iso_date(&format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]))
 }
 
 fn indexed_destination_name(destination: &str, index: usize) -> String {
@@ -709,6 +755,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "Receipt" => receipt_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
+        "Status" => status_constraints(),
         "TANMediaList" => tan_media_list_constraints(),
         "TAN2Step" => tan2step_constraints(),
         _ => Vec::new(),
@@ -1274,6 +1321,15 @@ fn saldo_req_all_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.blz", "Saldo7.KTV.KIK.blz", None::<String>),
         HbciJobConstraint::new("my.number", "Saldo7.KTV.number", None::<String>),
         HbciJobConstraint::new("my.subnumber", "Saldo7.KTV.subnumber", Some("")),
+    ]
+}
+
+fn status_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("startdate", "Status4.startdate", Some("")),
+        HbciJobConstraint::new("enddate", "Status4.enddate", Some("")),
+        HbciJobConstraint::new("maxentries", "Status4.maxentries", Some("")),
+        HbciJobConstraint::new("jobid", "", Some("")),
     ]
 }
 
