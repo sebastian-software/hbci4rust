@@ -438,6 +438,55 @@ fn collects_pintan_signature_range_like_hbci4java_collect_hash_data() {
 }
 
 #[test]
+fn collects_pintan_signature_range_skips_unused_custom_message_jobs() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg").expect("message tree builds");
+    let passport = pintan_passport_with_tan_method("921");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF7", "3", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+    let signature = UserSig::encode(Some("12345"), None).expect("usersig encodes");
+
+    apply_pintan_signature_shell(
+        &mut message,
+        "CustomMsg.SigHead",
+        "CustomMsg.SigTail",
+        &sig_head,
+        &signature,
+    )
+    .expect("signature shell applies");
+    set_all(
+        &mut message,
+        [
+            ("CustomMsg.MsgHead.dialogid", "DIALOG1"),
+            ("CustomMsg.MsgHead.msgnum", "2"),
+            ("CustomMsg.GV.Saldo7.KTV.iban", "DE02123456780000000000"),
+            ("CustomMsg.GV.Saldo7.allaccounts", "N"),
+            ("CustomMsg.MsgTail.msgnum", "2"),
+        ],
+    );
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+
+    let range = collect_pintan_signature_range(&message, "CustomMsg.SigHead", "CustomMsg.SigTail")
+        .expect("signature range collects");
+
+    assert!(range.starts_with("HNSHK:2:4+PIN:2+921+REF7"), "{range}");
+    assert!(
+        range.contains("HKSAL:3:7+DE02123456780000000000+N'"),
+        "{range}"
+    );
+    assert!(!range.contains("HKCAZ"), "{range}");
+    assert!(!range.contains("HKKAZ"), "{range}");
+    assert!(!range.contains("HNSHA"), "{range}");
+    assert!(!range.contains("HNHBS"), "{range}");
+}
+
+#[test]
 fn rejects_pintan_signature_range_when_tail_path_is_missing() {
     let mut message = dialog_end_message_shell();
     let passport = pintan_passport_with_tan_method("921");

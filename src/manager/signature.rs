@@ -194,10 +194,9 @@ pub fn collect_pintan_signature_range(
 
     let mut range = String::new();
     for child in &children[sig_head_index..sig_tail_index] {
-        if child.min_num() == 0 && !has_explicit_message_content(child) {
-            continue;
+        if let Some(rendered) = child.to_message_child_fints_string()? {
+            range.push_str(&rendered);
         }
-        range.push_str(&child.to_fints_string()?);
     }
 
     Ok(range)
@@ -228,12 +227,6 @@ fn top_level_child_index(children: &[SyntaxElement], path: &str) -> HbciResult<u
                 format!("message has no top-level signature element {path}"),
             )
         })
-}
-
-fn has_explicit_message_content(element: &SyntaxElement) -> bool {
-    element.value().is_some()
-        || element.is_requested()
-        || element.children().iter().any(has_explicit_message_content)
 }
 
 fn required_passport_value<'a>(value: &'a str, message: &str) -> HbciResult<&'a str> {

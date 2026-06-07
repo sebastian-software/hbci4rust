@@ -236,6 +236,10 @@ impl SyntaxElement {
             .map(|rendered| rendered.unwrap_or_default())
     }
 
+    pub fn to_message_child_fints_string(&self) -> HbciResult<Option<String>> {
+        self.render_optional_aware(Some(SyntaxElementKind::Msg))
+    }
+
     pub fn to_fints_bytes(&self) -> HbciResult<Vec<u8>> {
         self.render_bytes(None, true)
             .map(|rendered| rendered.unwrap_or_default())
