@@ -34,9 +34,17 @@ The following hbci4java security media are outside v1:
 - RAH;
 - RSA key-file live support.
 
+This does not exclude chipTAN, QR-TAN, photoTAN, decoupled app approval, or TAN
+media metadata. Those are PinTAN/SCA mechanisms and remain in scope. The
+unsupported chipcard boundary refers to HBCI signature-card runtime support,
+including PCSC/CTAPI/DDV-style access and card-reader UX.
+
 The v1 port also does not import, export, or interpret Java passport files. The
 only persisted passport format is the Rust-native PinTAN envelope documented in
 `docs/reference/passport-storage-security.md`.
+
+The current market/source evidence for this boundary is recorded in
+`docs/reference/security-media-scope.md`.
 
 ## Dynamic Lowlevel Boundary
 
@@ -128,6 +136,7 @@ Before any unsupported surface above becomes part of the public API:
 - `docs/reference/live-bank-tests.md`
 - `docs/reference/malformed-bank-responses.md`
 - `docs/reference/passport-storage-security.md`
+- `docs/reference/security-media-scope.md`
 - ADR 0003: V1 PinTAN Scope
 - ADR 0232: CustomMsg Job And Template Boundary
 - ADR 0233: GV Job Coverage Audit
@@ -138,3 +147,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0255: Malformed Bank Response Evidence
 - ADR 0257: Live Smoke Observation Boundary
 - ADR 0258: Baseline And Scope Change Guard
+- ADR 0261: Security Media Scope Evidence

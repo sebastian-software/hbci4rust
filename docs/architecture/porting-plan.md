@@ -55,6 +55,9 @@ Out:
 - `docs/reference/unsupported-surfaces.md` records the public v1 boundaries for
   security media, Java passport compatibility, dynamic lowlevel jobs, typed
   result exclusions, live testing, and release limitations.
+- `docs/reference/security-media-scope.md` records the local audit evidence and
+  current bank/provider source snapshot behind the PinTAN-only security-media
+  boundary.
 - `docs/reference/parser-generator-goldens.md` records current parser/generator
   golden fixture coverage and explicit v1 limitations.
 - `docs/reference/malformed-bank-responses.md` records deterministic coverage
