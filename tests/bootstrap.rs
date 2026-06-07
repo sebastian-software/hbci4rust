@@ -14,6 +14,7 @@ use hbci4rust::{
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const CHALLENGE_DATA: &str = include_str!("fixtures/hbci4java/secmech/challengedata.xml");
+const VALID_BZU_DATA: &str = "0000000000004";
 
 fn pintan_bpd(can1step: &str, mechanisms: &[(&str, &str)]) -> BTreeMap<String, String> {
     let mut props = BTreeMap::from([(
@@ -1276,6 +1277,85 @@ fn ueb_exposes_original_near_v5_constraints() {
     assert_eq!(
         job.lowlevel_param("Ueb5.usage.usage_2"),
         Some("Second usage")
+    );
+}
+
+#[test]
+fn ueb_bzu_exposes_original_near_v5_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("UebBZU").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 27);
+    assert_eq!(
+        job.constraint("src.number")
+            .expect("source account number constraint")
+            .destination_name,
+        "Ueb5.My.number"
+    );
+    assert_eq!(
+        job.constraint("src.country")
+            .expect("source country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("dst.number")
+            .expect("destination account number constraint")
+            .destination_name,
+        "Ueb5.Other.number"
+    );
+    assert_eq!(
+        job.constraint("bzudata")
+            .expect("bzu data constraint")
+            .destination_name,
+        "Ueb5.usage.usage"
+    );
+    assert!(job.constraint("usage").is_none());
+    assert_eq!(
+        job.constraint("usage_2")
+            .expect("usage_2 constraint")
+            .destination_name,
+        "Ueb5.usage.usage_2"
+    );
+    assert_eq!(
+        job.constraint("usage_14")
+            .expect("usage_14 constraint")
+            .destination_name,
+        "Ueb5.usage.usage_14"
+    );
+    assert_eq!(
+        job.constraint("key")
+            .expect("transaction key constraint")
+            .default_value
+            .as_deref(),
+        Some("67")
+    );
+
+    let len_err = job
+        .try_set_param("bzudata", "123")
+        .expect_err("short bzu data is rejected");
+    assert_eq!(len_err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), None);
+
+    let check_digit_err = job
+        .try_set_param("bzudata", "0000000000000")
+        .expect_err("wrong bzu check digit is rejected");
+    assert_eq!(
+        check_digit_err.kind(),
+        hbci4rust::HbciErrorKind::InvalidArgument
+    );
+    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), None);
+
+    job.try_set_param("bzudata", VALID_BZU_DATA)
+        .expect("valid bzu data is accepted");
+    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), Some(VALID_BZU_DATA));
+    job.try_set_param("usage_2", "Second BZU usage")
+        .expect("second usage line is accepted");
+    assert_eq!(
+        job.lowlevel_param("Ueb5.usage.usage_2"),
+        Some("Second BZU usage")
     );
 }
 
@@ -5129,6 +5209,73 @@ async fn handler_renders_ueb_like_original() {
         body.contains(
             "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Transfer usage one:Transfer usage two'"
         ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_ueb_bzu_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("UebBZU").expect("job is in registry");
+    job.try_set_param("src.number", "1234567890")
+        .expect("source account number is accepted");
+    job.try_set_param("src.blz", "10020030")
+        .expect("source bank code is accepted");
+    job.try_set_param("dst.number", "99887766")
+        .expect("destination account number is accepted");
+    job.try_set_param("dst.blz", "20030040")
+        .expect("destination bank code is accepted");
+    job.try_set_param("name", "Receiver Name")
+        .expect("recipient name is accepted");
+    job.try_set_param("btg.value", "42.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "EUR")
+        .expect("amount currency is accepted");
+    job.try_set_param("bzudata", VALID_BZU_DATA)
+        .expect("bzu data is accepted");
+    job.try_set_param("usage_2", "BZU usage two")
+        .expect("second usage line is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "UebBZU");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.dialogid")
+            .map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.segnum")
+            .map(String::as_str),
+        Some("3")
+    );
+    assert!(
+        !handler
+            .passport()
+            .persistent_data()
+            .keys()
+            .any(|key| key.starts_with("uebbzu_"))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(&format!(
+            "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+67++{VALID_BZU_DATA}:BZU usage two'"
+        )),
         "{body}"
     );
 }

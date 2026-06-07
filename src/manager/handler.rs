@@ -1085,6 +1085,7 @@ fn render_job_into_custom_message(
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
         "TermUebSEPAList" => render_term_ueb_sepa_list(message, job, index, passport),
         "Ueb" => render_ueb(message, job, index, passport),
+        "UebBZU" => render_ueb_bzu(message, job, index, passport),
         "UebEil" => render_ueb_eil(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
@@ -1338,6 +1339,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             path: "CustomMsg.GV.InstUebSEPA1",
         }),
         "Ueb" => Ok(OrderhashSourceJobInfo {
+            code: "HKUEB",
+            lowlevel_segment: "Ueb5",
+            path: "CustomMsg.GV.Ueb5",
+        }),
+        "UebBZU" => Ok(OrderhashSourceJobInfo {
             code: "HKUEB",
             lowlevel_segment: "Ueb5",
             path: "CustomMsg.GV.Ueb5",
@@ -2361,7 +2367,38 @@ fn render_ueb(
     index: usize,
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
-    render_classic_ueb(message, job, index, passport, "Ueb5", "Ueb")
+    render_classic_ueb(
+        message,
+        job,
+        index,
+        passport,
+        ClassicUebRenderSpec {
+            lowlevel_segment: "Ueb5",
+            job_name: "Ueb",
+            key_default: "51",
+            first_usage_frontend: "usage",
+        },
+    )
+}
+
+fn render_ueb_bzu(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_classic_ueb(
+        message,
+        job,
+        index,
+        passport,
+        ClassicUebRenderSpec {
+            lowlevel_segment: "Ueb5",
+            job_name: "UebBZU",
+            key_default: "67",
+            first_usage_frontend: "bzudata",
+        },
+    )
 }
 
 fn render_ueb_eil(
@@ -2370,7 +2407,26 @@ fn render_ueb_eil(
     index: usize,
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
-    render_classic_ueb(message, job, index, passport, "UebEil1", "UebEil")
+    render_classic_ueb(
+        message,
+        job,
+        index,
+        passport,
+        ClassicUebRenderSpec {
+            lowlevel_segment: "UebEil1",
+            job_name: "UebEil",
+            key_default: "51",
+            first_usage_frontend: "usage",
+        },
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ClassicUebRenderSpec {
+    lowlevel_segment: &'static str,
+    job_name: &'static str,
+    key_default: &'static str,
+    first_usage_frontend: &'static str,
 }
 
 fn render_classic_ueb(
@@ -2378,14 +2434,15 @@ fn render_classic_ueb(
     job: &HbciJob,
     index: usize,
     passport: &PinTanPassport,
-    lowlevel_segment: &str,
-    job_name: &str,
+    spec: ClassicUebRenderSpec,
 ) -> HbciResult<()> {
     let root = if index == 0 {
         "CustomMsg.GV".to_owned()
     } else {
         format!("CustomMsg.GV_{}", index + 1)
     };
+    let lowlevel_segment = spec.lowlevel_segment;
+    let job_name = spec.job_name;
     let segment = format!("{root}.{lowlevel_segment}");
     let src_account = classic_national_job_account(
         job,
@@ -2443,17 +2500,22 @@ fn render_classic_ueb(
     )?;
     message.set_value(
         &format!("{segment}.key"),
-        job_param(job, &format!("{lowlevel_segment}.key"), "key").unwrap_or("51"),
+        job_param(job, &format!("{lowlevel_segment}.key"), "key").unwrap_or(spec.key_default),
     )?;
     for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
         let usage_name = classic_usage_frontend_name(usage_index);
+        let frontend_name = if usage_index == 0 {
+            spec.first_usage_frontend
+        } else {
+            &usage_name
+        };
         set_optional_message_value(
             message,
             &format!("{segment}.usage.{usage_name}"),
             job_param(
                 job,
                 &format!("{lowlevel_segment}.usage.{usage_name}"),
-                &usage_name,
+                frontend_name,
             ),
         )?;
     }

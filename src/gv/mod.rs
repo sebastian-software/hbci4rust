@@ -170,6 +170,10 @@ impl HbciJob {
             ));
         }
 
+        if self.name == "UebBZU" && name == "bzudata" {
+            validate_bzu_data(&value)?;
+        }
+
         if self.name == "Status" && name == "jobid" {
             self.set_status_jobid_param(value)?;
             return Ok(());
@@ -441,7 +445,7 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
-            "TermUeb" | "Ueb" | "UebEil" => {
+            "TermUeb" | "Ueb" | "UebBZU" | "UebEil" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -693,6 +697,36 @@ fn status_jobid_date(value: &str) -> HbciResult<String> {
     normalize_iso_date(&format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]))
 }
 
+fn validate_bzu_data(value: &str) -> HbciResult<()> {
+    let len = value.len();
+    if len != 13 {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("UebBZU bzudata must be exactly 13 characters, got {len}"),
+        ));
+    }
+
+    let mut p: i32 = 10;
+    let mut s: i32 = 0;
+    for byte in value.bytes() {
+        s = (p % 11) + (i32::from(byte) - 0x30);
+        let mut modulo = s % 10;
+        if modulo == 0 {
+            modulo = 10;
+        }
+        p = modulo << 1;
+    }
+
+    if s % 10 != 1 {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("invalid UebBZU bzudata check digit: {value}"),
+        ));
+    }
+
+    Ok(())
+}
+
 fn binary_lowlevel_value(value: &str) -> String {
     if value.starts_with('B') || value.starts_with('N') {
         value.to_owned()
@@ -777,6 +811,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TermUebList" => term_ueb_list_constraints(),
         "InstUebSEPA" => inst_ueb_sepa_constraints(),
         "Ueb" => ueb_constraints(),
+        "UebBZU" => ueb_bzu_constraints(),
         "UebEil" => ueb_eil_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
         "UmbSEPA" => umb_sepa_constraints(),
@@ -901,6 +936,34 @@ fn ueb_constraints() -> Vec<HbciJobConstraint> {
 
 fn ueb_eil_constraints() -> Vec<HbciJobConstraint> {
     classic_transfer_constraints("UebEil1")
+}
+
+fn ueb_bzu_constraints() -> Vec<HbciJobConstraint> {
+    let lowlevel_segment = "Ueb5";
+    let mut constraints = vec![
+        HbciJobConstraint::new("src.country", "Ueb5.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("src.blz", "Ueb5.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.number", "Ueb5.My.number", None::<String>),
+        HbciJobConstraint::new("src.subnumber", "Ueb5.My.subnumber", Some("")),
+        HbciJobConstraint::new("dst.country", "Ueb5.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dst.blz", "Ueb5.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new("dst.number", "Ueb5.Other.number", None::<String>),
+        HbciJobConstraint::new("dst.subnumber", "Ueb5.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "Ueb5.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "Ueb5.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "Ueb5.name", None::<String>),
+        HbciJobConstraint::new("bzudata", "Ueb5.usage.usage", None::<String>),
+        HbciJobConstraint::new("name2", "Ueb5.name2", Some("")),
+        HbciJobConstraint::new("key", "Ueb5.key", Some("67")),
+    ];
+
+    for index in 1..CLASSIC_USAGE_LINE_COUNT {
+        let frontend = classic_usage_name(index);
+        let destination = format!("{lowlevel_segment}.usage.{frontend}");
+        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
+    }
+
+    constraints
 }
 
 fn classic_transfer_constraints(lowlevel_segment: &str) -> Vec<HbciJobConstraint> {
