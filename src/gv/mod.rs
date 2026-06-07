@@ -69,6 +69,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "UebBZU",
     "UebEil",
     "UebForeign",
+    "UebGar",
     "UebSEPA",
     "Umb",
     "UmbSEPA",
@@ -511,7 +512,7 @@ impl HbciJob {
             }
             "FestList" | "FestListAll" => self.check_account_crc("my", callback).await,
             "DauerEdit" | "DauerNew" | "Donation" | "TermUeb" | "TermUebEdit" | "Ueb"
-            | "UebBZU" | "UebEil" | "Umb" => {
+            | "UebBZU" | "UebEil" | "UebGar" | "Umb" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -902,6 +903,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "UebBZU" => ueb_bzu_constraints(),
         "UebEil" => ueb_eil_constraints(),
         "UebForeign" => ueb_foreign_constraints(),
+        "UebGar" => ueb_gar_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
         "Umb" => umb_constraints(),
         "UmbSEPA" => umb_sepa_constraints(),
@@ -1228,6 +1230,10 @@ fn ueb_eil_constraints() -> Vec<HbciJobConstraint> {
     classic_transfer_constraints("UebEil1")
 }
 
+fn ueb_gar_constraints() -> Vec<HbciJobConstraint> {
+    classic_transfer_constraints_with_addkey("UebGar1", Some("100"))
+}
+
 fn ueb_foreign_constraints() -> Vec<HbciJobConstraint> {
     vec![
         HbciJobConstraint::new("src.country", "UebForeign2.My.KIK.country", Some("DE")),
@@ -1282,6 +1288,13 @@ fn ueb_bzu_constraints() -> Vec<HbciJobConstraint> {
 }
 
 fn classic_transfer_constraints(lowlevel_segment: &str) -> Vec<HbciJobConstraint> {
+    classic_transfer_constraints_with_addkey(lowlevel_segment, None)
+}
+
+fn classic_transfer_constraints_with_addkey(
+    lowlevel_segment: &str,
+    addkey_default: Option<&str>,
+) -> Vec<HbciJobConstraint> {
     let mut constraints = vec![
         HbciJobConstraint::new(
             "src.country",
@@ -1337,6 +1350,13 @@ fn classic_transfer_constraints(lowlevel_segment: &str) -> Vec<HbciJobConstraint
         HbciJobConstraint::new("name2", format!("{lowlevel_segment}.name2"), Some("")),
         HbciJobConstraint::new("key", format!("{lowlevel_segment}.key"), Some("51")),
     ];
+    if let Some(addkey_default) = addkey_default {
+        constraints.push(HbciJobConstraint::new(
+            "addkey",
+            format!("{lowlevel_segment}.addkey"),
+            Some(addkey_default),
+        ));
+    }
 
     for index in 0..CLASSIC_USAGE_LINE_COUNT {
         let frontend = classic_usage_name(index);

@@ -2534,6 +2534,65 @@ fn donation_exposes_original_near_constraints() {
 }
 
 #[test]
+fn ueb_gar_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("UebGar").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 28);
+    assert_eq!(
+        job.constraint("src.number")
+            .expect("source account number constraint")
+            .destination_name,
+        "UebGar1.My.number"
+    );
+    assert_eq!(
+        job.constraint("dst.number")
+            .expect("destination account number constraint")
+            .destination_name,
+        "UebGar1.Other.number"
+    );
+    assert_eq!(
+        job.constraint("key")
+            .expect("transaction key constraint")
+            .default_value
+            .as_deref(),
+        Some("51")
+    );
+    assert_eq!(
+        job.constraint("addkey")
+            .expect("additional transaction key constraint")
+            .destination_name,
+        "UebGar1.addkey"
+    );
+    assert_eq!(
+        job.constraint("addkey")
+            .expect("additional transaction key constraint")
+            .default_value
+            .as_deref(),
+        Some("100")
+    );
+    assert_eq!(
+        job.constraint("usage_14")
+            .expect("usage_14 constraint")
+            .destination_name,
+        "UebGar1.usage.usage_14"
+    );
+    assert!(job.constraint("date").is_none());
+    assert!(job.constraint("id").is_none());
+
+    job.try_set_param("addkey", "101")
+        .expect("additional key is accepted");
+    job.try_set_param("usage_2", "Second usage")
+        .expect("second usage line is accepted");
+    assert_eq!(job.lowlevel_param("UebGar1.addkey"), Some("101"));
+    assert_eq!(
+        job.lowlevel_param("UebGar1.usage.usage_2"),
+        Some("Second usage")
+    );
+}
+
+#[test]
 fn ueb_foreign_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -8464,6 +8523,83 @@ async fn handler_renders_ueb_eil_like_original() {
     assert!(
         body.contains(
             "HKEIL:3:1+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Urgent usage one:Urgent usage two'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_ueb_gar_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIGUB:3:1+1234567890::280:10020030+Sender Name++99887766::280:20030040+Guaranteed Receiver++42,:EUR+51+100+Guarantee usage one:Guarantee usage two+20240607:102030",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("UebGar").expect("job is in registry");
+    job.try_set_param("src.number", "1234567890")
+        .expect("source account number is accepted");
+    job.try_set_param("src.blz", "10020030")
+        .expect("source bank code is accepted");
+    job.try_set_param("dst.number", "99887766")
+        .expect("destination account number is accepted");
+    job.try_set_param("dst.blz", "20030040")
+        .expect("destination bank code is accepted");
+    job.try_set_param("name", "Guaranteed Receiver")
+        .expect("recipient name is accepted");
+    job.try_set_param("btg.value", "42.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "EUR")
+        .expect("amount currency is accepted");
+    job.try_set_param("usage", "Guarantee usage one")
+        .expect("first usage line is accepted");
+    job.try_set_param("usage_2", "Guarantee usage two")
+        .expect("second usage line is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "UebGar");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.SegHead.code")
+            .map(String::as_str),
+        Some("HIGUB")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.addkey")
+            .map(String::as_str),
+        Some("100")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.name")
+            .map(String::as_str),
+        Some("Guaranteed Receiver")
+    );
+    assert!(
+        !handler
+            .passport()
+            .persistent_data()
+            .keys()
+            .any(|key| key.starts_with("uebgar_"))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKGUB:3:1+1234567890::280:10020030+99887766::280:20030040+Guaranteed Receiver++42,:EUR+51+100+Guarantee usage one:Guarantee usage two'"
         ),
         "{body}"
     );

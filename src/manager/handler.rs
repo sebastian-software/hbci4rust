@@ -1155,6 +1155,7 @@ fn render_job_into_custom_message(
         "UebBZU" => render_ueb_bzu(message, job, index, passport),
         "UebEil" => render_ueb_eil(message, job, index, passport),
         "UebForeign" => render_ueb_foreign(message, job, index, passport),
+        "UebGar" => render_ueb_gar(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         "Umb" => render_umb(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
@@ -1503,6 +1504,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "UebEil1",
             path: "CustomMsg.GV.UebEil1",
         }),
+        "UebGar" => Ok(OrderhashSourceJobInfo {
+            code: "HKGUB",
+            lowlevel_segment: "UebGar1",
+            path: "CustomMsg.GV.UebGar1",
+        }),
         "UebForeign" => Ok(OrderhashSourceJobInfo {
             code: "HKAOM",
             lowlevel_segment: "UebForeign2",
@@ -1814,6 +1820,14 @@ fn term_ueb_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TermUebRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermUebRes4", index + 1)
+    }
+}
+
+fn ueb_gar_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.UebGarRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.UebGarRes1", index + 1)
     }
 }
 
@@ -3421,6 +3435,38 @@ fn render_ueb_eil(
             first_usage_frontend: "usage",
         },
     )
+}
+
+fn render_ueb_gar(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_classic_ueb(
+        message,
+        job,
+        index,
+        passport,
+        ClassicUebRenderSpec {
+            lowlevel_segment: "UebGar1",
+            job_name: "UebGar",
+            key_default: "51",
+            first_usage_frontend: "usage",
+        },
+    )?;
+
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    message.set_value(
+        &format!("{root}.UebGar1.addkey"),
+        job_param(job, "UebGar1.addkey", "addkey").unwrap_or("100"),
+    )?;
+
+    Ok(())
 }
 
 fn render_ueb_foreign(
@@ -5524,6 +5570,7 @@ impl ParsedResponseStatus {
             "KontoauszugPdf" => self.content_result_data([kontoauszug_pdf_response_root(index)]),
             "TermUeb" => self.content_result_data([term_ueb_response_root(index)]),
             "TermUebEdit" => self.content_result_data([term_ueb_edit_response_root(index)]),
+            "UebGar" => self.content_result_data([ueb_gar_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermMultiUebSEPA" => {
                 self.content_result_data([term_multi_ueb_sepa_response_root(index)])
