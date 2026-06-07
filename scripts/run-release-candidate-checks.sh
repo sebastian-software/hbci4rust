@@ -93,6 +93,7 @@ run_check cargo-fmt cargo fmt --check
 run_check cargo-clippy cargo clippy --all-targets
 run_check cargo-test cargo test
 run_check cargo-test-list cargo test -- --list
+run_check audit-modern-scope scripts/audit-modern-scope.sh
 run_check audit-job-coverage scripts/audit-job-coverage.sh
 run_check audit-result-coverage scripts/audit-result-coverage.sh
 run_check git-diff-check git diff --check

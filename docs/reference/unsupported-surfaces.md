@@ -50,6 +50,9 @@ Some historical payment jobs are still present for original-near compatibility.
 They are tracked separately in `docs/reference/modern-scope-audit.md`; their
 presence does not change the unsupported security-media boundary.
 
+The guarded cleanup path for those compatibility-carried jobs is recorded in
+`docs/architecture/legacy-cleanup-plan.md`.
+
 ## Dynamic Lowlevel Boundary
 
 The public v1 job surface is a static PinTAN-compatible registry. It does not
@@ -139,6 +142,7 @@ Before any unsupported surface above becomes part of the public API:
 - `docs/reference/java-to-rust-mapping.md`
 - `docs/reference/live-bank-tests.md`
 - `docs/reference/malformed-bank-responses.md`
+- `docs/architecture/legacy-cleanup-plan.md`
 - `docs/reference/passport-storage-security.md`
 - `docs/reference/modern-scope-audit.md`
 - `docs/reference/security-media-scope.md`

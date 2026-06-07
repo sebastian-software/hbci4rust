@@ -60,6 +60,8 @@ Some classic hbci4java payment jobs are currently still present for
 original-near compatibility, but they are not the product direction. See
 `docs/reference/modern-scope-audit.md` for the current split between modern v1
 surface, compatibility-carried legacy surface, and unsupported legacy surface.
+The cleanup path for those compatibility-carried jobs is documented in
+`docs/architecture/legacy-cleanup-plan.md`.
 
 ## What V1 Includes
 
@@ -137,6 +139,8 @@ The detailed evidence and source links live in
 - `docs/reference/security-media-scope.md`: PinTAN-only scope evidence.
 - `docs/reference/modern-scope-audit.md`: modern versus legacy-carried surface
   audit.
+- `docs/architecture/legacy-cleanup-plan.md`: guarded cleanup order for
+  compatibility-carried jobs.
 - `docs/reference/unsupported-surfaces.md`: public v1 boundaries.
 - `docs/reference/passport-storage-security.md`: storage security review.
 - `docs/reference/packaging.md`: crate metadata and package review.

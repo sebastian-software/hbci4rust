@@ -17,6 +17,7 @@ Local evidence:
 - `src/gv/mod.rs`, especially `PINTAN_JOB_NAMES`;
 - `docs/architecture/job-coverage.md`;
 - `docs/architecture/result-coverage.md`;
+- `scripts/audit-modern-scope.sh`;
 - `scripts/audit-job-coverage.sh`;
 - `scripts/audit-result-coverage.sh`.
 
@@ -96,6 +97,29 @@ category should get an explicit decision:
 
 Any such change requires a new ADR because it changes the meaning of the current
 original-near coverage claim.
+
+## Machine Check
+
+The registry partition is checked by:
+
+```sh
+scripts/audit-modern-scope.sh
+```
+
+Current output:
+
+```text
+registry=67
+modern=46
+legacy=21
+duplicates=<none>
+unclassified=<none>
+stale=<none>
+```
+
+The audit must be updated in the same slice as any job registry cleanup. It is a
+guard against accidentally removing or reclassifying modern jobs while cleaning
+legacy-carried jobs.
 
 ## Source Links
 

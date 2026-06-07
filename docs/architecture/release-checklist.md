@@ -31,6 +31,7 @@ scripts/fetch-upstream.sh
 - [x] `cargo clippy --all-targets`
 - [x] `cargo test`
 - [x] `cargo test -- --list`
+- [x] `scripts/audit-modern-scope.sh`
 - [x] `scripts/audit-job-coverage.sh`
 - [x] `scripts/audit-result-coverage.sh`
 - [x] `git diff --check`

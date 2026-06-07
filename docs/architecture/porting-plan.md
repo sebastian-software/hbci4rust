@@ -61,6 +61,9 @@ Out:
 - `docs/reference/modern-scope-audit.md` records which currently ported
   hbci4java-compatible jobs are modern v1 surface versus compatibility-carried
   legacy surface.
+- `docs/architecture/legacy-cleanup-plan.md` records the guarded cleanup path
+  for removing or hiding compatibility-carried legacy jobs without breaking the
+  modern surface.
 - `docs/reference/parser-generator-goldens.md` records current parser/generator
   golden fixture coverage and explicit v1 limitations.
 - `docs/reference/malformed-bank-responses.md` records deterministic coverage
