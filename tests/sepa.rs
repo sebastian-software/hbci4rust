@@ -3,8 +3,8 @@ use hbci4rust::sepa::{
     CAMT_052_001_08_URN, ENDTOEND_ID_NOTPROVIDED, PAIN_001_001_02_URN, PAIN_008_001_01_URN,
     PAIN_008_001_02_URN, SepaKind, SepaVersion, generate_pain_001_001_02_transfer,
     generate_pain_001_001_02_transfers, generate_pain_008_001_01_direct_debit,
-    parse_camt_report_shell, parse_pain_001_transfers, parse_pain_008_direct_debits,
-    sum_pain_001_transfer_values,
+    generate_pain_008_001_01_direct_debits, parse_camt_report_shell, parse_pain_001_transfers,
+    parse_pain_008_direct_debits, sum_pain_001_transfer_values, sum_sepa_transaction_values,
 };
 use hbci4rust::{HbciErrorKind, Properties};
 
@@ -380,6 +380,103 @@ fn pain_008_generator_writes_single_direct_debit_defaults_like_original() {
     assert!(xml.contains(r#"<InstdAmt Ccy="EUR">12.30</InstdAmt>"#));
     assert!(xml.contains("<Dbtr><Nm>Debtor Name</Nm></Dbtr>"));
     assert!(xml.contains("<Ustrd>Direct debit usage</Ustrd>"));
+}
+
+#[test]
+fn pain_008_generator_writes_indexed_multi_direct_debits_like_original() {
+    let params = Properties::from([
+        ("sepaid".to_owned(), "SEPA-MULTI-LAST".to_owned()),
+        ("pmtinfid".to_owned(), "PMT-MULTI-LAST".to_owned()),
+        ("targetdate".to_owned(), "2026-03-15".to_owned()),
+        ("src.name".to_owned(), "Creditor Name".to_owned()),
+        ("src.iban".to_owned(), "DE02123456780000000000".to_owned()),
+        ("src.bic".to_owned(), "MARKDEF1100".to_owned()),
+        ("dst[0].name".to_owned(), "Debtor One".to_owned()),
+        (
+            "dst[0].iban".to_owned(),
+            "DE99123456780000000000".to_owned(),
+        ),
+        ("dst[0].bic".to_owned(), "DEUTDEDB277".to_owned()),
+        ("btg[0].value".to_owned(), "12.30".to_owned()),
+        ("btg[0].curr".to_owned(), "EUR".to_owned()),
+        ("usage[0]".to_owned(), "Debit usage one".to_owned()),
+        ("endtoendid[0]".to_owned(), "E2E-LAST-1".to_owned()),
+        ("creditorid[0]".to_owned(), "DE98ZZZ09999999999".to_owned()),
+        ("mandateid[0]".to_owned(), "MND-1".to_owned()),
+        ("manddateofsig[0]".to_owned(), "2026-01-02".to_owned()),
+        ("dst[1].name".to_owned(), "Debtor Two".to_owned()),
+        (
+            "dst[1].iban".to_owned(),
+            "DE77123456780000000000".to_owned(),
+        ),
+        ("dst[1].bic".to_owned(), "COBADEFFXXX".to_owned()),
+        ("btg[1].value".to_owned(), "20.00".to_owned()),
+        ("btg[1].curr".to_owned(), "EUR".to_owned()),
+        ("usage[1]".to_owned(), "Debit usage two".to_owned()),
+        ("endtoendid[1]".to_owned(), "E2E-LAST-2".to_owned()),
+        ("creditorid[1]".to_owned(), "DE98ZZZ09999999999".to_owned()),
+        ("mandateid[1]".to_owned(), "MND-2".to_owned()),
+        ("manddateofsig[1]".to_owned(), "2026-01-03".to_owned()),
+    ]);
+
+    let total = sum_sepa_transaction_values(&params).expect("total is calculated");
+    let xml = generate_pain_008_001_01_direct_debits(&params).expect("multi PAIN.008 generates");
+    let debits = parse_pain_008_direct_debits(&xml).expect("generated PAIN.008 parses");
+
+    assert_eq!(total.value, "32.30");
+    assert_eq!(total.curr.as_deref(), Some("EUR"));
+    assert!(xml.contains("<NbOfTxs>2</NbOfTxs>"));
+    assert!(xml.contains("<CtrlSum>32.30</CtrlSum>"));
+    assert!(xml.contains("<PmtInfId>PMT-MULTI-LAST</PmtInfId>"));
+    assert!(xml.contains("<ReqdColltnDt>2026-03-15</ReqdColltnDt>"));
+    assert!(xml.contains("<EndToEndId>E2E-LAST-1</EndToEndId>"));
+    assert!(xml.contains("<EndToEndId>E2E-LAST-2</EndToEndId>"));
+    assert!(xml.contains("<MndtId>MND-1</MndtId>"));
+    assert!(xml.contains("<MndtId>MND-2</MndtId>"));
+    assert!(xml.contains("<Dbtr><Nm>Debtor One</Nm></Dbtr>"));
+    assert!(xml.contains("<Dbtr><Nm>Debtor Two</Nm></Dbtr>"));
+    assert_eq!(debits.len(), 2);
+    assert_eq!(debits[0].debtor.name.as_deref(), Some("Debtor One"));
+    assert_eq!(debits[1].debtor.name.as_deref(), Some("Debtor Two"));
+    assert_eq!(
+        debits[1].value.as_ref().map(|value| value.value.as_str()),
+        Some("20.00")
+    );
+    assert_eq!(debits[1].mandate_id.as_deref(), Some("MND-2"));
+}
+
+#[test]
+fn pain_008_multi_sum_rejects_mixed_currencies_like_original() {
+    let params = Properties::from([
+        ("src.name".to_owned(), "Creditor Name".to_owned()),
+        ("src.iban".to_owned(), "DE02123456780000000000".to_owned()),
+        ("src.bic".to_owned(), "MARKDEF1100".to_owned()),
+        ("dst[0].name".to_owned(), "Debtor One".to_owned()),
+        (
+            "dst[0].iban".to_owned(),
+            "DE99123456780000000000".to_owned(),
+        ),
+        ("btg[0].value".to_owned(), "12.30".to_owned()),
+        ("btg[0].curr".to_owned(), "EUR".to_owned()),
+        ("creditorid[0]".to_owned(), "DE98ZZZ09999999999".to_owned()),
+        ("mandateid[0]".to_owned(), "MND-1".to_owned()),
+        ("manddateofsig[0]".to_owned(), "2026-01-02".to_owned()),
+        ("dst[1].name".to_owned(), "Debtor Two".to_owned()),
+        (
+            "dst[1].iban".to_owned(),
+            "DE77123456780000000000".to_owned(),
+        ),
+        ("btg[1].value".to_owned(), "20.00".to_owned()),
+        ("btg[1].curr".to_owned(), "USD".to_owned()),
+        ("creditorid[1]".to_owned(), "DE98ZZZ09999999999".to_owned()),
+        ("mandateid[1]".to_owned(), "MND-2".to_owned()),
+        ("manddateofsig[1]".to_owned(), "2026-01-03".to_owned()),
+    ]);
+
+    let err = sum_sepa_transaction_values(&params).expect_err("mixed currencies are rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::InvalidArgument);
+    assert!(err.to_string().contains("mixed currencies"));
 }
 
 #[test]

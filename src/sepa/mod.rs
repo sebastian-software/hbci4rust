@@ -395,8 +395,8 @@ pub fn generate_pain_001_001_02_transfers(sepa_params: &Properties) -> HbciResul
     let source_name = required_text(sepa_params, "src.name")?;
     let source_iban = required_text(sepa_params, "src.iban")?;
     let source_bic = required_text(sepa_params, "src.bic")?;
-    let transfer_indices = pain_001_transfer_indices(sepa_params);
-    let total = sum_pain_001_transfer_values(sepa_params)?;
+    let transfer_indices = sepa_transaction_indices(sepa_params);
+    let total = sum_sepa_transaction_values(sepa_params)?;
     let creation_datetime = current_xml_datetime();
 
     let mut writer = Writer::new(Vec::new());
@@ -465,13 +465,17 @@ pub fn generate_pain_001_001_02_transfers(sepa_params: &Properties) -> HbciResul
 }
 
 pub fn sum_pain_001_transfer_values(sepa_params: &Properties) -> HbciResult<Value> {
-    let transfer_indices = pain_001_transfer_indices(sepa_params);
+    sum_sepa_transaction_values(sepa_params)
+}
+
+pub fn sum_sepa_transaction_values(sepa_params: &Properties) -> HbciResult<Value> {
+    let transfer_indices = sepa_transaction_indices(sepa_params);
     let first_index = transfer_indices.first().copied().flatten();
-    let currency = text_or_default(pain_001_param(sepa_params, "btg.curr", first_index), "EUR");
+    let currency = text_or_default(sepa_param(sepa_params, "btg.curr", first_index), "EUR");
     let mut cents = 0_i64;
 
     for index in transfer_indices {
-        let amount = pain_001_required_param(sepa_params, "btg.value", index)?;
+        let amount = sepa_required_param(sepa_params, "btg.value", index)?;
         cents += decimal_amount_to_cents(amount).ok_or_else(|| {
             HbciError::new(
                 HbciErrorKind::InvalidArgument,
@@ -479,8 +483,7 @@ pub fn sum_pain_001_transfer_values(sepa_params: &Properties) -> HbciResult<Valu
             )
         })?;
 
-        let current_currency =
-            text_or_default(pain_001_param(sepa_params, "btg.curr", index), "EUR");
+        let current_currency = text_or_default(sepa_param(sepa_params, "btg.curr", index), "EUR");
         if current_currency != currency {
             return Err(HbciError::new(
                 HbciErrorKind::InvalidArgument,
@@ -492,6 +495,91 @@ pub fn sum_pain_001_transfer_values(sepa_params: &Properties) -> HbciResult<Valu
     Ok(Value {
         value: cents_to_decimal_amount(cents),
         curr: Some(currency),
+    })
+}
+
+pub fn generate_pain_008_001_01_direct_debits(sepa_params: &Properties) -> HbciResult<String> {
+    let sepa_id = text_or_generated_message_id(sepa_params.get("sepaid").map(String::as_str));
+    let pmt_inf_id = text_or_default(
+        sepa_params.get("pmtinfid").map(String::as_str),
+        sepa_id.as_str(),
+    );
+    let collection_date = text_or_default(
+        sepa_params.get("targetdate").map(String::as_str),
+        DATE_UNDEFINED,
+    );
+    let sequence_type =
+        text_or_default(sepa_params.get("sequencetype").map(String::as_str), "FRST");
+    let source_name = required_text(sepa_params, "src.name")?;
+    let source_iban = required_text(sepa_params, "src.iban")?;
+    let source_bic = required_text(sepa_params, "src.bic")?;
+    let debit_indices = sepa_transaction_indices(sepa_params);
+    let total = sum_sepa_transaction_values(sepa_params)?;
+    let creation_datetime = current_xml_datetime();
+
+    let mut writer = Writer::new(Vec::new());
+    write_xml_event(
+        &mut writer,
+        Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)),
+    )?;
+
+    let mut document = BytesStart::new("Document");
+    document.push_attribute(("xmlns", PAIN_008_001_01_URN));
+    document.push_attribute(("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"));
+    document.push_attribute(("xsi:schemaLocation", PAIN_008_001_01_SCHEMA_LOCATION));
+    write_xml_event(&mut writer, Event::Start(document))?;
+    write_start(&mut writer, "pain.008.001.01")?;
+
+    write_start(&mut writer, "GrpHdr")?;
+    write_text_element(&mut writer, "MsgId", &sepa_id)?;
+    write_text_element(&mut writer, "CreDtTm", &creation_datetime)?;
+    write_text_element(&mut writer, "NbOfTxs", &debit_indices.len().to_string())?;
+    write_text_element(&mut writer, "CtrlSum", &total.value)?;
+    write_text_element(&mut writer, "Grpg", "GRPD")?;
+    write_start(&mut writer, "InitgPty")?;
+    write_text_element(&mut writer, "Nm", source_name)?;
+    write_end(&mut writer, "InitgPty")?;
+    write_end(&mut writer, "GrpHdr")?;
+
+    write_start(&mut writer, "PmtInf")?;
+    write_text_element(&mut writer, "PmtInfId", &pmt_inf_id)?;
+    write_text_element(&mut writer, "PmtMtd", "DD")?;
+    write_start(&mut writer, "PmtTpInf")?;
+    write_start(&mut writer, "SvcLvl")?;
+    write_text_element(&mut writer, "Cd", "SEPA")?;
+    write_end(&mut writer, "SvcLvl")?;
+    write_text_element(&mut writer, "SeqTp", &sequence_type)?;
+    write_end(&mut writer, "PmtTpInf")?;
+    write_text_element(&mut writer, "ReqdColltnDt", &collection_date)?;
+    write_start(&mut writer, "Cdtr")?;
+    write_text_element(&mut writer, "Nm", source_name)?;
+    write_end(&mut writer, "Cdtr")?;
+    write_start(&mut writer, "CdtrAcct")?;
+    write_start(&mut writer, "Id")?;
+    write_text_element(&mut writer, "IBAN", source_iban)?;
+    write_end(&mut writer, "Id")?;
+    write_end(&mut writer, "CdtrAcct")?;
+    write_start(&mut writer, "CdtrAgt")?;
+    write_start(&mut writer, "FinInstnId")?;
+    write_text_element(&mut writer, "BIC", source_bic)?;
+    write_end(&mut writer, "FinInstnId")?;
+    write_end(&mut writer, "CdtrAgt")?;
+    write_text_element(&mut writer, "ChrgBr", "SLEV")?;
+
+    for index in debit_indices {
+        write_pain_008_direct_debit(&mut writer, sepa_params, index)?;
+    }
+    write_end(&mut writer, "PmtInf")?;
+
+    write_end(&mut writer, "pain.008.001.01")?;
+    write_end(&mut writer, "Document")?;
+
+    String::from_utf8(writer.into_inner()).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            "failed to encode PAIN.008.001.01 document as UTF-8",
+            err,
+        )
     })
 }
 
@@ -628,7 +716,7 @@ pub fn generate_pain_008_001_01_direct_debit(sepa_params: &Properties) -> HbciRe
     write_end(&mut writer, "DbtrAgt")?;
     write_start(&mut writer, "Dbtr")?;
     write_text_element(&mut writer, "Nm", destination_name)?;
-    write_optional_postal_address(&mut writer, sepa_params)?;
+    write_optional_postal_address(&mut writer, sepa_params, None)?;
     write_end(&mut writer, "Dbtr")?;
     write_start(&mut writer, "DbtrAcct")?;
     write_start(&mut writer, "Id")?;
@@ -658,22 +746,17 @@ pub fn generate_pain_008_001_01_direct_debit(sepa_params: &Properties) -> HbciRe
 fn write_optional_postal_address(
     writer: &mut Writer<Vec<u8>>,
     sepa_params: &Properties,
+    index: Option<usize>,
 ) -> HbciResult<()> {
-    let Some(country) = sepa_params
-        .get("dst.addr.country")
-        .map(String::as_str)
-        .filter(|value| !value.is_empty())
+    let Some(country) =
+        sepa_param(sepa_params, "dst.addr.country", index).filter(|value| !value.is_empty())
     else {
         return Ok(());
     };
 
     write_start(writer, "PstlAdr")?;
     for name in ["dst.addr.line1", "dst.addr.line2"] {
-        if let Some(line) = sepa_params
-            .get(name)
-            .map(String::as_str)
-            .filter(|value| !value.is_empty())
-        {
+        if let Some(line) = sepa_param(sepa_params, name, index).filter(|value| !value.is_empty()) {
             write_text_element(writer, "AdrLine", line)?;
         }
     }
@@ -729,7 +812,87 @@ fn write_pain_001_credit_transfer(
     write_end(writer, "CdtTrfTxInf")
 }
 
-fn pain_001_transfer_indices(sepa_params: &Properties) -> Vec<Option<usize>> {
+fn write_pain_008_direct_debit(
+    writer: &mut Writer<Vec<u8>>,
+    sepa_params: &Properties,
+    index: Option<usize>,
+) -> HbciResult<()> {
+    let end_to_end_id = text_or_default(
+        sepa_param(sepa_params, "endtoendid", index),
+        ENDTOEND_ID_NOTPROVIDED,
+    );
+    let currency = text_or_default(sepa_param(sepa_params, "btg.curr", index), "EUR");
+    let destination_name = sepa_required_param(sepa_params, "dst.name", index)?;
+    let destination_iban = sepa_required_param(sepa_params, "dst.iban", index)?;
+    let destination_bic = sepa_param(sepa_params, "dst.bic", index).unwrap_or_default();
+    let amount = sepa_required_param(sepa_params, "btg.value", index)?;
+    let creditor_id = sepa_required_param(sepa_params, "creditorid", index)?;
+    let mandate_id = sepa_required_param(sepa_params, "mandateid", index)?;
+    let mandate_date = sepa_required_param(sepa_params, "manddateofsig", index)?;
+    let amend_mandate_indicator =
+        text_or_default(sepa_param(sepa_params, "amendmandindic", index), "false");
+    let usage = sepa_param(sepa_params, "usage", index).unwrap_or_default();
+
+    write_start(writer, "DrctDbtTxInf")?;
+    write_start(writer, "PmtId")?;
+    write_text_element(writer, "EndToEndId", &end_to_end_id)?;
+    write_end(writer, "PmtId")?;
+    let mut instructed_amount = BytesStart::new("InstdAmt");
+    instructed_amount.push_attribute(("Ccy", currency.as_str()));
+    write_xml_event(writer, Event::Start(instructed_amount))?;
+    write_xml_event(writer, Event::Text(BytesText::new(amount)))?;
+    write_end(writer, "InstdAmt")?;
+    write_start(writer, "DrctDbtTx")?;
+    write_start(writer, "MndtRltdInf")?;
+    write_text_element(writer, "MndtId", mandate_id)?;
+    write_text_element(writer, "DtOfSgntr", mandate_date)?;
+    write_text_element(writer, "AmdmntInd", &amend_mandate_indicator)?;
+    if amend_mandate_indicator == "true" {
+        write_start(writer, "AmdmntInfDtls")?;
+        write_start(writer, "OrgnlDbtrAgt")?;
+        write_start(writer, "FinInstnId")?;
+        write_start(writer, "PrtryId")?;
+        write_text_element(writer, "Id", "SMNDA")?;
+        write_end(writer, "PrtryId")?;
+        write_end(writer, "FinInstnId")?;
+        write_end(writer, "OrgnlDbtrAgt")?;
+        write_end(writer, "AmdmntInfDtls")?;
+    }
+    write_end(writer, "MndtRltdInf")?;
+    write_start(writer, "CdtrSchmeId")?;
+    write_start(writer, "Id")?;
+    write_start(writer, "PrvtId")?;
+    write_start(writer, "OthrId")?;
+    write_text_element(writer, "Id", creditor_id)?;
+    write_text_element(writer, "IdTp", "SEPA")?;
+    write_end(writer, "OthrId")?;
+    write_end(writer, "PrvtId")?;
+    write_end(writer, "Id")?;
+    write_end(writer, "CdtrSchmeId")?;
+    write_end(writer, "DrctDbtTx")?;
+    write_start(writer, "DbtrAgt")?;
+    write_start(writer, "FinInstnId")?;
+    write_text_element(writer, "BIC", destination_bic)?;
+    write_end(writer, "FinInstnId")?;
+    write_end(writer, "DbtrAgt")?;
+    write_start(writer, "Dbtr")?;
+    write_text_element(writer, "Nm", destination_name)?;
+    write_optional_postal_address(writer, sepa_params, index)?;
+    write_end(writer, "Dbtr")?;
+    write_start(writer, "DbtrAcct")?;
+    write_start(writer, "Id")?;
+    write_text_element(writer, "IBAN", destination_iban)?;
+    write_end(writer, "Id")?;
+    write_end(writer, "DbtrAcct")?;
+    if !usage.is_empty() {
+        write_start(writer, "RmtInf")?;
+        write_text_element(writer, "Ustrd", usage)?;
+        write_end(writer, "RmtInf")?;
+    }
+    write_end(writer, "DrctDbtTxInf")
+}
+
+fn sepa_transaction_indices(sepa_params: &Properties) -> Vec<Option<usize>> {
     let Some(max_index) = sepa_params
         .keys()
         .filter_map(|key| sepa_param_index(key))
@@ -746,7 +909,15 @@ fn pain_001_required_param<'a>(
     name: &str,
     index: Option<usize>,
 ) -> HbciResult<&'a str> {
-    pain_001_param(sepa_params, name, index)
+    sepa_required_param(sepa_params, name, index)
+}
+
+fn sepa_required_param<'a>(
+    sepa_params: &'a Properties,
+    name: &str,
+    index: Option<usize>,
+) -> HbciResult<&'a str> {
+    sepa_param(sepa_params, name, index)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
             HbciError::new(
@@ -760,6 +931,14 @@ fn pain_001_required_param<'a>(
 }
 
 fn pain_001_param<'a>(
+    sepa_params: &'a Properties,
+    name: &str,
+    index: Option<usize>,
+) -> Option<&'a str> {
+    sepa_param(sepa_params, name, index)
+}
+
+fn sepa_param<'a>(
     sepa_params: &'a Properties,
     name: &str,
     index: Option<usize>,

@@ -1127,6 +1127,7 @@ fn render_job_into_custom_message(
         "LastB2BSEPA" => render_last_b2b_sepa(message, job, index, passport),
         "LastCOR1SEPA" => render_last_cor1_sepa(message, job, index, passport),
         "LastSEPA" => render_last_sepa(message, job, index, passport),
+        "MultiLastSEPA" => render_multi_last_sepa(message, job, index, passport),
         "MultiUebSEPA" => render_multi_ueb_sepa(message, job, index, passport),
         "Receipt" => render_receipt(message, job, index),
         "SEPAInfo" => render_sepa_info(message, index),
@@ -1449,6 +1450,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKDSE",
             lowlevel_segment: "LastSEPA1",
             path: "CustomMsg.GV.LastSEPA1",
+        }),
+        "MultiLastSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKDME",
+            lowlevel_segment: "SammelLastSEPA1",
+            path: "CustomMsg.GV.SammelLastSEPA1",
         }),
         "Ueb" => Ok(OrderhashSourceJobInfo {
             code: "HKUEB",
@@ -1801,6 +1807,14 @@ fn last_b2b_sepa_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.LastB2BSEPARes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.LastB2BSEPARes1", index + 1)
+    }
+}
+
+fn multi_last_sepa_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.SammelLastSEPARes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.SammelLastSEPARes1", index + 1)
     }
 }
 
@@ -3571,6 +3585,60 @@ fn render_last_b2b_sepa(
     )
 }
 
+fn render_multi_last_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "SammelLastSEPA1";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "MultiLastSEPA requires src.iban, src.number, or a passport account for the current SammelLastSEPA1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.Total.value"),
+        job,
+        "SammelLastSEPA1.Total.value",
+        "Total.value",
+        "MultiLastSEPA requires Total.value or generated SEPA parameters",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.Total.curr"),
+        job,
+        "SammelLastSEPA1.Total.curr",
+        "Total.curr",
+        "MultiLastSEPA requires Total.curr or generated SEPA parameters",
+    )?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "SammelLastSEPA1.sepadescr", "_sepadescriptor")
+            .unwrap_or(PAIN_008_001_01_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "SammelLastSEPA1.sepapain",
+        "_sepapain",
+        "MultiLastSEPA requires _sepapain or SEPA parameters for PAIN generation",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy)]
 struct LastDirectDebitSepaRenderSpec {
     job_name: &'static str,
@@ -4959,6 +5027,9 @@ impl ParsedResponseStatus {
             "LastSEPA" => self
                 .last_sepa_result_for_root(last_sepa_response_root(index))
                 .map(HbciJobResultData::LastSepa),
+            "MultiLastSEPA" => self
+                .last_sepa_result_for_root(multi_last_sepa_response_root(index))
+                .map(HbciJobResultData::LastSepa),
             "Kontoauszug" => self
                 .kontoauszug_result_for_root(kontoauszug_response_root(index))
                 .map(HbciJobResultData::Kontoauszug),
@@ -5032,6 +5103,7 @@ impl ParsedResponseStatus {
             "LastB2BSEPA" => self.content_result_data([last_b2b_sepa_response_root(index)]),
             "LastCOR1SEPA" => self.content_result_data([last_cor1_sepa_response_root(index)]),
             "LastSEPA" => self.content_result_data([last_sepa_response_root(index)]),
+            "MultiLastSEPA" => self.content_result_data([multi_last_sepa_response_root(index)]),
             "Kontoauszug" => self.content_result_data([kontoauszug_response_root(index)]),
             "KontoauszugPdf" => self.content_result_data([kontoauszug_pdf_response_root(index)]),
             "TermUeb" => self.content_result_data([term_ueb_response_root(index)]),
@@ -6096,7 +6168,7 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
                 }
             }
-            "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
+            "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" | "MultiLastSEPA" => {
                 let Some(order_id) = result
                     .result_data
                     .get("content.orderid")
@@ -6107,6 +6179,7 @@ fn update_passport_job_persistent_data_from_results(
                 let lowlevel_segment = match result.job_name.as_str() {
                     "LastB2BSEPA" => "LastB2BSEPA1",
                     "LastCOR1SEPA" => "LastCOR1SEPA1",
+                    "MultiLastSEPA" => "SammelLastSEPA1",
                     _ => "LastSEPA1",
                 };
                 let snapshot =

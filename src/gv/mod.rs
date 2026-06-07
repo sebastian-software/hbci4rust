@@ -9,7 +9,8 @@ use crate::protocol::normalize_iso_date;
 use crate::sepa::{
     CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, PAIN_008_001_02_URN,
     generate_pain_001_001_02_transfer, generate_pain_001_001_02_transfers,
-    generate_pain_008_001_01_direct_debit, sum_pain_001_transfer_values,
+    generate_pain_008_001_01_direct_debit, generate_pain_008_001_01_direct_debits,
+    sum_sepa_transaction_values,
 };
 use crate::tools::Properties;
 
@@ -395,8 +396,16 @@ impl HbciJob {
             "DauerLastSEPANew" | "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
                 generate_pain_008_001_01_direct_debit(&params)?
             }
+            "MultiLastSEPA" => {
+                let total = sum_sepa_transaction_values(&params)?;
+                self.set_frontend_and_lowlevel_param("Total.value", total.value);
+                if let Some(currency) = total.curr {
+                    self.set_frontend_and_lowlevel_param("Total.curr", currency);
+                }
+                generate_pain_008_001_01_direct_debits(&params)?
+            }
             "MultiUebSEPA" => {
-                let total = sum_pain_001_transfer_values(&params)?;
+                let total = sum_sepa_transaction_values(&params)?;
                 self.set_frontend_and_lowlevel_param("Total.value", total.value);
                 if let Some(currency) = total.curr {
                     self.set_frontend_and_lowlevel_param("Total.curr", currency);
@@ -419,6 +428,7 @@ impl HbciJob {
             "LastB2BSEPA" => Some("LastB2BSEPA1"),
             "LastCOR1SEPA" => Some("LastCOR1SEPA1"),
             "LastSEPA" => Some("LastSEPA1"),
+            "MultiLastSEPA" => Some("SammelLastSEPA1"),
             "MultiUebSEPA" => Some("SammelUebSEPA1"),
             "TermUebSEPA" => Some("TermUebSEPA1"),
             "TermUebSEPADel" => Some("TermUebSEPADel1"),
@@ -468,7 +478,7 @@ impl HbciJob {
     }
 
     fn sepa_generation_param_name(&self, name: &str) -> String {
-        if self.name == "MultiUebSEPA" {
+        if matches!(self.name.as_str(), "MultiLastSEPA" | "MultiUebSEPA") {
             name.to_owned()
         } else {
             single_transfer_sepa_name(name)
@@ -851,6 +861,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
         "LastCOR1SEPA" => last_sepa_constraints("LastCOR1SEPA1", "COR1"),
         "LastSEPA" => last_sepa_constraints("LastSEPA1", "CORE"),
+        "MultiLastSEPA" => multi_last_sepa_constraints("SammelLastSEPA1", "CORE"),
         "Kontoauszug" => kontoauszug_constraints(),
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
         "TermUeb" => term_ueb_constraints(),
@@ -1465,6 +1476,28 @@ fn multi_ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
 
 fn last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {
     last_sepa_constraints_for(lowlevel_segment, debit_type, true)
+}
+
+fn multi_last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {
+    let mut constraints = last_sepa_constraints_for(lowlevel_segment, debit_type, false);
+    constraints.extend([
+        HbciJobConstraint::new(
+            "batchbook",
+            format!("{lowlevel_segment}.sepa.batchbook"),
+            Some(""),
+        ),
+        HbciJobConstraint::new(
+            "Total.value",
+            format!("{lowlevel_segment}.Total.value"),
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "Total.curr",
+            format!("{lowlevel_segment}.Total.curr"),
+            None::<String>,
+        ),
+    ]);
+    constraints
 }
 
 fn last_sepa_constraints_for(
