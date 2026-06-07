@@ -3211,6 +3211,60 @@ fn handler_prepares_process1_hktan_uses_noref_for_required_tan_media_without_val
 }
 
 #[tokio::test]
+async fn handler_prepares_process2_hktan_from_stored_hitan_orderref() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITAN:3:5+1++ORDER-REF-2+Bitte geben Sie die TAN ein+@5@HHDUC",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut first = handler.new_job("TAN2Step").expect("job is in registry");
+    first
+        .try_set_param("process", "4")
+        .expect("process is accepted");
+    handler.add_to_queue(first);
+    handler.execute().await.expect("hitan response parses");
+
+    let mut second = handler
+        .new_tan2step_process2_job()
+        .expect("process-2 HKTAN prepares");
+    let lowlevel = second.verify_constraints().expect("HKTAN verifies");
+
+    assert_eq!(second.name(), "TAN2Step");
+    assert_eq!(second.param("process"), Some("2"));
+    assert_eq!(second.param("orderref"), Some("ORDER-REF-2"));
+    assert_eq!(second.param("notlasttan"), Some("N"));
+    assert_eq!(
+        lowlevel.get("TAN2Step5.process").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        lowlevel.get("TAN2Step5.orderref").map(String::as_str),
+        Some("ORDER-REF-2")
+    );
+    assert_eq!(
+        lowlevel.get("TAN2Step5.notlasttan").map(String::as_str),
+        Some("N")
+    );
+}
+
+#[test]
+fn handler_rejects_process2_hktan_without_stored_orderref() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let handler = HbciHandler::new("300", passport);
+
+    let err = handler
+        .new_tan2step_process2_job()
+        .expect_err("missing order reference is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "PinTAN SCA state does not contain an order reference for process-2 HKTAN"
+    );
+}
+
+#[tokio::test]
 async fn handler_execute_imports_hitan_sca_state_from_tan2step_response() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[

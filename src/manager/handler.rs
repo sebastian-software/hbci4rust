@@ -111,6 +111,10 @@ where
         )
     }
 
+    pub fn new_tan2step_process2_job(&self) -> HbciResult<HbciJob> {
+        new_tan2step_process2_job(&self.registry, &self.passport)
+    }
+
     pub async fn request_tan_for_sca(&self) -> HbciResult<Option<String>> {
         let callback = super::callback();
         request_tan_for_sca(&self.passport, callback.as_deref()).await
@@ -800,6 +804,30 @@ fn new_tan2step_process1_job(
     }
 
     apply_challenge_params_if_needed(&mut hktan, task_info.code, task, &secmech, challenge_info)?;
+
+    Ok(hktan)
+}
+
+fn new_tan2step_process2_job(
+    registry: &JobRegistry,
+    passport: &PinTanPassport,
+) -> HbciResult<HbciJob> {
+    let order_ref = passport
+        .sca_state()
+        .order_ref
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "PinTAN SCA state does not contain an order reference for process-2 HKTAN",
+            )
+        })?;
+
+    let mut hktan = registry.new_job("TAN2Step")?;
+    hktan.try_set_param("process", "2")?;
+    hktan.try_set_param("orderref", order_ref)?;
+    hktan.try_set_param("notlasttan", "N")?;
 
     Ok(hktan)
 }
