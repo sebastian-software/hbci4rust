@@ -230,3 +230,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0269: Remove Classic Scheduled And Standing Public Jobs
 - ADR 0270: Enforce Public Job Registry Boundary
 - ADR 0271: Remove COR1 Internal Job Implementation
+- ADR 0272: Remove DTAUS Bulk Internal Job Implementation

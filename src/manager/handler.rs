@@ -1316,10 +1316,8 @@ fn render_job_into_custom_message(
         "Last" => render_last(message, job, index, passport),
         "LastB2BSEPA" => render_last_b2b_sepa(message, job, index, passport),
         "LastSEPA" => render_last_sepa(message, job, index, passport),
-        "MultiLast" => render_multi_last(message, job, index, passport),
         "MultiLastB2BSEPA" => render_multi_last_b2b_sepa(message, job, index, passport),
         "MultiLastSEPA" => render_multi_last_sepa(message, job, index, passport),
-        "MultiUeb" => render_multi_ueb(message, job, index, passport),
         "MultiUebSEPA" => render_multi_ueb_sepa(message, job, index, passport),
         "Receipt" => render_receipt(message, job, index),
         "SEPAInfo" => render_sepa_info(message, index),
@@ -1697,11 +1695,6 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "LastSEPA1",
             path: "CustomMsg.GV.LastSEPA1",
         }),
-        "MultiLast" => Ok(OrderhashSourceJobInfo {
-            code: "HKSLA",
-            lowlevel_segment: "SammelLast6",
-            path: "CustomMsg.GV.SammelLast6",
-        }),
         "MultiLastSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKDME",
             lowlevel_segment: "SammelLastSEPA1",
@@ -1711,11 +1704,6 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKBME",
             lowlevel_segment: "SammelLastB2BSEPA1",
             path: "CustomMsg.GV.SammelLastB2BSEPA1",
-        }),
-        "MultiUeb" => Ok(OrderhashSourceJobInfo {
-            code: "HKSUB",
-            lowlevel_segment: "SammelUeb6",
-            path: "CustomMsg.GV.SammelUeb6",
         }),
         "Last" => Ok(OrderhashSourceJobInfo {
             code: "HKLAS",
@@ -4041,57 +4029,6 @@ fn render_multi_ueb_sepa(
         "MultiUebSEPA",
         "SammelUebSEPA1",
     )
-}
-
-fn render_multi_ueb(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_bulk_job(message, job, index, passport, "MultiUeb", "SammelUeb6")
-}
-
-fn render_multi_last(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_bulk_job(message, job, index, passport, "MultiLast", "SammelLast6")
-}
-
-fn render_classic_bulk_job(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-    job_name: &str,
-    lowlevel_segment: &str,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let segment = format!("{root}.{lowlevel_segment}");
-    let account = effective_job_account(job, passport, lowlevel_segment, "my");
-    if !has_account_identity(&account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            format!(
-                "{job_name} requires my.number or a passport account for the current {lowlevel_segment} renderer"
-            ),
-        ));
-    }
-
-    set_national_account_values(message, &segment, &account)?;
-    let data_path = format!("{lowlevel_segment}.data");
-    let missing_data_message = format!("{job_name} requires data");
-    let data = job_param_required(job, &data_path, "data", &missing_data_message)?;
-    message.set_value(&format!("{segment}.data"), data)?;
-
-    Ok(())
 }
 
 fn render_term_multi_ueb_sepa(
