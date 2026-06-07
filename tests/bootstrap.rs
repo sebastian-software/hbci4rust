@@ -1151,6 +1151,31 @@ fn kums_zeit_sepa_exposes_original_near_constraints() {
 }
 
 #[test]
+fn receipt_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let receipt = handler.new_job("Receipt").expect("job is in registry");
+
+    assert_eq!(receipt.constraints().len(), 1);
+    assert_eq!(
+        receipt
+            .constraint("receipt")
+            .expect("receipt constraint")
+            .destination_name,
+        "Receipt1.receipt"
+    );
+    assert_eq!(
+        receipt
+            .constraint("receipt")
+            .expect("receipt constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(receipt.constraint("my.iban"), None);
+}
+
+#[test]
 fn kums_new_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -6798,6 +6823,30 @@ async fn handler_renders_kums_zeit_sepa_request_like_original() {
         )
     );
     assert_signed_custom_msg_request_for_version(&body, "220", "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_receipt_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut receipt = handler.new_job("Receipt").expect("job is in registry");
+    receipt
+        .try_set_param("receipt", "RECEIPT+OK")
+        .expect("receipt payload is accepted");
+
+    handler.add_to_queue(receipt);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "Receipt");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKQTG:3:1+@10@RECEIPT+OK'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 
 #[tokio::test]

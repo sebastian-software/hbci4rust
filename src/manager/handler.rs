@@ -1056,6 +1056,7 @@ fn render_job_into_custom_message(
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
         "KUmsZeitSEPA" => render_kums_zeit_sepa(message, job, index, passport),
+        "Receipt" => render_receipt(message, job, index),
         "SEPAInfo" => render_sepa_info(message, index),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
@@ -1320,6 +1321,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKKAN",
             lowlevel_segment: "KUmsNew7",
             path: "CustomMsg.GV.KUmsNew7",
+        }),
+        "Receipt" => Ok(OrderhashSourceJobInfo {
+            code: "HKQTG",
+            lowlevel_segment: "Receipt1",
+            path: "CustomMsg.GV.Receipt1",
         }),
         "SEPAInfo" => Ok(OrderhashSourceJobInfo {
             code: "HKSPA",
@@ -2221,6 +2227,24 @@ fn render_sepa_info(message: &mut HbciMessage, index: usize) -> HbciResult<()> {
         format!("CustomMsg.GV_{}", index + 1)
     };
     message.set_value(&format!("{root}.SEPAInfo1"), "requested")
+}
+
+fn render_receipt(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.Receipt1");
+    let receipt = job_param_required(
+        job,
+        "Receipt1.receipt",
+        "receipt",
+        "Receipt requires receipt",
+    )?;
+
+    message.set_value(&segment, "requested")?;
+    message.set_value(&format!("{segment}.receipt"), sepa_binary_value(receipt))
 }
 
 fn render_tan_media_list(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {

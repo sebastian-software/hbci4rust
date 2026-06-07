@@ -704,6 +704,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "KUmsAllCamt" => kums_all_camt_constraints(),
         "KUmsNew" => kums_new_constraints(),
         "KUmsZeitSEPA" => kums_zeit_sepa_constraints(),
+        "Receipt" => receipt_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
         "TANMediaList" => tan_media_list_constraints(),
@@ -1206,6 +1207,14 @@ fn kums_all_camt_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("maxentries", "KUmsZeitCamt1.maxentries", Some("")),
         HbciJobConstraint::new("offset", "KUmsZeitCamt1.offset", Some("")),
     ]
+}
+
+fn receipt_constraints() -> Vec<HbciJobConstraint> {
+    vec![HbciJobConstraint::new(
+        "receipt",
+        "Receipt1.receipt",
+        Some(""),
+    )]
 }
 
 fn saldo_req_constraints() -> Vec<HbciJobConstraint> {
