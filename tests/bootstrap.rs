@@ -35,6 +35,17 @@ fn passport_with_cached_pin(data: PinTanPassportData) -> PinTanPassport {
     passport
 }
 
+fn signed_pintan_data() -> PinTanPassportData {
+    PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    }
+}
+
 #[derive(Debug)]
 struct RecordingCallback {
     events: Arc<Mutex<Vec<CallbackEvent>>>,
@@ -202,6 +213,49 @@ fn assert_signed_dialog_end_request(body: &str, dialog_id: &str, msgnum: &str) {
     assert_eq!(sig_tail_parts.get(3).copied(), Some("12345"));
 
     let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
+    assert_eq!(size, format!("{:012}", body.len()));
+}
+
+fn assert_signed_custom_msg_request(body: &str, dialog_id: &str, msgnum: &str, tail_seq: usize) {
+    assert_signed_custom_msg_request_bytes(body.as_bytes(), dialog_id, msgnum, tail_seq);
+}
+
+fn assert_signed_custom_msg_request_bytes(
+    body: &[u8],
+    dialog_id: &str,
+    msgnum: &str,
+    tail_seq: usize,
+) {
+    let text = String::from_utf8_lossy(body);
+    assert!(text.starts_with("HNHBK:1:3+"), "{text}");
+    assert!(
+        text.contains(&format!("+300+{dialog_id}+{msgnum}'")),
+        "{text}"
+    );
+    assert!(text.contains("HNSHK:2:4+PIN:"), "{text}");
+    assert!(
+        text.contains(&format!("HNSHA:{}:2+", tail_seq - 1)),
+        "{text}"
+    );
+    assert!(
+        text.ends_with(&format!("HNHBS:{tail_seq}:1+{msgnum}'")),
+        "{text}"
+    );
+
+    let sig_head = fints_segment(&text, "HNSHK");
+    let sig_tail = fints_segment(&text, "HNSHA");
+    let sig_head_checkref = sig_head
+        .split('+')
+        .nth(3)
+        .expect("HNSHK has check reference");
+    let sig_tail_parts = sig_tail.split('+').collect::<Vec<_>>();
+
+    assert_eq!(sig_tail_parts.get(1).copied(), Some(sig_head_checkref));
+    assert_eq!(sig_tail_parts.get(2).copied(), Some(""));
+    assert_eq!(sig_tail_parts.get(3).copied(), Some("12345"));
+
+    let size_start = "HNHBK:1:3+".len();
+    let size = std::str::from_utf8(&body[size_start..size_start + 12]).expect("size is ASCII");
     assert_eq!(size, format!("{:012}", body.len()));
 }
 
@@ -2487,9 +2541,8 @@ async fn handler_execute_uses_dialog_context_from_init_response() {
     assert_signed_dialog_init_request(&init_body, "customer", "0", "0");
 
     let execute_body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
-    assert!(execute_body.contains("+300+DIALOG1+2'"));
-    assert!(execute_body.contains("HKSAL:2:7+DE02123456780000000000::0001234567::280:12345678+N'"));
-    assert!(execute_body.ends_with("HNHBS:3:1+2'"));
+    assert_signed_custom_msg_request(&execute_body, "DIALOG1", "2", 5);
+    assert!(execute_body.contains("HKSAL:3:7+DE02123456780000000000::0001234567::280:12345678+N'"));
 }
 
 #[tokio::test]
@@ -2681,7 +2734,7 @@ async fn handler_close_accepts_segment_error_when_global_status_is_ok_like_origi
             2,
             &[
                 "HIRMG:2:2+0010::Dialog beendet",
-                "HIRMS:3:2+9010:2:Segmentfehler",
+                "HIRMS:3:2+9010:3:Segmentfehler",
             ],
         )),
     ]);
@@ -2737,13 +2790,10 @@ async fn handler_close_rejects_mismatched_response_dialog_id() {
 
 #[tokio::test]
 async fn handler_uses_replay_comm_client() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
-        "HIRMS:3:2+0020:2:Saldo bereitgestellt",
+        "HIRMS:3:2+0020:3:Saldo bereitgestellt",
         "HISAL:4:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605+D:1,23:EUR:20260605+1000,00:EUR+900,00:EUR+100,00:EUR",
     ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
@@ -2761,10 +2811,10 @@ async fn handler_uses_replay_comm_client() {
     assert_eq!(status.job_results[0].ret_number(), 1);
     assert_eq!(status.job_results[0].dialog_id(), Some("0"));
     assert_eq!(status.job_results[0].msg_num(), Some("1"));
-    assert_eq!(status.job_results[0].seg_num(), Some("2"));
+    assert_eq!(status.job_results[0].seg_num(), Some("3"));
     assert_eq!(
         status.job_results[0].job_id_for_date("20260606"),
-        "20260606/0/1/2"
+        "20260606/0/1/3"
     );
     assert_eq!(
         status.job_results[0]
@@ -2787,7 +2837,7 @@ async fn handler_uses_replay_comm_client() {
         status.messages,
         vec![
             "0010:OK".to_owned(),
-            "0020:Saldo bereitgestellt (2)".to_owned()
+            "0020:Saldo bereitgestellt (3)".to_owned()
         ]
     );
     let Some(HbciJobResultData::SaldoReq(result)) = status.job_results[0].result.as_ref() else {
@@ -2824,21 +2874,14 @@ async fn handler_uses_replay_comm_client() {
     assert_eq!(requests.len(), 1);
 
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert!(body.starts_with("HNHBK:1:3+"));
-    assert!(body.contains("HKSAL:2:7+DE02123456780000000000+N'"));
-    assert!(body.ends_with("HNHBS:3:1+1'"));
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKSAL:3:7+DE02123456780000000000+N'"));
     assert!(!body.contains("SaldoReq"));
-
-    let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
-    assert_eq!(size, format!("{:012}", body.len()));
 }
 
 #[tokio::test]
 async fn handler_renders_saldo_request_from_lowlevel_params_like_original() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let job: hbci4rust::HbciJob = serde_json::from_str(
@@ -2861,17 +2904,15 @@ async fn handler_renders_saldo_request_from_lowlevel_params_like_original() {
     let requests = replay.requests().expect("requests");
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
-    assert!(body.contains("HKSAL:2:7+DE02123456780000000000:MARKDEF1100+N+7'"));
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKSAL:3:7+DE02123456780000000000:MARKDEF1100+N+7'"));
 }
 
 #[tokio::test]
 async fn handler_renders_tan2step5_with_applied_challenge_params_like_original() {
     const ORDER_SEGMENT: &str = "HKAOM:3:5+9876543210+100,99'";
 
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let challenge_info = ChallengeInfo::parse_xml(CHALLENGE_DATA).expect("challenge data parses");
@@ -2922,7 +2963,7 @@ async fn handler_renders_tan2step5_with_applied_challenge_params_like_original()
 
     let requests = replay.requests().expect("requests");
     let body = &requests[0].body;
-    let hash_prefix = b"HKTAN:2:5+1+HKAOM+::12345678::280:12345678+@20@";
+    let hash_prefix = b"HKTAN:3:5+1+HKAOM+::12345678::280:12345678+@20@";
     let hash_start = find_bytes(body, hash_prefix).expect("HKTAN hash prefix");
     let payload_start = hash_start + hash_prefix.len();
     let payload_end = payload_start + 20;
@@ -2933,18 +2974,18 @@ async fn handler_renders_tan2step5_with_applied_challenge_params_like_original()
             .expect("expected hash")
     );
     assert!(
-        find_bytes(body, b"+++N+++10+100,99:::9876543210'HNHBS:3:1+1'").is_some(),
+        find_bytes(body, b"+++N+++10+100,99:::9876543210'HNSHA:4:2+").is_some(),
         "{}",
         String::from_utf8_lossy(body)
     );
+    assert_signed_custom_msg_request_bytes(body, "0", "1", 5);
 }
 
 #[tokio::test]
 async fn handler_prepares_process1_hktan_orderhash_from_rendered_task_segment() {
     const ORDER_SEGMENT: &str = "HKSAL:3:7+DE02123456780000000000+N'";
 
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
+    let passport = passport_with_cached_pin(PinTanPassportData {
         tan_method: Some("921".to_owned()),
         tan_media: Some("sms-name".to_owned()),
         bpd_parameters: BTreeMap::from([
@@ -2961,7 +3002,7 @@ async fn handler_prepares_process1_hktan_orderhash_from_rendered_task_segment() 
                 "2".to_owned(),
             ),
         ]),
-        ..PinTanPassportData::default()
+        ..signed_pintan_data()
     });
     let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
@@ -3000,7 +3041,8 @@ async fn handler_prepares_process1_hktan_orderhash_from_rendered_task_segment() 
     let requests = replay.requests().expect("requests");
     let body = &requests[0].body;
     let rendered = String::from_utf8_lossy(body);
-    assert!(rendered.contains("HKTAN:2:5+1+HKSAL+DE02123456780000000000"));
+    assert_signed_custom_msg_request_bytes(body, "0", "1", 5);
+    assert!(rendered.contains("HKTAN:3:5+1+HKSAL+DE02123456780000000000"));
     assert!(rendered.contains("sms-name'"), "{rendered}");
 
     let hash_prefix = b"+@20@";
@@ -3112,10 +3154,7 @@ fn handler_prepares_process1_hktan_uses_noref_for_required_tan_media_without_val
 
 #[tokio::test]
 async fn handler_execute_imports_hitan_sca_state_from_tan2step_response() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
         "HITAN:3:5+1++ORDER-REF-1+Bitte geben Sie die TAN ein+@5@HHDUC",
@@ -3142,10 +3181,7 @@ async fn handler_execute_imports_hitan_sca_state_from_tan2step_response() {
 
 #[tokio::test]
 async fn handler_execute_ignores_nochallenge_but_keeps_hitan_orderref() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
         "HITAN:3:5+1++ORDER-REF-2+nochallenge+@5@HHDUC",
@@ -3167,10 +3203,7 @@ async fn handler_execute_ignores_nochallenge_but_keeps_hitan_orderref() {
 
 #[tokio::test]
 async fn handler_execute_marks_sca_exempted_for_3076_response() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+3076::Keine starke Kundenauthentifizierung erforderlich",
     ]))]);
@@ -3206,8 +3239,7 @@ async fn handler_requests_tan_for_stored_sca_challenge() {
     )
     .expect("runtime init");
 
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
+    let passport = passport_with_cached_pin(PinTanPassportData {
         tan_method: Some("921".to_owned()),
         bpd_parameters: BTreeMap::from([
             (
@@ -3223,7 +3255,7 @@ async fn handler_requests_tan_for_stored_sca_challenge() {
                 "Bitte bestaetigen".to_owned(),
             ),
         ]),
-        ..PinTanPassportData::default()
+        ..signed_pintan_data()
     });
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
@@ -3271,10 +3303,7 @@ async fn handler_does_not_request_tan_for_3076_sca_exemption() {
     )
     .expect("runtime init");
 
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+3076::Keine starke Kundenauthentifizierung erforderlich",
     ]))]);
@@ -3316,10 +3345,7 @@ async fn handler_errors_when_tan_callback_returns_empty_value() {
     )
     .expect("runtime init");
 
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
         "HITAN:3:5+1++ORDER-REF-1+Bitte geben Sie die TAN ein+@5@HHDUC",
@@ -3458,7 +3484,6 @@ async fn handler_signs_pintan_usersig_for_sca_challenge() {
     .expect("runtime init");
 
     let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
         tan_method: Some("921".to_owned()),
         bpd_parameters: BTreeMap::from([
             (
@@ -3474,7 +3499,7 @@ async fn handler_signs_pintan_usersig_for_sca_challenge() {
                 "Bitte bestaetigen".to_owned(),
             ),
         ]),
-        ..PinTanPassportData::default()
+        ..signed_pintan_data()
     });
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
@@ -3524,10 +3549,7 @@ async fn handler_signs_pintan_usersig_without_tan_for_sca_exemption() {
     )
     .expect("runtime init");
 
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = PinTanPassport::new(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+3076::Keine starke Kundenauthentifizierung erforderlich",
     ]))]);
@@ -3559,10 +3581,7 @@ async fn handler_signs_pintan_usersig_without_tan_for_sca_exemption() {
 
 #[tokio::test]
 async fn handler_renders_kums_all_request_like_original() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut kums = handler.new_job("KUmsAll").expect("job is in registry");
@@ -3585,16 +3604,14 @@ async fn handler_renders_kums_all_request_like_original() {
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
     assert!(
-        body.contains("HKKAZ:2:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N+20260601+20260606+25'")
+        body.contains("HKKAZ:3:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N+20260601+20260606+25'")
     );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 
 #[tokio::test]
 async fn handler_collects_kums_all_raw_result_data() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let booked = mt940_booked_payload();
     let notbooked = mt942_unbooked_payload();
     let segment = kums_response_segment("HIKAZ", &booked, &notbooked);
@@ -3659,10 +3676,7 @@ async fn handler_collects_kums_all_raw_result_data() {
 
 #[tokio::test]
 async fn handler_renders_kums_all_camt_request_like_original() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut kums = handler.new_job("KUmsAllCamt").expect("job is in registry");
@@ -3686,18 +3700,16 @@ async fn handler_renders_kums_all_camt_request_like_original() {
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
     assert!(
-        body.contains("HKCAZ:2:1+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+")
+        body.contains("HKCAZ:3:1+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+")
     );
     assert!(body.contains("urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.01"));
     assert!(body.contains("+N+20260601+20260606+25+CURSOR'"));
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 
 #[tokio::test]
 async fn handler_collects_kums_all_camt_raw_result_data() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let booked_first = camt_payload("booked-1");
     let booked_second = camt_payload("booked-2");
     let notbooked = camt_payload("notbooked");
@@ -3799,10 +3811,7 @@ async fn handler_rejects_kums_all_camt_without_account_fallback() {
 
 #[tokio::test]
 async fn handler_renders_kums_new_request_like_original() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut kums = handler.new_job("KUmsNew").expect("job is in registry");
@@ -3822,17 +3831,15 @@ async fn handler_renders_kums_new_request_like_original() {
 
     assert!(
         body.contains(
-            "HKKAN:2:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N+25'"
+            "HKKAN:3:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N+25'"
         )
     );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 
 #[tokio::test]
 async fn handler_collects_kums_new_raw_result_data() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let booked = mt940_booked_payload();
     let notbooked = mt942_unbooked_payload();
     let segment = kums_response_segment("HIKAN", &booked, &notbooked);
@@ -3915,10 +3922,9 @@ async fn handler_rejects_saldo_request_without_account_fallback() {
 
 #[tokio::test]
 async fn handler_uses_passport_account_for_saldo_request() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
+    let passport = passport_with_cached_pin(PinTanPassportData {
         accounts: vec![giro_account()],
-        ..PinTanPassportData::default()
+        ..signed_pintan_data()
     });
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
@@ -3943,16 +3949,14 @@ async fn handler_uses_passport_account_for_saldo_request() {
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
     assert!(
-        body.contains("HKSAL:2:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N'")
+        body.contains("HKSAL:3:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N'")
     );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
 }
 
 #[tokio::test]
 async fn handler_renders_repeated_saldo_requests() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
         "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
@@ -3990,17 +3994,14 @@ async fn handler_renders_repeated_saldo_requests() {
     let requests = replay.requests().expect("requests");
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
-    assert!(body.contains("HKSAL:2:7+DE02123456780000000000+N'"));
-    assert!(body.contains("HKSAL:3:7+DE02123456780000000001+N'"));
-    assert!(body.ends_with("HNHBS:4:1+1'"));
+    assert_signed_custom_msg_request(&body, "0", "1", 6);
+    assert!(body.contains("HKSAL:3:7+DE02123456780000000000+N'"));
+    assert!(body.contains("HKSAL:4:7+DE02123456780000000001+N'"));
 }
 
 #[tokio::test]
 async fn handler_renders_saldo_request_all_without_account() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
         "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
@@ -4044,18 +4045,16 @@ async fn handler_renders_saldo_request_all_without_account() {
     let requests = replay.requests().expect("requests");
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
-    assert!(body.contains("HKSAL:2:7++J'"));
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKSAL:3:7++J'"));
 }
 
 #[tokio::test]
 async fn handler_marks_segment_return_errors_as_failed_jobs() {
-    let passport = PinTanPassport::new(PinTanPassportData {
-        host: Some("https://fints.example.test/fints".to_owned()),
-        ..PinTanPassportData::default()
-    });
+    let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
         "HIRMG:2:2+0010::OK",
-        "HIRMS:3:2+9010:2:Saldo abgelehnt",
+        "HIRMS:3:2+9010:3:Saldo abgelehnt",
     ]))]);
     let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
     let mut job = handler.new_job("SaldoReq").expect("job is in registry");
@@ -4071,6 +4070,6 @@ async fn handler_marks_segment_return_errors_as_failed_jobs() {
     assert!(status.segment_return_values[0].is_error());
     assert_eq!(
         status.messages,
-        vec!["0010:OK".to_owned(), "9010:Saldo abgelehnt (2)".to_owned()]
+        vec!["0010:OK".to_owned(), "9010:Saldo abgelehnt (3)".to_owned()]
     );
 }

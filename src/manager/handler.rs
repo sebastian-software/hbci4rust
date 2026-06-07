@@ -223,18 +223,25 @@ where
             return Ok(HbciExecStatus::default());
         }
 
-        let host = self.passport.host().ok_or_else(|| {
-            HbciError::new(
-                HbciErrorKind::InvalidArgument,
-                "PinTAN passport has no FinTS endpoint",
-            )
-        })?;
+        let host = self
+            .passport
+            .host()
+            .ok_or_else(|| {
+                HbciError::new(
+                    HbciErrorKind::InvalidArgument,
+                    "PinTAN passport has no FinTS endpoint",
+                )
+            })?
+            .to_owned();
 
         let request_ref = MessageReference::new(
             self.dialog.current_dialog_id(),
             self.dialog.current_message_number(),
         );
-        let body = self.render_queued_jobs(&request_ref)?;
+        let callback = super::callback();
+        let body = self
+            .render_queued_jobs(&request_ref, callback.as_deref())
+            .await?;
 
         let response = self.comm.send(CommRequest::new(host, body)).await?;
         self.dialog.advance_message_number();
@@ -353,7 +360,11 @@ where
             .to_owned()
     }
 
-    fn render_queued_jobs(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
+    async fn render_queued_jobs(
+        &mut self,
+        request_ref: &MessageReference,
+        callback: Option<&dyn HbciCallback>,
+    ) -> HbciResult<Vec<u8>> {
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg")?;
 
@@ -364,6 +375,17 @@ where
         for (index, job) in self.queue.iter().enumerate() {
             render_job_into_custom_message(&mut message, job, index, &self.passport)?;
         }
+
+        let signature_context = PinTanSignatureContext::generate()?;
+        let sig_head = signature_context.sig_head_from_passport(&self.passport)?;
+        let signature = sign_pintan_user_sig_for_sca(&mut self.passport, callback).await?;
+        apply_pintan_signature_shell(
+            &mut message,
+            "CustomMsg.SigHead",
+            "CustomMsg.SigTail",
+            &sig_head,
+            &signature,
+        )?;
 
         message.prepare_outgoing()?;
         message.to_fints_bytes()
@@ -1873,5 +1895,5 @@ fn required_message_value<'a>(
 }
 
 fn queued_job_segment_sequence(index: usize) -> usize {
-    index + 2
+    index + 3
 }
