@@ -1301,7 +1301,6 @@ fn render_job_into_custom_message(
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
         "DauerLastSEPAList" => render_dauer_last_sepa_list(message, job, index, passport),
         "DauerLastSEPANew" => render_dauer_last_sepa_new(message, job, index, passport),
-        "Donation" => render_donation(message, job, index, passport),
         "FestCondList" => render_fest_cond_list(message, job, index),
         "FestList" | "FestListAll" => render_fest_list(message, job, index, passport),
         "InfoList" => render_info_list(message, job, index),
@@ -1335,13 +1334,8 @@ fn render_job_into_custom_message(
         "TermUebSEPADel" => render_term_ueb_sepa_del(message, job, index, passport),
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
         "TermUebSEPAList" => render_term_ueb_sepa_list(message, job, index, passport),
-        "Ueb" => render_ueb(message, job, index, passport),
-        "UebBZU" => render_ueb_bzu(message, job, index, passport),
-        "UebEil" => render_ueb_eil(message, job, index, passport),
         "UebForeign" => render_ueb_foreign(message, job, index, passport),
-        "UebGar" => render_ueb_gar(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
-        "Umb" => render_umb(message, job, index, passport),
         "UmbSEPA" => render_umb_sepa(message, job, index, passport),
         "VoP" => render_vop(message, job, index),
         "VoPAuth" => render_vop_auth(message, job, index),
@@ -1703,35 +1697,10 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "SammelLastB2BSEPA1",
             path: "CustomMsg.GV.SammelLastB2BSEPA1",
         }),
-        "Donation" | "Ueb" => Ok(OrderhashSourceJobInfo {
-            code: "HKUEB",
-            lowlevel_segment: "Ueb5",
-            path: "CustomMsg.GV.Ueb5",
-        }),
-        "UebBZU" => Ok(OrderhashSourceJobInfo {
-            code: "HKUEB",
-            lowlevel_segment: "Ueb5",
-            path: "CustomMsg.GV.Ueb5",
-        }),
-        "UebEil" => Ok(OrderhashSourceJobInfo {
-            code: "HKEIL",
-            lowlevel_segment: "UebEil1",
-            path: "CustomMsg.GV.UebEil1",
-        }),
-        "UebGar" => Ok(OrderhashSourceJobInfo {
-            code: "HKGUB",
-            lowlevel_segment: "UebGar1",
-            path: "CustomMsg.GV.UebGar1",
-        }),
         "UebForeign" => Ok(OrderhashSourceJobInfo {
             code: "HKAOM",
             lowlevel_segment: "UebForeign2",
             path: "CustomMsg.GV.UebForeign2",
-        }),
-        "Umb" => Ok(OrderhashSourceJobInfo {
-            code: "HKUMB",
-            lowlevel_segment: "Umb2",
-            path: "CustomMsg.GV.Umb2",
         }),
         "InfoList" => Ok(OrderhashSourceJobInfo {
             code: "HKKIA",
@@ -2034,14 +2003,6 @@ fn term_ueb_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TermUebRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermUebRes4", index + 1)
-    }
-}
-
-fn ueb_gar_response_root(index: usize) -> String {
-    if index == 0 {
-        "CustomMsgRes.GVRes.UebGarRes1".to_owned()
-    } else {
-        format!("CustomMsgRes.GVRes_{}.UebGarRes1", index + 1)
     }
 }
 
@@ -3598,118 +3559,6 @@ fn render_term_ueb_edit(
     Ok(())
 }
 
-fn render_ueb(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_ueb(
-        message,
-        job,
-        index,
-        passport,
-        ClassicUebRenderSpec {
-            lowlevel_segment: "Ueb5",
-            job_name: "Ueb",
-            key_default: "51",
-            first_usage_frontend: "usage",
-        },
-    )
-}
-
-fn render_donation(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_ueb(
-        message,
-        job,
-        index,
-        passport,
-        ClassicUebRenderSpec {
-            lowlevel_segment: "Ueb5",
-            job_name: "Donation",
-            key_default: "69",
-            first_usage_frontend: "spenderid",
-        },
-    )
-}
-
-fn render_ueb_bzu(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_ueb(
-        message,
-        job,
-        index,
-        passport,
-        ClassicUebRenderSpec {
-            lowlevel_segment: "Ueb5",
-            job_name: "UebBZU",
-            key_default: "67",
-            first_usage_frontend: "bzudata",
-        },
-    )
-}
-
-fn render_ueb_eil(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_ueb(
-        message,
-        job,
-        index,
-        passport,
-        ClassicUebRenderSpec {
-            lowlevel_segment: "UebEil1",
-            job_name: "UebEil",
-            key_default: "51",
-            first_usage_frontend: "usage",
-        },
-    )
-}
-
-fn render_ueb_gar(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_ueb(
-        message,
-        job,
-        index,
-        passport,
-        ClassicUebRenderSpec {
-            lowlevel_segment: "UebGar1",
-            job_name: "UebGar",
-            key_default: "51",
-            first_usage_frontend: "usage",
-        },
-    )?;
-
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    message.set_value(
-        &format!("{root}.UebGar1.addkey"),
-        job_param(job, "UebGar1.addkey", "addkey").unwrap_or("100"),
-    )?;
-
-    Ok(())
-}
-
 fn render_ueb_foreign(
     message: &mut HbciMessage,
     job: &HbciJob,
@@ -3798,128 +3647,6 @@ fn render_ueb_foreign(
         &format!("{segment}.usage"),
         job_param(job, "UebForeign2.usage", "usage"),
     )?;
-
-    Ok(())
-}
-
-fn render_umb(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    render_classic_ueb(
-        message,
-        job,
-        index,
-        passport,
-        ClassicUebRenderSpec {
-            lowlevel_segment: "Umb2",
-            job_name: "Umb",
-            key_default: "51",
-            first_usage_frontend: "usage",
-        },
-    )
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ClassicUebRenderSpec {
-    lowlevel_segment: &'static str,
-    job_name: &'static str,
-    key_default: &'static str,
-    first_usage_frontend: &'static str,
-}
-
-fn render_classic_ueb(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-    spec: ClassicUebRenderSpec,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = spec.lowlevel_segment;
-    let job_name = spec.job_name;
-    let segment = format!("{root}.{lowlevel_segment}");
-    let src_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "src",
-    );
-    if !has_account_identity(&src_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            format!(
-                "{job_name} requires src.number or a passport account for the current {lowlevel_segment} renderer"
-            ),
-        ));
-    }
-    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
-    if !has_account_identity(&dst_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            format!("{job_name} requires dst.number for the current {lowlevel_segment} renderer"),
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        &format!("{lowlevel_segment}.name"),
-        "name",
-        &format!("{job_name} requires name"),
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, &format!("{lowlevel_segment}.name2"), "name2"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        &format!("{lowlevel_segment}.BTG.value"),
-        "btg.value",
-        &format!("{job_name} requires btg.value"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        &format!("{lowlevel_segment}.BTG.curr"),
-        "btg.curr",
-        &format!("{job_name} requires btg.curr"),
-    )?;
-    message.set_value(
-        &format!("{segment}.key"),
-        job_param(job, &format!("{lowlevel_segment}.key"), "key").unwrap_or(spec.key_default),
-    )?;
-    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let usage_name = classic_usage_frontend_name(usage_index);
-        let frontend_name = if usage_index == 0 {
-            spec.first_usage_frontend
-        } else {
-            &usage_name
-        };
-        set_optional_message_value(
-            message,
-            &format!("{segment}.usage.{usage_name}"),
-            job_param(
-                job,
-                &format!("{lowlevel_segment}.usage.{usage_name}"),
-                frontend_name,
-            ),
-        )?;
-    }
 
     Ok(())
 }
@@ -5765,7 +5492,6 @@ impl ParsedResponseStatus {
             "KontoauszugPdf" => self.content_result_data([kontoauszug_pdf_response_root(index)]),
             "TermUeb" => self.content_result_data([term_ueb_response_root(index)]),
             "TermUebEdit" => self.content_result_data([term_ueb_edit_response_root(index)]),
-            "UebGar" => self.content_result_data([ueb_gar_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermMultiUebSEPA" => {
                 self.content_result_data([term_multi_ueb_sepa_response_root(index)])
