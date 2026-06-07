@@ -3204,7 +3204,28 @@ async fn handler_renders_and_collects_acc_info_like_original() {
 #[tokio::test]
 async fn handler_renders_and_collects_dauer_sepa_list_envelope_like_original() {
     let passport = passport_with_cached_pin(signed_pintan_data());
-    let pain = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Document xmlns=\"urn:sepade:xsd:pain.001.001.02\"><CstmrCdtTrfInitn/></Document>";
+    let pain = concat!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "<Document xmlns=\"urn:sepade:xsd:pain.001.001.02\">",
+        "<pain.001.001.02>",
+        "<GrpHdr><InitgPty><Nm>Maxine Mustermann</Nm></InitgPty></GrpHdr>",
+        "<PmtInf>",
+        "<PmtInfId>PMT-ORDER123</PmtInfId>",
+        "<ReqdExctnDt>2026-01-02</ReqdExctnDt>",
+        "<DbtrAcct><Id><IBAN>DE02123456780000000000</IBAN></Id></DbtrAcct>",
+        "<DbtrAgt><FinInstnId><BIC>MARKDEF1100</BIC></FinInstnId></DbtrAgt>",
+        "<CdtTrfTxInf>",
+        "<PmtId><EndToEndId>E2E-ORDER123</EndToEndId></PmtId>",
+        "<Amt><InstdAmt Ccy=\"EUR\">12.30</InstdAmt></Amt>",
+        "<CdtrAgt><FinInstnId><BIC>DEUTDEDB277</BIC></FinInstnId></CdtrAgt>",
+        "<Cdtr><Nm>Receiver Name</Nm></Cdtr>",
+        "<CdtrAcct><Id><IBAN>DE99123456780000000000</IBAN></Id></CdtrAcct>",
+        "<RmtInf><Ustrd>Standing Usage</Ustrd></RmtInf>",
+        "</CdtTrfTxInf>",
+        "</PmtInf>",
+        "</pain.001.001.02>",
+        "</Document>",
+    );
     let hicdb = format!(
         "HICDB:3:2+DE02123456780000000000:MARKDEF1100+urn?:sepade?:xsd?:pain.001.001.02+@{}@{}+ORDER123+20251101:M:1:1::20261231+J:20260101:20260201:2:2,00:EUR+N+J+N",
         pain.len(),
@@ -3253,6 +3274,19 @@ async fn handler_renders_and_collects_dauer_sepa_list_envelope_like_original() {
     let entry = &result.entries[0];
     assert_eq!(entry.my.iban.as_deref(), Some("DE02123456780000000000"));
     assert_eq!(entry.my.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(entry.other.name.as_deref(), Some("Receiver Name"));
+    assert_eq!(entry.other.iban.as_deref(), Some("DE99123456780000000000"));
+    assert_eq!(entry.other.bic.as_deref(), Some("DEUTDEDB277"));
+    assert_eq!(
+        entry.value.as_ref().map(|value| value.value.as_str()),
+        Some("12.30")
+    );
+    assert_eq!(
+        entry.value.as_ref().and_then(|value| value.curr.as_deref()),
+        Some("EUR")
+    );
+    assert_eq!(entry.usage, ["Standing Usage".to_owned()]);
+    assert_eq!(entry.pmtinfid.as_deref(), Some("PMT-ORDER123"));
     assert_eq!(entry.sepadescr.as_deref(), Some(PAIN_001_001_02_URN));
     assert_eq!(entry.sepapain_raw.as_deref(), Some(pain));
     assert_eq!(entry.orderid.as_deref(), Some("ORDER123"));

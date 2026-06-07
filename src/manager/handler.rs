@@ -16,7 +16,7 @@ use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
 };
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
-use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN};
+use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, parse_pain_001_transfers};
 use crate::swift::decode_umlauts;
 use crate::tools::Properties;
 
@@ -2324,13 +2324,27 @@ fn dauer_list_entry_from_values(
     values: &BTreeMap<String, String>,
     prefix: &str,
 ) -> GvrDauerListEntry {
+    let sepapain_raw = optional_value(values, &format!("{prefix}.sepapain"));
+    let pain_transfer = sepapain_raw
+        .as_deref()
+        .and_then(|pain| parse_pain_001_transfers(pain).ok())
+        .and_then(|transfers| transfers.into_iter().next());
+
     GvrDauerListEntry {
         my: ktv_int_account_from_values(values, &format!("{prefix}.My")),
-        other: Konto::default(),
-        value: None,
+        other: pain_transfer
+            .as_ref()
+            .map(|transfer| transfer.destination.clone())
+            .unwrap_or_default(),
+        value: pain_transfer
+            .as_ref()
+            .and_then(|transfer| transfer.value.clone()),
         key: None,
         addkey: None,
-        usage: Vec::new(),
+        usage: pain_transfer
+            .as_ref()
+            .map(|transfer| transfer.usage.clone())
+            .unwrap_or_default(),
         nextdate: None,
         orderid: optional_value(values, &format!("{prefix}.orderid")),
         firstdate: optional_value(values, &format!("{prefix}.DauerDetails.firstdate")),
@@ -2343,10 +2357,14 @@ fn dauer_list_entry_from_values(
         can_change: optional_jn(values, &format!("{prefix}.canchange")).unwrap_or(true),
         can_skip: optional_jn(values, &format!("{prefix}.canskip")).unwrap_or(true),
         can_delete: optional_jn(values, &format!("{prefix}.candel")).unwrap_or(true),
-        pmtinfid: None,
-        purposecode: None,
+        pmtinfid: pain_transfer
+            .as_ref()
+            .and_then(|transfer| transfer.payment_info_id.clone()),
+        purposecode: pain_transfer
+            .as_ref()
+            .and_then(|transfer| transfer.purpose_code.clone()),
         sepadescr: optional_value(values, &format!("{prefix}.sepadescr")),
-        sepapain_raw: optional_value(values, &format!("{prefix}.sepapain")),
+        sepapain_raw,
     }
 }
 

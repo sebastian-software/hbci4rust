@@ -17,6 +17,19 @@ pub const CAMT_052_001_07_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.0
 pub const CAMT_052_001_08_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.08";
 pub const CAMT_052_001_09_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.09";
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pain001Transfer {
+    pub source: Konto,
+    pub destination: Konto,
+    pub value: Option<Value>,
+    pub usage: Vec<String>,
+    pub execution_date: Option<String>,
+    pub end_to_end_id: Option<String>,
+    pub payment_info_id: Option<String>,
+    pub purpose_code: Option<String>,
+    pub batch_book: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SepaKind {
     Pain001,
@@ -149,6 +162,208 @@ pub fn parse_camt_report_shell(xml: &str, version: SepaVersion) -> HbciResult<Ve
 
     let reports = parse_camt_reports(xml)?;
     Ok(reports.into_iter().map(GvrKUmsBTag::from).collect())
+}
+
+pub fn parse_pain_001_transfers(xml: &str) -> HbciResult<Vec<Pain001Transfer>> {
+    parse_pain_001_transfer_shell(xml)
+}
+
+#[derive(Debug, Clone, Default)]
+struct Pain001PaymentInfo {
+    source: Konto,
+    payment_info_id: Option<String>,
+    execution_date: Option<String>,
+    batch_book: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Pain001TransferDraft {
+    destination: Konto,
+    value: Option<Value>,
+    usage: Vec<String>,
+    end_to_end_id: Option<String>,
+    purpose_code: Option<String>,
+}
+
+fn parse_pain_001_transfer_shell(xml: &str) -> HbciResult<Vec<Pain001Transfer>> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+
+    let mut stack = Vec::new();
+    let mut transfers = Vec::new();
+    let mut group_initiator_name = None::<String>;
+    let mut payment = None::<Pain001PaymentInfo>;
+    let mut transfer = None::<Pain001TransferDraft>;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(event)) => {
+                let name = local_name(event.name().as_ref());
+                if name == "PmtInf" {
+                    payment = Some(Pain001PaymentInfo::default());
+                } else if payment.is_some() && name == "CdtTrfTxInf" {
+                    transfer = Some(Pain001TransferDraft::default());
+                } else if transfer.is_some()
+                    && name == "InstdAmt"
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(transfer) = &mut transfer
+                {
+                    transfer.value = Some(Value {
+                        value: String::new(),
+                        curr: Some(currency),
+                    });
+                }
+                stack.push(name);
+            }
+            Ok(Event::Empty(event)) => {
+                let name = local_name(event.name().as_ref());
+                if transfer.is_some()
+                    && name == "InstdAmt"
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(transfer) = &mut transfer
+                {
+                    transfer.value = Some(Value {
+                        value: String::new(),
+                        curr: Some(currency),
+                    });
+                }
+            }
+            Ok(Event::Text(event)) => {
+                let text = event.decode().map_err(|err| {
+                    HbciError::with_source(
+                        HbciErrorKind::Protocol,
+                        "failed to decode XML text",
+                        err,
+                    )
+                })?;
+                let text = text.trim();
+                if !text.is_empty() {
+                    collect_pain_001_text(
+                        &stack,
+                        text,
+                        &mut group_initiator_name,
+                        &mut payment,
+                        &mut transfer,
+                    );
+                }
+            }
+            Ok(Event::End(event)) => {
+                let name = local_name(event.name().as_ref());
+                if name == "CdtTrfTxInf" {
+                    if let (Some(payment), Some(transfer)) = (&payment, transfer.take()) {
+                        transfers.push(pain_001_transfer_from_parts(
+                            payment,
+                            transfer,
+                            group_initiator_name.as_deref(),
+                        ));
+                    }
+                } else if name == "PmtInf" {
+                    payment = None;
+                }
+
+                stack.pop();
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(err) => {
+                return Err(HbciError::with_source(
+                    HbciErrorKind::Protocol,
+                    "failed to parse PAIN.001 document",
+                    err,
+                ));
+            }
+        }
+    }
+
+    Ok(transfers)
+}
+
+fn collect_pain_001_text(
+    stack: &[String],
+    text: &str,
+    group_initiator_name: &mut Option<String>,
+    payment: &mut Option<Pain001PaymentInfo>,
+    transfer: &mut Option<Pain001TransferDraft>,
+) {
+    if let Some(transfer) = transfer {
+        collect_pain_001_transfer_text(stack, text, transfer);
+    } else if let Some(payment) = payment {
+        collect_pain_001_payment_text(stack, text, payment);
+    } else if path_ends_with(stack, &["GrpHdr", "InitgPty", "Nm"]) {
+        *group_initiator_name = Some(text.to_owned());
+    }
+}
+
+fn collect_pain_001_payment_text(stack: &[String], text: &str, payment: &mut Pain001PaymentInfo) {
+    if path_ends_with(stack, &["PmtInf", "PmtInfId"]) {
+        payment.payment_info_id = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "DbtrAcct", "Id", "IBAN"]) {
+        payment.source.iban = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "DbtrAgt", "FinInstnId", "BIC"])
+        || path_ends_with(stack, &["PmtInf", "DbtrAgt", "FinInstnId", "BICFI"])
+    {
+        payment.source.bic = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "ReqdExctnDt"])
+        || path_ends_with(stack, &["PmtInf", "ReqdExctnDt", "Dt"])
+    {
+        payment.execution_date = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "ReqdExctnDt", "DtTm"]) {
+        payment.execution_date = Some(text.chars().take(10).collect());
+    } else if path_ends_with(stack, &["PmtInf", "BtchBookg"]) {
+        payment.batch_book = Some(text.to_owned());
+    }
+}
+
+fn collect_pain_001_transfer_text(
+    stack: &[String],
+    text: &str,
+    transfer: &mut Pain001TransferDraft,
+) {
+    if path_ends_with(stack, &["CdtTrfTxInf", "PmtId", "EndToEndId"]) {
+        transfer.end_to_end_id = Some(text.to_owned());
+    } else if path_ends_with(stack, &["CdtTrfTxInf", "Cdtr", "Nm"]) {
+        transfer.destination.name = Some(text.to_owned());
+    } else if path_ends_with(stack, &["CdtTrfTxInf", "CdtrAcct", "Id", "IBAN"]) {
+        transfer.destination.iban = Some(text.to_owned());
+    } else if path_ends_with(stack, &["CdtTrfTxInf", "CdtrAgt", "FinInstnId", "BIC"])
+        || path_ends_with(stack, &["CdtTrfTxInf", "CdtrAgt", "FinInstnId", "BICFI"])
+    {
+        transfer.destination.bic = Some(text.to_owned());
+    } else if path_ends_with(stack, &["CdtTrfTxInf", "Amt", "InstdAmt"]) {
+        if let Some(value) = &mut transfer.value {
+            value.value = normalize_decimal_amount(text);
+        } else {
+            transfer.value = Some(Value {
+                value: normalize_decimal_amount(text),
+                curr: None,
+            });
+        }
+    } else if path_ends_with(stack, &["CdtTrfTxInf", "RmtInf", "Ustrd"]) {
+        transfer.usage.push(text.to_owned());
+    } else if path_ends_with(stack, &["CdtTrfTxInf", "Purp", "Cd"]) {
+        transfer.purpose_code = Some(text.to_owned());
+    }
+}
+
+fn pain_001_transfer_from_parts(
+    payment: &Pain001PaymentInfo,
+    transfer: Pain001TransferDraft,
+    group_initiator_name: Option<&str>,
+) -> Pain001Transfer {
+    let mut source = payment.source.clone();
+    source.name = group_initiator_name.map(str::to_owned);
+
+    Pain001Transfer {
+        source,
+        destination: transfer.destination,
+        value: transfer.value,
+        usage: transfer.usage,
+        execution_date: payment.execution_date.clone(),
+        end_to_end_id: transfer.end_to_end_id,
+        payment_info_id: payment.payment_info_id.clone(),
+        purpose_code: transfer.purpose_code,
+        batch_book: payment.batch_book.clone(),
+    }
 }
 
 #[derive(Debug, Clone, Default)]

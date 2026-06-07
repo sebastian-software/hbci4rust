@@ -1,7 +1,8 @@
 use hbci4rust::HbciErrorKind;
 use hbci4rust::sepa::{
     CAMT_052_001_01_URN, CAMT_052_001_02_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN,
-    CAMT_052_001_08_URN, SepaKind, SepaVersion, parse_camt_report_shell,
+    CAMT_052_001_08_URN, PAIN_001_001_02_URN, SepaKind, SepaVersion, parse_camt_report_shell,
+    parse_pain_001_transfers,
 };
 
 fn camt_document(urn: &str) -> String {
@@ -42,6 +43,63 @@ fn camt_report_shell_document() -> String {
     )
 }
 
+fn pain_001_001_02_document() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="{PAIN_001_001_02_URN}">
+  <pain.001.001.02>
+    <GrpHdr>
+      <InitgPty><Nm>Sender Name</Nm></InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMT-OLD</PmtInfId>
+      <ReqdExctnDt>2026-01-02</ReqdExctnDt>
+      <DbtrAcct><Id><IBAN>DE11111111111111111111</IBAN></Id></DbtrAcct>
+      <DbtrAgt><FinInstnId><BIC>SRCBICOLD</BIC></FinInstnId></DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId><EndToEndId>E2E-OLD</EndToEndId></PmtId>
+        <Amt><InstdAmt Ccy="EUR">12.3</InstdAmt></Amt>
+        <CdtrAgt><FinInstnId><BIC>DSTBICOLD</BIC></FinInstnId></CdtrAgt>
+        <Cdtr><Nm>Receiver Old</Nm></Cdtr>
+        <CdtrAcct><Id><IBAN>DE22222222222222222222</IBAN></Id></CdtrAcct>
+        <RmtInf><Ustrd>Old Usage</Ustrd></RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </pain.001.001.02>
+</Document>"#
+    )
+}
+
+fn pain_001_001_09_document() -> &'static str {
+    r#"<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.09">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <InitgPty><Nm>Modern Sender</Nm></InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMT-NEW</PmtInfId>
+      <BtchBookg>true</BtchBookg>
+      <ReqdExctnDt><Dt>2026-03-04</Dt></ReqdExctnDt>
+      <DbtrAcct><Id><IBAN>DE33333333333333333333</IBAN></Id></DbtrAcct>
+      <DbtrAgt><FinInstnId><BICFI>SRCBICNEW</BICFI></FinInstnId></DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId><EndToEndId>E2E-NEW</EndToEndId></PmtId>
+        <Amt><InstdAmt Ccy="EUR">1.005</InstdAmt></Amt>
+        <CdtrAgt><FinInstnId><BICFI>DSTBICNEW</BICFI></FinInstnId></CdtrAgt>
+        <Cdtr><Nm>Receiver New</Nm></Cdtr>
+        <CdtrAcct><Id><IBAN>DE44444444444444444444</IBAN></Id></CdtrAcct>
+        <Purp><Cd>GDDS</Cd></Purp>
+        <RmtInf>
+          <Ustrd>Line 1</Ustrd>
+          <Ustrd>Line 2</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>"#
+}
+
 #[test]
 fn camt_version_by_urn_matches_original_known_versions() {
     let version = SepaVersion::by_urn(CAMT_052_001_04_URN).expect("known CAMT version");
@@ -69,6 +127,74 @@ fn camt_version_find_greatest_uses_original_order() {
     ]);
 
     assert_eq!(highest, Some(SepaVersion::CAMT_052_001_07));
+}
+
+#[test]
+fn pain_001_parser_reads_old_transfer_fields_like_original() {
+    let transfers =
+        parse_pain_001_transfers(&pain_001_001_02_document()).expect("PAIN.001.001.02 parses");
+
+    assert_eq!(transfers.len(), 1);
+    let transfer = &transfers[0];
+    assert_eq!(transfer.payment_info_id.as_deref(), Some("PMT-OLD"));
+    assert_eq!(transfer.source.name.as_deref(), Some("Sender Name"));
+    assert_eq!(
+        transfer.source.iban.as_deref(),
+        Some("DE11111111111111111111")
+    );
+    assert_eq!(transfer.source.bic.as_deref(), Some("SRCBICOLD"));
+    assert_eq!(transfer.destination.name.as_deref(), Some("Receiver Old"));
+    assert_eq!(
+        transfer.destination.iban.as_deref(),
+        Some("DE22222222222222222222")
+    );
+    assert_eq!(transfer.destination.bic.as_deref(), Some("DSTBICOLD"));
+    assert_eq!(
+        transfer.value.as_ref().map(|value| value.value.as_str()),
+        Some("12.30")
+    );
+    assert_eq!(
+        transfer
+            .value
+            .as_ref()
+            .and_then(|value| value.curr.as_deref()),
+        Some("EUR")
+    );
+    assert_eq!(transfer.usage, ["Old Usage".to_owned()]);
+    assert_eq!(transfer.execution_date.as_deref(), Some("2026-01-02"));
+    assert_eq!(transfer.end_to_end_id.as_deref(), Some("E2E-OLD"));
+    assert_eq!(transfer.purpose_code, None);
+}
+
+#[test]
+fn pain_001_parser_reads_new_transfer_fields_like_original() {
+    let transfers =
+        parse_pain_001_transfers(pain_001_001_09_document()).expect("PAIN.001.001.09 parses");
+
+    assert_eq!(transfers.len(), 1);
+    let transfer = &transfers[0];
+    assert_eq!(transfer.payment_info_id.as_deref(), Some("PMT-NEW"));
+    assert_eq!(transfer.source.name.as_deref(), Some("Modern Sender"));
+    assert_eq!(
+        transfer.source.iban.as_deref(),
+        Some("DE33333333333333333333")
+    );
+    assert_eq!(transfer.source.bic.as_deref(), Some("SRCBICNEW"));
+    assert_eq!(transfer.destination.name.as_deref(), Some("Receiver New"));
+    assert_eq!(
+        transfer.destination.iban.as_deref(),
+        Some("DE44444444444444444444")
+    );
+    assert_eq!(transfer.destination.bic.as_deref(), Some("DSTBICNEW"));
+    assert_eq!(
+        transfer.value.as_ref().map(|value| value.value.as_str()),
+        Some("1.01")
+    );
+    assert_eq!(transfer.usage, ["Line 1".to_owned(), "Line 2".to_owned()]);
+    assert_eq!(transfer.execution_date.as_deref(), Some("2026-03-04"));
+    assert_eq!(transfer.end_to_end_id.as_deref(), Some("E2E-NEW"));
+    assert_eq!(transfer.purpose_code.as_deref(), Some("GDDS"));
+    assert_eq!(transfer.batch_book.as_deref(), Some("true"));
 }
 
 #[test]
