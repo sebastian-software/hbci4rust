@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use hbci4rust::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
-    GvrFestCond, HbciCallback, HbciHandler, HbciJobResultData, HbciMsgStatus, HbciResult,
+    GvrFestCond, HbciCallback, HbciHandler, HbciJob, HbciJobResultData, HbciMsgStatus, HbciResult,
     HbciReturnValue, HbciStatus, Konto, KontoauszugFormat, Limit, MatrixCode, OrderHashMode,
     PassportStorage, PinTanPassport, PinTanPassportData, QrCode, ReplayCommClient,
     TanMethodSelection, UserSig, Value, VoPStatus, done, init,
@@ -4060,6 +4060,42 @@ fn rejects_out_of_scope_job() {
     let handler = HbciHandler::new("300", passport);
 
     assert!(handler.new_job("ChipcardOnly").is_err());
+}
+
+#[test]
+fn try_add_to_queue_rejects_manually_constructed_out_of_scope_job() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+    let job = HbciJob::new("LastCOR1SEPA");
+
+    let err = handler
+        .try_add_to_queue(job)
+        .expect_err("manual construction must not bypass the v1 job registry");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Unsupported);
+    assert_eq!(
+        err.message(),
+        "unsupported or out-of-scope job: LastCOR1SEPA"
+    );
+    assert!(handler.queued_jobs().is_empty());
+}
+
+#[tokio::test]
+async fn execute_rejects_manually_queued_out_of_scope_job() {
+    let passport = PinTanPassport::new(signed_pintan_data());
+    let mut handler = HbciHandler::with_comm("300", passport, ReplayCommClient::default());
+    handler.add_to_queue(HbciJob::new("LastCOR1SEPA"));
+
+    let err = handler
+        .execute()
+        .await
+        .expect_err("manual queueing must not bypass the v1 job registry");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Unsupported);
+    assert_eq!(
+        err.message(),
+        "unsupported or out-of-scope job: LastCOR1SEPA"
+    );
 }
 
 #[test]

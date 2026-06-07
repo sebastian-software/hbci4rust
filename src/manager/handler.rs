@@ -8,7 +8,7 @@ use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallb
 use crate::comm::{CommClient, CommRequest, CommResponse, DefaultCommClient};
 use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
-use crate::gv::{CLASSIC_USAGE_LINE_COUNT, HbciJob, JobRegistry};
+use crate::gv::{CLASSIC_USAGE_LINE_COUNT, HbciJob, JobRegistry, PINTAN_JOB_NAMES};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrCardInfo, GvrCardList, GvrDauerEdit,
     GvrDauerList, GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond,
@@ -233,6 +233,7 @@ where
     }
 
     pub fn try_add_to_queue(&mut self, mut job: HbciJob) -> HbciResult<()> {
+        ensure_public_job_supported(job.name())?;
         self.prepare_job_from_passport(&mut job)?;
         job.verify_constraints()?;
         self.queue.push(job);
@@ -240,6 +241,7 @@ where
     }
 
     pub fn try_add_to_queue_with_initial_tan_job(&mut self, mut job: HbciJob) -> HbciResult<()> {
+        ensure_public_job_supported(job.name())?;
         self.prepare_job_from_passport(&mut job)?;
         job.verify_constraints()?;
         let hktan = self.initial_tan_job_for_queue(&job)?;
@@ -254,6 +256,7 @@ where
         &mut self,
         mut job: HbciJob,
     ) -> HbciResult<()> {
+        ensure_public_job_supported(job.name())?;
         self.prepare_job_from_passport(&mut job)?;
         job.verify_constraints()?;
         let callback = super::callback();
@@ -1281,6 +1284,8 @@ fn render_job_into_custom_message(
     index: usize,
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
+    ensure_public_job_supported(job.name())?;
+
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
         "CardList" => render_card_list(message, job, index, passport),
@@ -1352,6 +1357,17 @@ fn render_job_into_custom_message(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
         )),
+    }
+}
+
+fn ensure_public_job_supported(name: &str) -> HbciResult<()> {
+    if PINTAN_JOB_NAMES.contains(&name) {
+        Ok(())
+    } else {
+        Err(HbciError::new(
+            HbciErrorKind::Unsupported,
+            format!("unsupported or out-of-scope job: {name}"),
+        ))
     }
 }
 

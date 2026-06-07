@@ -126,6 +126,10 @@ class. It is not treated as permission to construct arbitrary lowlevel jobs.
 available for original-near rendering, result inspection, and tests. They do
 not widen v1 into a dynamic lowlevel API.
 
+`HbciJob::new(...)` is not a support bypass. Jobs outside the static
+`PINTAN_JOB_NAMES` registry are rejected when callers use checked queueing APIs
+and again when queued jobs are rendered for execution.
+
 The current job coverage audit therefore allows exactly twenty-one missing
 upstream `GV*.java` classes: `DauerDel`, `DauerEdit`, `DauerList`,
 `DauerNew`, `Donation`, `Last`, `LastCOR1SEPA`, `MultiLast`,
@@ -224,3 +228,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0267: Remove Classic Direct Debit Public Jobs
 - ADR 0268: Remove Classic Domestic Transfer Jobs From Public Registry
 - ADR 0269: Remove Classic Scheduled And Standing Public Jobs
+- ADR 0270: Enforce Public Job Registry Boundary

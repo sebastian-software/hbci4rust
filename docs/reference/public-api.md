@@ -34,6 +34,9 @@ HbciResult
 Java-near rules:
 
 - construct jobs with Java names such as `new_job("SaldoReq")`;
+- treat `HbciHandler::new_job(...)` as the public support boundary; manually
+  constructed `HbciJob::new(...)` values outside the registry are rejected when
+  queued or rendered;
 - keep parameter keys such as `my.iban`, `src.iban`, and `_sepapain`;
 - prefer checked setters such as `try_set_param(...)` for application input;
 - use permissive `set_param(...)` when deliberately matching hbci4java's loose
