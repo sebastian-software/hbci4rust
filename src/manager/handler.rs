@@ -13,17 +13,19 @@ use crate::gv_result::{
     GvrDauerList, GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond,
     GvrFestCondList, GvrFestList, GvrFestListEntry, GvrFestListProlong, GvrInfoList,
     GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrKontoauszug,
-    GvrKontoauszugEntry, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo,
-    GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit,
-    GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
-    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto,
-    KontoauszugFormat, Saldo, Value,
+    GvrKontoauszugEntry, GvrLastSepa, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry,
+    GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb,
+    GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus,
+    HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus,
+    Konto, KontoauszugFormat, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
 };
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
-use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, parse_pain_001_transfers};
+use crate::sepa::{
+    CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, parse_pain_001_transfers,
+};
 use crate::swift::decode_umlauts;
 use crate::tools::Properties;
 
@@ -1119,6 +1121,7 @@ fn render_job_into_custom_message(
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
         "KUmsZeitSEPA" => render_kums_zeit_sepa(message, job, index, passport),
+        "LastSEPA" => render_last_sepa(message, job, index, passport),
         "Receipt" => render_receipt(message, job, index),
         "SEPAInfo" => render_sepa_info(message, index),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
@@ -1415,6 +1418,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKIPZ",
             lowlevel_segment: "InstUebSEPA1",
             path: "CustomMsg.GV.InstUebSEPA1",
+        }),
+        "LastSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKDSE",
+            lowlevel_segment: "LastSEPA1",
+            path: "CustomMsg.GV.LastSEPA1",
         }),
         "Ueb" => Ok(OrderhashSourceJobInfo {
             code: "HKUEB",
@@ -1722,6 +1730,14 @@ fn inst_ueb_sepa_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.InstUebSEPARes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.InstUebSEPARes1", index + 1)
+    }
+}
+
+fn last_sepa_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.LastSEPARes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.LastSEPARes1", index + 1)
     }
 }
 
@@ -3322,6 +3338,43 @@ fn render_ueb_sepa(
     Ok(())
 }
 
+fn render_last_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "LastSEPA1";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "LastSEPA requires src.iban, src.number, or a passport account for the current LastSEPA1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "LastSEPA1.sepadescr", "_sepadescriptor").unwrap_or(PAIN_008_001_01_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "LastSEPA1.sepapain",
+        "_sepapain",
+        "LastSEPA requires _sepapain or SEPA parameters for PAIN generation",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    Ok(())
+}
+
 fn render_inst_ueb_sepa(
     message: &mut HbciMessage,
     job: &HbciJob,
@@ -4640,6 +4693,9 @@ impl ParsedResponseStatus {
             "InstUebSEPA" => self
                 .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::InstUebSepa),
+            "LastSEPA" => self
+                .last_sepa_result_for_root(last_sepa_response_root(index))
+                .map(HbciJobResultData::LastSepa),
             "Kontoauszug" => self
                 .kontoauszug_result_for_root(kontoauszug_response_root(index))
                 .map(HbciJobResultData::Kontoauszug),
@@ -4704,6 +4760,7 @@ impl ParsedResponseStatus {
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
+            "LastSEPA" => self.content_result_data([last_sepa_response_root(index)]),
             "Kontoauszug" => self.content_result_data([kontoauszug_response_root(index)]),
             "KontoauszugPdf" => self.content_result_data([kontoauszug_pdf_response_root(index)]),
             "TermUeb" => self.content_result_data([term_ueb_response_root(index)]),
@@ -4919,6 +4976,13 @@ impl ParsedResponseStatus {
             order_id: optional_value(&self.values, &format!("{root}.orderid")),
             order_status: optional_value(&self.values, &format!("{root}.orderstatus")),
             cancellation_code: optional_value(&self.values, &format!("{root}.ccode")),
+        })
+    }
+
+    fn last_sepa_result_for_root(&self, root: String) -> Option<GvrLastSepa> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrLastSepa {
+            order_id: optional_value(&self.values, &format!("{root}.orderid")),
         })
     }
 
@@ -5668,6 +5732,19 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
                 }
             }
+            "LastSEPA" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot = last_sepa_request_persistent_snapshot(job, passport);
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("termlast_{order_id}"), snapshot);
+                }
+            }
             "TermUebList" | "TermUebSEPAList" => {
                 let Some(order_id) = result
                     .result_data
@@ -5759,6 +5836,41 @@ fn dauer_sepa_request_persistent_snapshot(
         {
             snapshot.insert(suffix.to_owned(), value.to_owned());
         }
+    }
+
+    snapshot
+}
+
+fn last_sepa_request_persistent_snapshot(job: &HbciJob, passport: &PinTanPassport) -> Properties {
+    let lowlevel_segment = "LastSEPA1";
+    let mut snapshot = Properties::new();
+    let prefix = format!("{lowlevel_segment}.");
+
+    for (key, value) in job.lowlevel_params() {
+        let Some(suffix) = key.strip_prefix(&prefix) else {
+            continue;
+        };
+        snapshot.insert(
+            suffix.to_owned(),
+            snapshot_value_for_request_suffix(suffix, value),
+        );
+    }
+
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    insert_optional_snapshot_value(&mut snapshot, "My.bic", account.bic.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.iban", account.iban.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.KIK.country", account.country.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.KIK.blz", account.blz.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.number", account.number.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.subnumber", account.subnumber.as_deref());
+
+    if !snapshot.contains_key("sepadescr") {
+        snapshot.insert("sepadescr".to_owned(), PAIN_008_001_01_URN.to_owned());
+    }
+    if !snapshot.contains_key("sepapain")
+        && let Some(sepapain) = job_param(job, "LastSEPA1.sepapain", "_sepapain")
+    {
+        snapshot.insert("sepapain".to_owned(), sepa_binary_value(sepapain));
     }
 
     snapshot

@@ -15,6 +15,9 @@ pub const ENDTOEND_ID_NOTPROVIDED: &str = "NOTPROVIDED";
 pub const PAIN_001_001_02_URN: &str = "urn:sepade:xsd:pain.001.001.02";
 pub const PAIN_001_001_02_SCHEMA_LOCATION: &str =
     "urn:sepade:xsd:pain.001.001.02 pain.001.001.02.xsd";
+pub const PAIN_008_001_01_URN: &str = "urn:sepade:xsd:pain.008.001.01";
+pub const PAIN_008_001_01_SCHEMA_LOCATION: &str =
+    "urn:sepade:xsd:pain.008.001.01 pain.008.001.01.xsd";
 pub const CAMT_052_001_01_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.01";
 pub const CAMT_052_001_02_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.02";
 pub const CAMT_052_001_03_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.03";
@@ -56,6 +59,22 @@ pub struct SepaVersion {
 }
 
 impl SepaVersion {
+    pub const PAIN_001_001_02: Self = Self::pain(
+        SepaKind::Pain001,
+        1,
+        2,
+        1,
+        PAIN_001_001_02_URN,
+        "pain.001.001.02.xsd",
+    );
+    pub const PAIN_008_001_01: Self = Self::pain(
+        SepaKind::Pain008,
+        1,
+        1,
+        1,
+        PAIN_008_001_01_URN,
+        "pain.008.001.01.xsd",
+    );
     pub const CAMT_052_001_01: Self = Self::camt(1, CAMT_052_001_01_URN, "camt.052.001.01.xsd");
     pub const CAMT_052_001_02: Self = Self::camt(2, CAMT_052_001_02_URN, "camt.052.001.02.xsd");
     pub const CAMT_052_001_03: Self = Self::camt(3, CAMT_052_001_03_URN, "camt.052.001.03.xsd");
@@ -65,6 +84,24 @@ impl SepaVersion {
     pub const CAMT_052_001_07: Self = Self::camt(7, CAMT_052_001_07_URN, "camt.052.001.07.xsd");
     pub const CAMT_052_001_08: Self = Self::camt(8, CAMT_052_001_08_URN, "camt.052.001.08.xsd");
     pub const CAMT_052_001_09: Self = Self::camt(9, CAMT_052_001_09_URN, "camt.052.001.09.xsd");
+
+    const fn pain(
+        kind: SepaKind,
+        major: u16,
+        minor: u16,
+        order: u16,
+        urn: &'static str,
+        schema_file: &'static str,
+    ) -> Self {
+        Self {
+            kind,
+            major,
+            minor,
+            urn,
+            schema_file: Some(schema_file),
+            order,
+        }
+    }
 
     const fn camt(order: u16, urn: &'static str, schema_file: &'static str) -> Self {
         Self {
@@ -116,8 +153,24 @@ impl SepaVersion {
         ]
     }
 
+    pub fn known_versions() -> &'static [Self] {
+        &[
+            Self::PAIN_001_001_02,
+            Self::PAIN_008_001_01,
+            Self::CAMT_052_001_01,
+            Self::CAMT_052_001_02,
+            Self::CAMT_052_001_03,
+            Self::CAMT_052_001_04,
+            Self::CAMT_052_001_05,
+            Self::CAMT_052_001_06,
+            Self::CAMT_052_001_07,
+            Self::CAMT_052_001_08,
+            Self::CAMT_052_001_09,
+        ]
+    }
+
     pub fn by_urn(urn: &str) -> Option<Self> {
-        Self::known_camt_versions()
+        Self::known_versions()
             .iter()
             .copied()
             .find(|version| version.urn == urn)
@@ -297,6 +350,192 @@ pub fn generate_pain_001_001_02_transfer(sepa_params: &Properties) -> HbciResult
     })
 }
 
+pub fn generate_pain_008_001_01_direct_debit(sepa_params: &Properties) -> HbciResult<String> {
+    let sepa_id = text_or_generated_message_id(sepa_params.get("sepaid").map(String::as_str));
+    let pmt_inf_id = text_or_default(
+        sepa_params.get("pmtinfid").map(String::as_str),
+        sepa_id.as_str(),
+    );
+    let collection_date = text_or_default(
+        sepa_params.get("targetdate").map(String::as_str),
+        DATE_UNDEFINED,
+    );
+    let sequence_type =
+        text_or_default(sepa_params.get("sequencetype").map(String::as_str), "FRST");
+    let currency = text_or_default(sepa_params.get("btg.curr").map(String::as_str), "EUR");
+    let source_name = required_text(sepa_params, "src.name")?;
+    let source_iban = required_text(sepa_params, "src.iban")?;
+    let source_bic = required_text(sepa_params, "src.bic")?;
+    let destination_name = required_text(sepa_params, "dst.name")?;
+    let destination_iban = required_text(sepa_params, "dst.iban")?;
+    let destination_bic = sepa_params
+        .get("dst.bic")
+        .map(String::as_str)
+        .unwrap_or_default();
+    let amount = required_text(sepa_params, "btg.value")?;
+    let creditor_id = required_text(sepa_params, "creditorid")?;
+    let mandate_id = required_text(sepa_params, "mandateid")?;
+    let mandate_date = required_text(sepa_params, "manddateofsig")?;
+    let amend_mandate_indicator = text_or_default(
+        sepa_params.get("amendmandindic").map(String::as_str),
+        "false",
+    );
+    let end_to_end_id = text_or_default(
+        sepa_params.get("endtoendid").map(String::as_str),
+        ENDTOEND_ID_NOTPROVIDED,
+    );
+    let usage = sepa_params
+        .get("usage")
+        .map(String::as_str)
+        .unwrap_or_default();
+    let creation_datetime = current_xml_datetime();
+
+    let mut writer = Writer::new(Vec::new());
+    write_xml_event(
+        &mut writer,
+        Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)),
+    )?;
+
+    let mut document = BytesStart::new("Document");
+    document.push_attribute(("xmlns", PAIN_008_001_01_URN));
+    document.push_attribute(("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"));
+    document.push_attribute(("xsi:schemaLocation", PAIN_008_001_01_SCHEMA_LOCATION));
+    write_xml_event(&mut writer, Event::Start(document))?;
+    write_start(&mut writer, "pain.008.001.01")?;
+
+    write_start(&mut writer, "GrpHdr")?;
+    write_text_element(&mut writer, "MsgId", &sepa_id)?;
+    write_text_element(&mut writer, "CreDtTm", &creation_datetime)?;
+    write_text_element(&mut writer, "NbOfTxs", "1")?;
+    write_text_element(&mut writer, "CtrlSum", amount)?;
+    write_text_element(&mut writer, "Grpg", "GRPD")?;
+    write_start(&mut writer, "InitgPty")?;
+    write_text_element(&mut writer, "Nm", source_name)?;
+    write_end(&mut writer, "InitgPty")?;
+    write_end(&mut writer, "GrpHdr")?;
+
+    write_start(&mut writer, "PmtInf")?;
+    write_text_element(&mut writer, "PmtInfId", &pmt_inf_id)?;
+    write_text_element(&mut writer, "PmtMtd", "DD")?;
+    write_start(&mut writer, "PmtTpInf")?;
+    write_start(&mut writer, "SvcLvl")?;
+    write_text_element(&mut writer, "Cd", "SEPA")?;
+    write_end(&mut writer, "SvcLvl")?;
+    write_text_element(&mut writer, "SeqTp", &sequence_type)?;
+    write_end(&mut writer, "PmtTpInf")?;
+    write_text_element(&mut writer, "ReqdColltnDt", &collection_date)?;
+    write_start(&mut writer, "Cdtr")?;
+    write_text_element(&mut writer, "Nm", source_name)?;
+    write_end(&mut writer, "Cdtr")?;
+    write_start(&mut writer, "CdtrAcct")?;
+    write_start(&mut writer, "Id")?;
+    write_text_element(&mut writer, "IBAN", source_iban)?;
+    write_end(&mut writer, "Id")?;
+    write_end(&mut writer, "CdtrAcct")?;
+    write_start(&mut writer, "CdtrAgt")?;
+    write_start(&mut writer, "FinInstnId")?;
+    write_text_element(&mut writer, "BIC", source_bic)?;
+    write_end(&mut writer, "FinInstnId")?;
+    write_end(&mut writer, "CdtrAgt")?;
+    write_text_element(&mut writer, "ChrgBr", "SLEV")?;
+
+    write_start(&mut writer, "DrctDbtTxInf")?;
+    write_start(&mut writer, "PmtId")?;
+    write_text_element(&mut writer, "EndToEndId", &end_to_end_id)?;
+    write_end(&mut writer, "PmtId")?;
+    let mut instructed_amount = BytesStart::new("InstdAmt");
+    instructed_amount.push_attribute(("Ccy", currency.as_str()));
+    write_xml_event(&mut writer, Event::Start(instructed_amount))?;
+    write_xml_event(&mut writer, Event::Text(BytesText::new(amount)))?;
+    write_end(&mut writer, "InstdAmt")?;
+    write_start(&mut writer, "DrctDbtTx")?;
+    write_start(&mut writer, "MndtRltdInf")?;
+    write_text_element(&mut writer, "MndtId", mandate_id)?;
+    write_text_element(&mut writer, "DtOfSgntr", mandate_date)?;
+    write_text_element(&mut writer, "AmdmntInd", &amend_mandate_indicator)?;
+    if amend_mandate_indicator == "true" {
+        write_start(&mut writer, "AmdmntInfDtls")?;
+        write_start(&mut writer, "OrgnlDbtrAgt")?;
+        write_start(&mut writer, "FinInstnId")?;
+        write_start(&mut writer, "PrtryId")?;
+        write_text_element(&mut writer, "Id", "SMNDA")?;
+        write_end(&mut writer, "PrtryId")?;
+        write_end(&mut writer, "FinInstnId")?;
+        write_end(&mut writer, "OrgnlDbtrAgt")?;
+        write_end(&mut writer, "AmdmntInfDtls")?;
+    }
+    write_end(&mut writer, "MndtRltdInf")?;
+    write_start(&mut writer, "CdtrSchmeId")?;
+    write_start(&mut writer, "Id")?;
+    write_start(&mut writer, "PrvtId")?;
+    write_start(&mut writer, "OthrId")?;
+    write_text_element(&mut writer, "Id", creditor_id)?;
+    write_text_element(&mut writer, "IdTp", "SEPA")?;
+    write_end(&mut writer, "OthrId")?;
+    write_end(&mut writer, "PrvtId")?;
+    write_end(&mut writer, "Id")?;
+    write_end(&mut writer, "CdtrSchmeId")?;
+    write_end(&mut writer, "DrctDbtTx")?;
+    write_start(&mut writer, "DbtrAgt")?;
+    write_start(&mut writer, "FinInstnId")?;
+    write_text_element(&mut writer, "BIC", destination_bic)?;
+    write_end(&mut writer, "FinInstnId")?;
+    write_end(&mut writer, "DbtrAgt")?;
+    write_start(&mut writer, "Dbtr")?;
+    write_text_element(&mut writer, "Nm", destination_name)?;
+    write_optional_postal_address(&mut writer, sepa_params)?;
+    write_end(&mut writer, "Dbtr")?;
+    write_start(&mut writer, "DbtrAcct")?;
+    write_start(&mut writer, "Id")?;
+    write_text_element(&mut writer, "IBAN", destination_iban)?;
+    write_end(&mut writer, "Id")?;
+    write_end(&mut writer, "DbtrAcct")?;
+    if !usage.is_empty() {
+        write_start(&mut writer, "RmtInf")?;
+        write_text_element(&mut writer, "Ustrd", usage)?;
+        write_end(&mut writer, "RmtInf")?;
+    }
+    write_end(&mut writer, "DrctDbtTxInf")?;
+    write_end(&mut writer, "PmtInf")?;
+
+    write_end(&mut writer, "pain.008.001.01")?;
+    write_end(&mut writer, "Document")?;
+
+    String::from_utf8(writer.into_inner()).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            "failed to encode PAIN.008.001.01 document as UTF-8",
+            err,
+        )
+    })
+}
+
+fn write_optional_postal_address(
+    writer: &mut Writer<Vec<u8>>,
+    sepa_params: &Properties,
+) -> HbciResult<()> {
+    let Some(country) = sepa_params
+        .get("dst.addr.country")
+        .map(String::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+
+    write_start(writer, "PstlAdr")?;
+    for name in ["dst.addr.line1", "dst.addr.line2"] {
+        if let Some(line) = sepa_params
+            .get(name)
+            .map(String::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            write_text_element(writer, "AdrLine", line)?;
+        }
+    }
+    write_text_element(writer, "Ctry", country)?;
+    write_end(writer, "PstlAdr")
+}
+
 fn required_text<'a>(properties: &'a Properties, name: &str) -> HbciResult<&'a str> {
     properties
         .get(name)
@@ -380,7 +619,7 @@ fn write_xml_event(writer: &mut Writer<Vec<u8>>, event: Event<'_>) -> HbciResult
     writer.write_event(event).map_err(|err| {
         HbciError::with_source(
             HbciErrorKind::Protocol,
-            "failed to write PAIN.001.001.02 document",
+            "failed to write SEPA XML document",
             err,
         )
     })

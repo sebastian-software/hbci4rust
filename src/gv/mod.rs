@@ -6,7 +6,10 @@ use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallb
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::{Konto, Value};
 use crate::protocol::normalize_iso_date;
-use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, generate_pain_001_001_02_transfer};
+use crate::sepa::{
+    CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN,
+    generate_pain_001_001_02_transfer, generate_pain_008_001_01_direct_debit,
+};
 use crate::tools::Properties;
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
@@ -387,7 +390,10 @@ impl HbciJob {
         }
 
         let params = self.sepa_generation_params(lowlevel_segment);
-        let xml = generate_pain_001_001_02_transfer(&params)?;
+        let xml = match self.name.as_str() {
+            "LastSEPA" => generate_pain_008_001_01_direct_debit(&params)?,
+            _ => generate_pain_001_001_02_transfer(&params)?,
+        };
         self.set_frontend_and_lowlevel_param("_sepapain", xml);
         Ok(())
     }
@@ -398,6 +404,7 @@ impl HbciJob {
             "DauerSEPAEdit" => Some("DauerSEPAEdit1"),
             "DauerSEPANew" => Some("DauerSEPANew1"),
             "InstUebSEPA" => Some("InstUebSEPA1"),
+            "LastSEPA" => Some("LastSEPA1"),
             "TermUebSEPA" => Some("TermUebSEPA1"),
             "TermUebSEPADel" => Some("TermUebSEPADel1"),
             "TermUebSEPAEdit" => Some("TermUebSEPAEdit1"),
@@ -749,15 +756,15 @@ fn binary_lowlevel_value(value: &str) -> String {
 
 fn indexed_destination_name(destination: &str, index: usize) -> String {
     let parts = destination.split('.').collect::<Vec<_>>();
-    if !matches!(parts.len(), 3 | 4) || !parts.iter().all(|part| is_word_part(part)) {
+    if !matches!(parts.len(), 3..=5) || !parts.iter().all(|part| is_word_part(part)) {
         return destination.to_owned();
     }
 
-    let base = format!("{}.{}.{}[{index}]", parts[0], parts[1], parts[2]);
-    if parts.len() == 4 {
-        format!("{base}.{}", parts[3])
+    if parts.len() == 3 {
+        format!("{}.{}.{}[{index}]", parts[0], parts[1], parts[2])
     } else {
-        base
+        let base = parts[..parts.len() - 1].join(".");
+        format!("{base}[{index}].{}", parts[parts.len() - 1])
     }
 }
 
@@ -816,6 +823,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "FestList" => fest_list_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
+        "LastSEPA" => last_sepa_constraints(),
         "Kontoauszug" => kontoauszug_constraints(),
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
         "TermUeb" => term_ueb_constraints(),
@@ -1365,6 +1373,76 @@ fn ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
         )
         .indexed(true),
         HbciJobConstraint::new("purposecode", "UebSEPA1.sepa.purposecode", Some("")).indexed(true),
+    ]
+}
+
+fn last_sepa_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("src.bic", "LastSEPA1.My.bic", None::<String>),
+        HbciJobConstraint::new("src.iban", "LastSEPA1.My.iban", None::<String>),
+        HbciJobConstraint::new("src.country", "LastSEPA1.My.KIK.country", Some("")),
+        HbciJobConstraint::new("src.blz", "LastSEPA1.My.KIK.blz", Some("")),
+        HbciJobConstraint::new("src.number", "LastSEPA1.My.number", Some("")),
+        HbciJobConstraint::new("src.subnumber", "LastSEPA1.My.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "_sepadescriptor",
+            "LastSEPA1.sepadescr",
+            Some(PAIN_008_001_01_URN),
+        ),
+        HbciJobConstraint::new("_sepapain", "LastSEPA1.sepapain", None::<String>),
+        HbciJobConstraint::new("src.bic", "LastSEPA1.sepa.src.bic", Some("")),
+        HbciJobConstraint::new("src.iban", "LastSEPA1.sepa.src.iban", None::<String>),
+        HbciJobConstraint::new("src.name", "LastSEPA1.sepa.src.name", None::<String>),
+        HbciJobConstraint::new("dst.bic", "LastSEPA1.sepa.dst.bic", Some("")).indexed(true),
+        HbciJobConstraint::new("dst.iban", "LastSEPA1.sepa.dst.iban", None::<String>).indexed(true),
+        HbciJobConstraint::new("dst.name", "LastSEPA1.sepa.dst.name", None::<String>).indexed(true),
+        HbciJobConstraint::new(
+            "dst.addr.country",
+            "LastSEPA1.sepa.dst.addr.country",
+            Some(""),
+        )
+        .indexed(true),
+        HbciJobConstraint::new("dst.addr.line1", "LastSEPA1.sepa.dst.addr.line1", Some(""))
+            .indexed(true),
+        HbciJobConstraint::new("dst.addr.line2", "LastSEPA1.sepa.dst.addr.line2", Some(""))
+            .indexed(true),
+        HbciJobConstraint::new("btg.value", "LastSEPA1.sepa.btg.value", None::<String>)
+            .indexed(true),
+        HbciJobConstraint::new("btg.curr", "LastSEPA1.sepa.btg.curr", Some("EUR")).indexed(true),
+        HbciJobConstraint::new("usage", "LastSEPA1.sepa.usage", Some("")).indexed(true),
+        HbciJobConstraint::new("sepaid", "LastSEPA1.sepa.sepaid", Some("")),
+        HbciJobConstraint::new("pmtinfid", "LastSEPA1.sepa.pmtinfid", Some("")),
+        HbciJobConstraint::new(
+            "endtoendid",
+            "LastSEPA1.sepa.endtoendid",
+            Some("NOTPROVIDED"),
+        )
+        .indexed(true),
+        HbciJobConstraint::new("creditorid", "LastSEPA1.sepa.creditorid", None::<String>)
+            .indexed(true),
+        HbciJobConstraint::new("mandateid", "LastSEPA1.sepa.mandateid", None::<String>)
+            .indexed(true),
+        HbciJobConstraint::new("purposecode", "LastSEPA1.sepa.purposecode", Some("")).indexed(true),
+        HbciJobConstraint::new(
+            "manddateofsig",
+            "LastSEPA1.sepa.manddateofsig",
+            None::<String>,
+        )
+        .indexed(true),
+        HbciJobConstraint::new(
+            "amendmandindic",
+            "LastSEPA1.sepa.amendmandindic",
+            Some("false"),
+        )
+        .indexed(true),
+        HbciJobConstraint::new("sequencetype", "LastSEPA1.sepa.sequencetype", Some("FRST")),
+        HbciJobConstraint::new(
+            "targetdate",
+            "LastSEPA1.sepa.targetdate",
+            Some("1999-01-01"),
+        ),
+        HbciJobConstraint::new("type", "LastSEPA1.sepa.type", Some("CORE")),
+        HbciJobConstraint::new("batchbook", "LastSEPA1.sepa.batchbook", Some("0")),
     ]
 }
 

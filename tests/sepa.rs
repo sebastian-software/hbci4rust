@@ -1,7 +1,8 @@
 use hbci4rust::sepa::{
     CAMT_052_001_01_URN, CAMT_052_001_02_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN,
-    CAMT_052_001_08_URN, ENDTOEND_ID_NOTPROVIDED, PAIN_001_001_02_URN, SepaKind, SepaVersion,
-    generate_pain_001_001_02_transfer, parse_camt_report_shell, parse_pain_001_transfers,
+    CAMT_052_001_08_URN, ENDTOEND_ID_NOTPROVIDED, PAIN_001_001_02_URN, PAIN_008_001_01_URN,
+    SepaKind, SepaVersion, generate_pain_001_001_02_transfer,
+    generate_pain_008_001_01_direct_debit, parse_camt_report_shell, parse_pain_001_transfers,
 };
 use hbci4rust::{HbciErrorKind, Properties};
 
@@ -249,6 +250,47 @@ fn pain_001_generator_writes_single_transfer_defaults_like_original() {
         transfer.end_to_end_id.as_deref(),
         Some(ENDTOEND_ID_NOTPROVIDED)
     );
+}
+
+#[test]
+fn pain_008_generator_writes_single_direct_debit_defaults_like_original() {
+    let params = Properties::from([
+        ("sepaid".to_owned(), "SEPA-LAST".to_owned()),
+        ("src.name".to_owned(), "Creditor Name".to_owned()),
+        ("src.iban".to_owned(), "DE02123456780000000000".to_owned()),
+        ("src.bic".to_owned(), "MARKDEF1100".to_owned()),
+        ("dst.name".to_owned(), "Debtor Name".to_owned()),
+        ("dst.iban".to_owned(), "DE99123456780000000000".to_owned()),
+        ("dst.bic".to_owned(), "DEUTDEDB277".to_owned()),
+        ("btg.value".to_owned(), "12.30".to_owned()),
+        ("usage".to_owned(), "Direct debit usage".to_owned()),
+        ("creditorid".to_owned(), "DE98ZZZ09999999999".to_owned()),
+        ("mandateid".to_owned(), "MND-123".to_owned()),
+        ("manddateofsig".to_owned(), "2026-01-02".to_owned()),
+    ]);
+
+    let xml = generate_pain_008_001_01_direct_debit(&params).expect("PAIN.008 XML generates");
+
+    assert!(xml.starts_with(r#"<?xml version="1.0" encoding="UTF-8"?>"#));
+    assert!(xml.contains(&format!(r#"xmlns="{PAIN_008_001_01_URN}""#)));
+    assert!(xml.contains("<pain.008.001.01>"));
+    assert!(xml.contains("<MsgId>SEPA-LAST</MsgId>"));
+    assert!(xml.contains("<NbOfTxs>1</NbOfTxs>"));
+    assert!(xml.contains("<CtrlSum>12.30</CtrlSum>"));
+    assert!(xml.contains("<PmtInfId>SEPA-LAST</PmtInfId>"));
+    assert!(xml.contains("<PmtMtd>DD</PmtMtd>"));
+    assert!(xml.contains("<ReqdColltnDt>1999-01-01</ReqdColltnDt>"));
+    assert!(xml.contains("<SeqTp>FRST</SeqTp>"));
+    assert!(xml.contains("<Cdtr><Nm>Creditor Name</Nm></Cdtr>"));
+    assert!(xml.contains("<CdtrAcct><Id><IBAN>DE02123456780000000000</IBAN></Id></CdtrAcct>"));
+    assert!(xml.contains("<Id>DE98ZZZ09999999999</Id>"));
+    assert!(xml.contains("<MndtId>MND-123</MndtId>"));
+    assert!(xml.contains("<DtOfSgntr>2026-01-02</DtOfSgntr>"));
+    assert!(xml.contains("<AmdmntInd>false</AmdmntInd>"));
+    assert!(xml.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
+    assert!(xml.contains(r#"<InstdAmt Ccy="EUR">12.30</InstdAmt>"#));
+    assert!(xml.contains("<Dbtr><Nm>Debtor Name</Nm></Dbtr>"));
+    assert!(xml.contains("<Ustrd>Direct debit usage</Ustrd>"));
 }
 
 #[test]

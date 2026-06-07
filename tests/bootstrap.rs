@@ -9,7 +9,7 @@ use hbci4rust::{
     PinTanPassport, PinTanPassportData, ReplayCommClient, TanMethodSelection, UserSig, Value, done,
     init,
     protocol::{load_protocol_spec, parse_wire_message},
-    sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN},
+    sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN},
 };
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -1552,6 +1552,72 @@ fn ueb_sepa_exposes_original_near_v1_constraints() {
         job.constraint("endtoendid")
             .expect("endtoendid dummy constraint")
             .indexed
+    );
+}
+
+#[test]
+fn last_sepa_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("LastSEPA").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 32);
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban constraint")
+            .destination_name,
+        "LastSEPA1.My.iban"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_008_001_01_URN)
+    );
+    assert_eq!(
+        job.constraint("_sepapain")
+            .expect("sepa pain")
+            .destination_name,
+        "LastSEPA1.sepapain"
+    );
+    assert!(
+        job.constraint("dst.iban")
+            .expect("destination iban dummy constraint")
+            .indexed
+    );
+    assert!(
+        job.constraint("creditorid")
+            .expect("creditor id dummy constraint")
+            .indexed
+    );
+    assert_eq!(
+        job.constraint("sequencetype")
+            .expect("sequence type dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("FRST")
+    );
+    assert_eq!(
+        job.constraint("targetdate")
+            .expect("target date dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("1999-01-01")
+    );
+    assert_eq!(
+        job.constraint("type")
+            .expect("type dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("CORE")
+    );
+    assert_eq!(
+        job.constraint("batchbook")
+            .expect("batchbook dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("0")
     );
 }
 
@@ -6042,6 +6108,106 @@ async fn handler_renders_ueb_sepa_with_generated_pain_like_original() {
     assert!(body.contains("<PmtInfId>SEPA-UEB</PmtInfId>"), "{body}");
     assert!(body.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
     assert!(body.contains("<Ustrd>Transfer usage</Ustrd>"));
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_last_sepa_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIDSE:3:1+ORDERLAST",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("LastSEPA").expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param("src.name", "Creditor Name")
+        .expect("source name is accepted");
+    job.try_set_param("dst.name", "Debtor Name")
+        .expect("debtor name is accepted");
+    job.try_set_param("dst.iban", "DE99123456780000000000")
+        .expect("debtor iban is accepted");
+    job.try_set_param("dst.bic", "DEUTDEDB277")
+        .expect("debtor bic is accepted");
+    job.try_set_param("dst.addr.country", "CH")
+        .expect("debtor address country is accepted");
+    job.try_set_param("dst.addr.line1", "Street 1")
+        .expect("debtor address line1 is accepted");
+    job.try_set_param("btg.value", "12.30")
+        .expect("amount value is accepted");
+    job.try_set_param("usage", "Direct debit usage")
+        .expect("usage is accepted");
+    job.try_set_param("sepaid", "SEPA-LAST")
+        .expect("sepa id is accepted");
+    job.try_set_param("creditorid", "DE98ZZZ09999999999")
+        .expect("creditor id is accepted");
+    job.try_set_param("mandateid", "MND-123")
+        .expect("mandate id is accepted");
+    job.try_set_param("manddateofsig", "2026-01-02")
+        .expect("mandate date is accepted");
+    job.try_set_param("targetdate", "2026-03-15")
+        .expect("target date is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "LastSEPA");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderid")
+            .map(String::as_str),
+        Some("ORDERLAST")
+    );
+    let Some(HbciJobResultData::LastSepa(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected LastSepa result data");
+    };
+    assert_eq!(result.order_id.as_deref(), Some("ORDERLAST"));
+
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("termlast_ORDERLAST")
+        .expect("last sepa persistent data");
+    assert_eq!(
+        snapshot.get("sepadescr").map(String::as_str),
+        Some(PAIN_008_001_01_URN)
+    );
+    let generated_pain = snapshot
+        .get("sepapain")
+        .expect("generated pain is persisted");
+    assert!(generated_pain.starts_with("B<?xml"), "{generated_pain}");
+    assert!(generated_pain.contains("<MsgId>SEPA-LAST</MsgId>"));
+    assert!(generated_pain.contains("<PmtInfId>SEPA-LAST</PmtInfId>"));
+    assert!(generated_pain.contains("<ReqdColltnDt>2026-03-15</ReqdColltnDt>"));
+    assert!(generated_pain.contains("<MndtId>MND-123</MndtId>"));
+    assert!(generated_pain.contains("<AmdmntInd>false</AmdmntInd>"));
+    assert_eq!(
+        snapshot.get("sepa.creditorid").map(String::as_str),
+        Some("DE98ZZZ09999999999")
+    );
+    assert_eq!(
+        snapshot.get("sepa.sequencetype").map(String::as_str),
+        Some("FRST")
+    );
+    assert!(!snapshot.contains_key("orderid"));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKDSE:3:1+DE02123456780000000000:MARKDEF1100+"));
+    assert!(body.contains("urn?:sepade?:xsd?:pain.008.001.01"), "{body}");
+    assert!(body.contains("<pain.008.001.01>"), "{body}");
+    assert!(body.contains("<MsgId>SEPA-LAST</MsgId>"), "{body}");
+    assert!(body.contains("<ReqdColltnDt>2026-03-15</ReqdColltnDt>"));
+    assert!(body.contains("<Id>DE98ZZZ09999999999</Id>"));
+    assert!(body.contains("<MndtId>MND-123</MndtId>"));
+    assert!(body.contains("<Ustrd>Direct debit usage</Ustrd>"));
 }
 
 #[tokio::test]

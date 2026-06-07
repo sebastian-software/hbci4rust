@@ -660,6 +660,7 @@ pub enum HbciJobResultData {
     InfoOrder(GvrInfoOrder),
     InstUebSepa(GvrInstUebSepa),
     Kontoauszug(GvrKontoauszug),
+    LastSepa(GvrLastSepa),
     Status(GvrStatus),
     TermUeb(GvrTermUeb),
     TermUebEdit(GvrTermUebEdit),
@@ -930,6 +931,11 @@ pub struct GvrInstUebSepa {
     pub order_id: Option<String>,
     pub order_status: Option<String>,
     pub cancellation_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrLastSepa {
+    pub order_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
