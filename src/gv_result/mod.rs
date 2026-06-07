@@ -653,6 +653,7 @@ pub enum HbciJobResultData {
     DauerEdit(GvrDauerEdit),
     DauerList(GvrDauerList),
     DauerNew(GvrDauerNew),
+    FestCondList(GvrFestCondList),
     InfoList(GvrInfoList),
     InfoOrder(GvrInfoOrder),
     InstUebSepa(GvrInstUebSepa),
@@ -725,6 +726,35 @@ pub struct GvrInfoOrder {
 pub struct GvrInfoOrderInfo {
     pub code: Option<String>,
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrFestCondList {
+    pub entries: Vec<GvrFestCond>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrFestCond {
+    pub anlagedatum: Option<String>,
+    pub ablaufdatum: Option<String>,
+    pub zinssatz: Option<i64>,
+    pub zinsmethode: Option<i32>,
+    pub minbetrag: Option<Value>,
+    pub maxbetrag: Option<Value>,
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub date: Option<String>,
+    pub time: Option<String>,
+}
+
+impl GvrFestCond {
+    pub const METHOD_30_360: i32 = 0;
+    pub const METHOD_2831_360: i32 = 1;
+    pub const METHOD_2831_365366: i32 = 2;
+    pub const METHOD_30_365366: i32 = 3;
+    pub const METHOD_2831_365: i32 = 4;
+    pub const METHOD_30_365: i32 = 5;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

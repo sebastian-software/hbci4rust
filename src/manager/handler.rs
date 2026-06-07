@@ -8,12 +8,12 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
-    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrInfoList, GvrInfoListInfo,
-    GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrStatus, GvrStatusEntry, GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo,
-    GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry,
-    HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData,
-    HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond, GvrFestCondList,
+    GvrInfoList, GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms,
+    GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo, GvrTanList,
+    GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
+    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
+    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1053,6 +1053,7 @@ fn render_job_into_custom_message(
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
+        "FestCondList" => render_fest_cond_list(message, job, index),
         "InfoList" => render_info_list(message, job, index),
         "InfoOrder" => render_info_order(message, job, index),
         "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
@@ -1359,6 +1360,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "TANListList1",
             path: "CustomMsg.GV.TANListList1",
         }),
+        "FestCondList" => Ok(OrderhashSourceJobInfo {
+            code: "HKFGK",
+            lowlevel_segment: "FestCondList3",
+            path: "CustomMsg.GV.FestCondList3",
+        }),
         "VoPAuth" => Ok(OrderhashSourceJobInfo {
             code: "HKVPA",
             lowlevel_segment: "VoPAuth1",
@@ -1432,6 +1438,14 @@ fn info_order_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.InfoDetailsRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.InfoDetailsRes4", index + 1)
+    }
+}
+
+fn fest_cond_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.FestCondListRes3".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.FestCondListRes3", index + 1)
     }
 }
 
@@ -1647,6 +1661,27 @@ fn render_kums_zeit_sepa(
         message,
         &format!("{segment}.offset"),
         job_param(job, "KUmsZeitSEPA7.offset", "offset"),
+    )?;
+
+    Ok(())
+}
+
+fn render_fest_cond_list(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.FestCondList3");
+
+    message.set_value(
+        &format!("{segment}.curr"),
+        job_param(job, "FestCondList3.curr", "curr").unwrap_or("EUR"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "FestCondList3.maxentries", "maxentries"),
     )?;
 
     Ok(())
@@ -3010,6 +3045,9 @@ impl ParsedResponseStatus {
             "DauerSEPANew" => self
                 .dauer_new_result_for_root(dauer_sepa_new_response_root(index))
                 .map(HbciJobResultData::DauerNew),
+            "FestCondList" => self
+                .fest_cond_list_result_for_root(fest_cond_list_response_root(index))
+                .map(HbciJobResultData::FestCondList),
             "InfoList" => self
                 .info_list_result_for_root(info_list_response_root(index))
                 .map(HbciJobResultData::InfoList),
@@ -3059,6 +3097,7 @@ impl ParsedResponseStatus {
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
+            "FestCondList" => self.content_result_data([fest_cond_list_response_root(index)]),
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
@@ -3175,6 +3214,16 @@ impl ParsedResponseStatus {
             .collect();
 
         Some(GvrInfoOrder { entries })
+    }
+
+    fn fest_cond_list_result_for_root(&self, root: String) -> Option<GvrFestCondList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        let entries = counted_prefixes(&self.values, &format!("{root}.FestCond"))
+            .into_iter()
+            .filter_map(|prefix| fest_cond_from_values(&self.values, &root, &prefix))
+            .collect();
+
+        Some(GvrFestCondList { entries })
     }
 
     fn status_response_roots(&self) -> Vec<String> {
@@ -3360,6 +3409,79 @@ fn info_order_info_from_values(
         code: Some(code),
         message: optional_value(values, &format!("{prefix}.msg")),
     })
+}
+
+fn fest_cond_from_values(
+    values: &BTreeMap<String, String>,
+    root: &str,
+    prefix: &str,
+) -> Option<GvrFestCond> {
+    let anlagedatum = optional_value(values, &format!("{prefix}.anlagedate"))?;
+
+    Some(GvrFestCond {
+        anlagedatum: Some(anlagedatum),
+        ablaufdatum: optional_value(values, &format!("{prefix}.ablaufdate")),
+        zinssatz: optional_value(values, &format!("{prefix}.zinssatz"))
+            .and_then(|value| wrt_to_thousand_scaled_i64(&value)),
+        zinsmethode: optional_value(values, &format!("{prefix}.zinsmethode"))
+            .and_then(|value| fest_cond_method(&value)),
+        minbetrag: value_from_values(values, &format!("{prefix}.MinBetrag")),
+        maxbetrag: value_from_values(values, &format!("{prefix}.MaxBetrag"))
+            .filter(|value| !value.value.is_empty() || value.curr.is_some()),
+        id: optional_value(values, &format!("{prefix}.condid")),
+        name: optional_value(values, &format!("{prefix}.condbez")),
+        version: optional_value(values, &format!("{root}.FestCondVersion.version")),
+        date: optional_value(values, &format!("{root}.FestCondVersion.date")),
+        time: optional_value(values, &format!("{root}.FestCondVersion.time")),
+    })
+}
+
+fn fest_cond_method(value: &str) -> Option<i32> {
+    match value {
+        "A" => Some(GvrFestCond::METHOD_30_360),
+        "B" => Some(GvrFestCond::METHOD_2831_360),
+        "C" => Some(GvrFestCond::METHOD_2831_365366),
+        "D" => Some(GvrFestCond::METHOD_30_365366),
+        "E" => Some(GvrFestCond::METHOD_2831_365),
+        "F" => Some(GvrFestCond::METHOD_30_365),
+        _ => None,
+    }
+}
+
+fn wrt_to_thousand_scaled_i64(value: &str) -> Option<i64> {
+    let compact = value.trim().replace(',', ".");
+    let (negative, unsigned) = if let Some(stripped) = compact.strip_prefix('-') {
+        (true, stripped)
+    } else if let Some(stripped) = compact.strip_prefix('+') {
+        (false, stripped)
+    } else {
+        (false, compact.as_str())
+    };
+    let mut parts = unsigned.split('.');
+    let integer = parts.next().unwrap_or_default();
+    let fraction = parts.next().unwrap_or_default();
+    if parts.next().is_some()
+        || (integer.is_empty() && fraction.is_empty())
+        || !integer.chars().all(|ch| ch.is_ascii_digit())
+        || !fraction.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return None;
+    }
+
+    let integer = if integer.is_empty() {
+        0_i64
+    } else {
+        integer.parse::<i64>().ok()?
+    };
+    let mut fraction_scaled = 0_i64;
+    let mut factor = 100_i64;
+    for ch in fraction.chars().take(3) {
+        fraction_scaled += ch.to_digit(10)? as i64 * factor;
+        factor /= 10;
+    }
+
+    let scaled = integer.checked_mul(1000)?.checked_add(fraction_scaled)?;
+    Some(if negative { -scaled } else { scaled })
 }
 
 fn status_entry_from_values(

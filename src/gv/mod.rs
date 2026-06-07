@@ -751,6 +751,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
         "DauerSEPANew" => dauer_sepa_new_constraints(),
+        "FestCondList" => fest_cond_list_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
@@ -1301,6 +1302,13 @@ fn kums_all_camt_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("enddate", "KUmsZeitCamt1.enddate", Some("")),
         HbciJobConstraint::new("maxentries", "KUmsZeitCamt1.maxentries", Some("")),
         HbciJobConstraint::new("offset", "KUmsZeitCamt1.offset", Some("")),
+    ]
+}
+
+fn fest_cond_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("curr", "FestCondList3.curr", Some("EUR")),
+        HbciJobConstraint::new("maxentries", "FestCondList3.maxentries", Some("")),
     ]
 }
 

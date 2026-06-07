@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use hbci4rust::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
-    HbciCallback, HbciHandler, HbciJobResultData, HbciMsgStatus, HbciResult, HbciReturnValue,
-    HbciStatus, Konto, Limit, OrderHashMode, PassportStorage, PinTanPassport, PinTanPassportData,
-    ReplayCommClient, TanMethodSelection, UserSig, Value, done, init,
+    GvrFestCond, HbciCallback, HbciHandler, HbciJobResultData, HbciMsgStatus, HbciResult,
+    HbciReturnValue, HbciStatus, Konto, Limit, OrderHashMode, PassportStorage, PinTanPassport,
+    PinTanPassportData, ReplayCommClient, TanMethodSelection, UserSig, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
     sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN},
 };
@@ -682,6 +682,39 @@ fn vop_auth_exposes_original_near_constraints_and_binary_vopid() {
         .expect("vopid is accepted");
     assert_eq!(job.param("vopid"), Some("VOP-ID-1"));
     assert_eq!(job.lowlevel_param("VoPAuth1.vopid"), Some("BVOP-ID-1"));
+}
+
+#[test]
+fn fest_cond_list_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("FestCondList").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 2);
+    assert_eq!(
+        job.constraint("curr")
+            .expect("currency constraint")
+            .destination_name,
+        "FestCondList3.curr"
+    );
+    assert_eq!(
+        job.constraint("curr")
+            .expect("currency constraint")
+            .default_value
+            .as_deref(),
+        Some("EUR")
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "FestCondList3.maxentries"
+    );
+
+    job.try_set_param_int("maxentries", 7)
+        .expect("maxentries is accepted");
+    assert_eq!(job.param("maxentries"), Some("7"));
+    assert_eq!(job.lowlevel_param("FestCondList3.maxentries"), Some("7"));
 }
 
 #[test]
@@ -7030,6 +7063,91 @@ async fn handler_renders_info_list_request_like_original() {
 
     assert!(body.contains("HKKIA:3:4+7'"), "{body}");
     assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_fest_cond_list_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut fest_cond_list = handler.new_job("FestCondList").expect("job is in registry");
+    fest_cond_list
+        .try_set_param_int("maxentries", 7)
+        .expect("maxentries is accepted");
+
+    handler.add_to_queue(fest_cond_list);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "FestCondList");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(body.contains("HKFGK:3:3+EUR+7'"), "{body}");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_collects_fest_cond_list_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIFGK:3:3+CONDVER1:20240601:120000+20240701:20250701:1,234:A:1000,00:EUR:5000,00:EUR:COND1:One year+20250101:20260101:2,5:F:2500,00:EUR:::COND2:Two years",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let job = handler.new_job("FestCondList").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "FestCondList");
+    assert_eq!(
+        result
+            .result_data
+            .get("content.FestCond.condid")
+            .map(String::as_str),
+        Some("COND1")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.FestCond_2.condbez")
+            .map(String::as_str),
+        Some("Two years")
+    );
+
+    let Some(HbciJobResultData::FestCondList(fest_cond_list)) = result.result.as_ref() else {
+        panic!("expected FestCondList result data");
+    };
+    assert_eq!(fest_cond_list.entries.len(), 2);
+
+    let first = &fest_cond_list.entries[0];
+    assert_eq!(first.anlagedatum.as_deref(), Some("2024-07-01"));
+    assert_eq!(first.ablaufdatum.as_deref(), Some("2025-07-01"));
+    assert_eq!(first.zinssatz, Some(1234));
+    assert_eq!(first.zinsmethode, Some(GvrFestCond::METHOD_30_360));
+    assert_eq!(first.id.as_deref(), Some("COND1"));
+    assert_eq!(first.name.as_deref(), Some("One year"));
+    assert_eq!(first.version.as_deref(), Some("CONDVER1"));
+    assert_eq!(first.date.as_deref(), Some("2024-06-01"));
+    assert_eq!(first.time.as_deref(), Some("12:00:00"));
+    assert_eq!(
+        first.minbetrag.as_ref().map(|value| value.value.as_str()),
+        Some("1000.00")
+    );
+    assert_eq!(
+        first.maxbetrag.as_ref().map(|value| value.curr.as_deref()),
+        Some(Some("EUR"))
+    );
+
+    let second = &fest_cond_list.entries[1];
+    assert_eq!(second.zinssatz, Some(2500));
+    assert_eq!(second.zinsmethode, Some(GvrFestCond::METHOD_30_365));
+    assert!(second.maxbetrag.is_none());
 }
 
 #[tokio::test]
