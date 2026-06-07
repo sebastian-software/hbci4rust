@@ -48,3 +48,5 @@ Out:
   current original-near Rust API.
 - `docs/reference/live-bank-tests.md` describes the ignored, env-gated live
   PinTAN dialog smoke hook.
+- `docs/architecture/release-checklist.md` records the operational v1 release
+  acceptance checks.

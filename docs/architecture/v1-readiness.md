@@ -38,7 +38,7 @@ hardening, and release documentation rather than missing job names.
 | Typed results | `src/gv_result/mod.rs`; `scripts/audit-result-coverage.sh`; `docs/architecture/result-coverage.md` | 23/24 normalized upstream result shapes covered; only `WPStammData` is intentionally out of scope | Add typed result details if replay fixtures expose currently raw-only fields. |
 | Java-to-Rust mapping | `docs/reference/java-to-rust-mapping.md`; ADR 0241 | Major concepts, v1 boundaries, handler flow, PinTAN execution guidance, callback reasons, and a common balance-request migration shape are documented | Expand with per-job migration examples when the API stabilizes. |
 | Optional live smoke | `tests/live_bank.rs`; `docs/reference/live-bank-tests.md`; ADR 0236 | Ignored, env-gated PinTAN dialog init/close hook exists outside CI | Run manually against selected banks and convert observations into replay fixtures. |
-| Release hardening | This page; `docs/rustification/README.md`; porting plan | Remaining work is visible but v1 is not declared complete | Add release checklist, API docs pass, and crate packaging review. |
+| Release hardening | This page; `docs/architecture/release-checklist.md`; `docs/rustification/README.md`; porting plan; ADR 0246 | Remaining work is visible but v1 is not declared complete | Complete the release checklist, API docs pass, and crate packaging review. |
 
 ## Recheck Commands
 
@@ -66,4 +66,6 @@ V1 can be called complete only when:
 - public API docs and Java-to-Rust mapping are sufficient for a Java user to
   migrate common PinTAN workflows;
 - live-bank smoke observations, if any, have been converted into deterministic
-  replay fixtures or explicit documented limitations.
+  replay fixtures or explicit documented limitations;
+- the blocking items in `docs/architecture/release-checklist.md` are checked or
+  explicitly documented as limitations.

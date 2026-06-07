@@ -36,6 +36,7 @@ public API hardening, release documentation, and packaging review. The current
 readiness estimate and the Java migration map live in:
 
 - `docs/architecture/v1-readiness.md`
+- `docs/architecture/release-checklist.md`
 - `docs/reference/java-to-rust-mapping.md`
 - `docs/reference/live-bank-tests.md`
 
