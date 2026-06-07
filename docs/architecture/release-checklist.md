@@ -61,7 +61,7 @@ Evidence:
   blocks, segment resolution, sequence validation, and value extraction.
 - [x] SEPA/CAMT/SWIFT/MT940 fixtures cover the current original-near parser and
   generator behavior.
-- [ ] Risky parser/generator behavior has Java golden artifacts or an explicit
+- [x] Risky parser/generator behavior has Java golden artifacts or an explicit
   limitation entry.
 - [ ] Any malformed-bank-response behavior added before v1 has deterministic
   replay or fixture coverage.
@@ -75,6 +75,8 @@ Evidence:
 - `tests/swift.rs`
 - `tests/structures.rs`
 - `tests/fixtures/hbci4java/`
+- `docs/reference/parser-generator-goldens.md`
+- ADR 0254
 
 ## PinTAN Runtime Replay Breadth
 

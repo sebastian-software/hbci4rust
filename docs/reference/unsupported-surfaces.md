@@ -95,7 +95,7 @@ These items remain release-candidate work, not hidden implementation support:
   release commit;
 - upstream header inconsistencies must be rechecked before publishing;
 - risky parser or generator behavior needs Java golden artifacts or explicit
-  limitation entries;
+  limitation entries, tracked in `docs/reference/parser-generator-goldens.md`;
 - malformed bank responses added before v1 need deterministic replay or fixture
   coverage;
 - a persisted-format migration test is required before the first storage format

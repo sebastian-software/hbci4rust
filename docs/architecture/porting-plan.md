@@ -55,6 +55,8 @@ Out:
 - `docs/reference/unsupported-surfaces.md` records the public v1 boundaries for
   security media, Java passport compatibility, dynamic lowlevel jobs, typed
   result exclusions, live testing, and release limitations.
+- `docs/reference/parser-generator-goldens.md` records current parser/generator
+  golden fixture coverage and explicit v1 limitations.
 - `docs/reference/live-bank-tests.md` describes the ignored, env-gated live
   PinTAN dialog smoke hook.
 - `docs/reference/packaging.md` records crate metadata, package-list, and
