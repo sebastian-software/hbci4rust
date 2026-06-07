@@ -36,8 +36,8 @@ pub use manager::{
     init, set_param,
 };
 pub use passport::{
-    ONESTEP_TAN_METHOD_ID, PassportStorage, PinTanPassport, PinTanPassportData, TanMethodOption,
-    TanMethodSelection,
+    ONESTEP_TAN_METHOD_ID, PassportStorage, PinTanPassport, PinTanPassportData, PinTanScaState,
+    PinTanScaUpdate, TanMethodOption, TanMethodSelection,
 };
 pub use tools::{
     ParameterFinder, ParameterQuery, Properties, has_text, join_strings, safe_filename, to_boolean,

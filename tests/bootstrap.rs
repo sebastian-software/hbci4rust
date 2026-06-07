@@ -2997,6 +2997,86 @@ fn handler_prepares_process1_hktan_uses_noref_for_required_tan_media_without_val
 }
 
 #[tokio::test]
+async fn handler_execute_imports_hitan_sca_state_from_tan2step_response() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITAN:3:5+1++ORDER-REF-1+Bitte geben Sie die TAN ein+@5@HHDUC",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut hktan = handler.new_job("TAN2Step").expect("job is in registry");
+    hktan
+        .try_set_param("process", "1")
+        .expect("process is accepted");
+    handler.add_to_queue(hktan);
+
+    let status = handler.execute().await.expect("hitan response parses");
+
+    assert!(status.success);
+    let sca = handler.passport().sca_state();
+    assert!(!sca.sca_exempted);
+    assert_eq!(
+        sca.challenge.as_deref(),
+        Some("Bitte geben Sie die TAN ein")
+    );
+    assert_eq!(sca.hhd_uc.as_deref(), Some("HHDUC"));
+    assert_eq!(sca.order_ref.as_deref(), Some("ORDER-REF-1"));
+}
+
+#[tokio::test]
+async fn handler_execute_ignores_nochallenge_but_keeps_hitan_orderref() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITAN:3:5+1++ORDER-REF-2+nochallenge+@5@HHDUC",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut hktan = handler.new_job("TAN2Step").expect("job is in registry");
+    hktan
+        .try_set_param("process", "1")
+        .expect("process is accepted");
+    handler.add_to_queue(hktan);
+
+    handler.execute().await.expect("hitan response parses");
+
+    let sca = handler.passport().sca_state();
+    assert_eq!(sca.challenge, None);
+    assert_eq!(sca.hhd_uc.as_deref(), Some("HHDUC"));
+    assert_eq!(sca.order_ref.as_deref(), Some("ORDER-REF-2"));
+}
+
+#[tokio::test]
+async fn handler_execute_marks_sca_exempted_for_3076_response() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+3076::Keine starke Kundenauthentifizierung erforderlich",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut hktan = handler.new_job("TAN2Step").expect("job is in registry");
+    hktan
+        .try_set_param("process", "1")
+        .expect("process is accepted");
+    handler.add_to_queue(hktan);
+
+    handler.execute().await.expect("3076 response parses");
+
+    let sca = handler.passport().sca_state();
+    assert!(sca.sca_exempted);
+    assert_eq!(sca.challenge, None);
+    assert_eq!(sca.hhd_uc, None);
+    assert_eq!(sca.order_ref, None);
+}
+
+#[tokio::test]
 async fn handler_renders_kums_all_request_like_original() {
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),

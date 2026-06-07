@@ -228,6 +228,11 @@ where
             ParsedResponseStatus::default()
         };
         let message_status = response_status.message_status();
+        self.passport.update_sca_state_from_response_values(
+            &response_status.values,
+            "CustomMsgRes",
+            &message_status,
+        );
         if self.dialog_status.init_status.is_some() {
             self.dialog_status.message_statuses.push(message_status);
         }

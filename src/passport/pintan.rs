@@ -11,6 +11,8 @@ pub const ONESTEP_TAN_METHOD_ID: &str = "999";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PinTanPassport {
     data: PinTanPassportData,
+    #[serde(skip)]
+    sca: PinTanScaState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,12 +28,29 @@ pub struct TanMethodOption {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PinTanScaState {
+    pub challenge: Option<String>,
+    pub hhd_uc: Option<String>,
+    pub order_ref: Option<String>,
+    pub sca_exempted: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PinTanScaUpdate {
+    pub hitan_found: bool,
+    pub sca_exempted: bool,
+}
+
 impl PinTanPassport {
     pub fn new(mut data: PinTanPassportData) -> Self {
         if data.twostep_mechanisms.is_empty() && !data.bpd_parameters.is_empty() {
             data.twostep_mechanisms = extract_twostep_mechanisms(&data.bpd_parameters);
         }
-        Self { data }
+        Self {
+            data,
+            sca: PinTanScaState::default(),
+        }
     }
 
     pub fn data(&self) -> &PinTanPassportData {
@@ -40,6 +59,14 @@ impl PinTanPassport {
 
     pub fn data_mut(&mut self) -> &mut PinTanPassportData {
         &mut self.data
+    }
+
+    pub fn sca_state(&self) -> &PinTanScaState {
+        &self.sca
+    }
+
+    pub fn clear_sca_state(&mut self) {
+        self.sca = PinTanScaState::default();
     }
 
     pub fn host(&self) -> Option<&str> {
@@ -197,6 +224,52 @@ impl PinTanPassport {
             return Some("noref".to_owned());
         }
         None
+    }
+
+    pub fn update_sca_state_from_response_values(
+        &mut self,
+        values: &BTreeMap<String, String>,
+        message_prefix: &str,
+        status: &HbciMsgStatus,
+    ) -> PinTanScaUpdate {
+        if status
+            .return_value_for_code(KnownReturncode::W3076)
+            .is_some()
+        {
+            self.sca = PinTanScaState {
+                sca_exempted: true,
+                ..PinTanScaState::default()
+            };
+            return PinTanScaUpdate {
+                hitan_found: false,
+                sca_exempted: true,
+            };
+        }
+
+        let Some(root) = tan2step_response_roots(values, message_prefix)
+            .into_iter()
+            .next()
+        else {
+            return PinTanScaUpdate::default();
+        };
+
+        self.sca.sca_exempted = false;
+        if let Some(challenge) = optional_value(values, &format!("{root}.challenge"))
+            && challenge != "nochallenge"
+        {
+            self.sca.challenge = Some(challenge);
+        }
+        if let Some(hhd_uc) = optional_value(values, &format!("{root}.challenge_hhd_uc")) {
+            self.sca.hhd_uc = Some(hhd_uc);
+        }
+        if let Some(order_ref) = optional_value(values, &format!("{root}.orderref")) {
+            self.sca.order_ref = Some(order_ref);
+        }
+
+        PinTanScaUpdate {
+            hitan_found: true,
+            sca_exempted: false,
+        }
     }
 
     pub fn only_bpd_gvs(&self) -> bool {
@@ -739,6 +812,27 @@ fn split_pipe_values(value: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .collect()
+}
+
+fn tan2step_response_roots(values: &BTreeMap<String, String>, message_prefix: &str) -> Vec<String> {
+    let message_prefix = format!("{message_prefix}.");
+    let mut roots = values
+        .keys()
+        .filter(|key| key.starts_with(&message_prefix))
+        .filter_map(|key| {
+            let parts = key.split('.').collect::<Vec<_>>();
+            let index = parts.iter().position(|part| {
+                part.split_once('_')
+                    .map(|(base, _)| base)
+                    .unwrap_or(part)
+                    .starts_with("TAN2StepRes")
+            })?;
+            Some(parts[..=index].join("."))
+        })
+        .collect::<Vec<_>>();
+    roots.sort();
+    roots.dedup();
+    roots
 }
 
 fn prefixed_values(values: &BTreeMap<String, String>, prefix: &str) -> Properties {
