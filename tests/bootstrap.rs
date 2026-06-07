@@ -6,13 +6,28 @@ use hbci4rust::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
     HbciCallback, HbciHandler, HbciJobResultData, HbciMsgStatus, HbciResult, HbciReturnValue,
     HbciStatus, Konto, Limit, OrderHashMode, PassportStorage, PinTanPassport, PinTanPassportData,
-    ReplayCommClient, Value, done, init,
+    ReplayCommClient, TanMethodSelection, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
     sepa::CAMT_052_001_01_URN,
 };
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const CHALLENGE_DATA: &str = include_str!("fixtures/hbci4java/secmech/challengedata.xml");
+
+fn pintan_bpd(can1step: &str, mechanisms: &[(&str, &str)]) -> BTreeMap<String, String> {
+    let mut props = BTreeMap::from([(
+        "Params.TAN2StepPar5.ParTAN2Step.can1step".to_owned(),
+        can1step.to_owned(),
+    )]);
+
+    for (index, (secfunc, name)) in mechanisms.iter().enumerate() {
+        let prefix = format!("Params_{}.TAN2StepPar5.ParTAN2Step", index + 1);
+        props.insert(format!("{prefix}.secfunc"), (*secfunc).to_owned());
+        props.insert(format!("{prefix}.name"), (*name).to_owned());
+    }
+
+    props
+}
 
 #[derive(Debug)]
 struct RecordingCallback {
@@ -1807,6 +1822,95 @@ fn passport_imports_allowed_twostep_mechanisms_from_3920_return_values() {
 }
 
 #[test]
+fn passport_selects_single_user_allowed_twostep_method() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        bpd_parameters: pintan_bpd("N", &[("921", "photoTAN"), ("922", "pushTAN")]),
+        allowed_twostep_mechanisms: vec!["922".to_owned()],
+        ..PinTanPassportData::default()
+    });
+
+    assert_eq!(passport.current_tan_method(), None);
+
+    let selection = passport.determine_tan_method();
+
+    assert_eq!(selection, TanMethodSelection::Selected("922".to_owned()));
+    assert_eq!(passport.current_tan_method(), Some("922"));
+}
+
+#[test]
+fn passport_reuses_current_user_allowed_twostep_method() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: pintan_bpd("N", &[("921", "photoTAN"), ("922", "pushTAN")]),
+        allowed_twostep_mechanisms: vec!["921".to_owned(), "922".to_owned()],
+        ..PinTanPassportData::default()
+    });
+
+    let selection = passport.determine_tan_method();
+
+    assert_eq!(selection, TanMethodSelection::Selected("921".to_owned()));
+    assert_eq!(passport.current_tan_method(), Some("921"));
+}
+
+#[test]
+fn passport_reports_user_selection_when_multiple_user_methods_are_possible() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        bpd_parameters: pintan_bpd("N", &[("922", "pushTAN"), ("921", "photoTAN")]),
+        allowed_twostep_mechanisms: vec!["921".to_owned(), "922".to_owned()],
+        ..PinTanPassportData::default()
+    });
+
+    let selection = passport.determine_tan_method();
+
+    let TanMethodSelection::NeedsUserSelection(options) = selection else {
+        panic!("expected user selection");
+    };
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| (option.id.as_str(), option.name.as_deref()))
+            .collect::<Vec<_>>(),
+        [("921", Some("photoTAN")), ("922", Some("pushTAN")),]
+    );
+    assert_eq!(passport.current_tan_method(), None);
+}
+
+#[test]
+fn passport_one_step_fallback_does_not_persist_tan_method() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        bpd_parameters: pintan_bpd("J", &[("921", "photoTAN")]),
+        ..PinTanPassportData::default()
+    });
+
+    let selection = passport.determine_tan_method();
+
+    assert_eq!(selection, TanMethodSelection::OneStepFallback);
+    assert_eq!(passport.current_tan_method(), None);
+}
+
+#[test]
+fn passport_reports_bank_selection_when_no_user_methods_and_one_step_disallowed() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        bpd_parameters: pintan_bpd("N", &[("922", "pushTAN"), ("921", "photoTAN")]),
+        ..PinTanPassportData::default()
+    });
+
+    let selection = passport.determine_tan_method();
+
+    let TanMethodSelection::NeedsUserSelection(options) = selection else {
+        panic!("expected user selection");
+    };
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| (option.id.as_str(), option.name.as_deref()))
+            .collect::<Vec<_>>(),
+        [("921", Some("photoTAN")), ("922", Some("pushTAN")),]
+    );
+    assert_eq!(passport.current_tan_method(), None);
+}
+
+#[test]
 fn passport_imports_bpd_and_upd_parameter_data_from_dialog_init_values() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
@@ -1921,6 +2025,27 @@ async fn handler_init_imports_allowed_twostep_mechanisms_from_3920_response() {
         handler.passport().allowed_twostep_mechanisms(),
         ["921", "922"]
     );
+}
+
+#[tokio::test]
+async fn handler_init_selects_single_allowed_twostep_method_from_cached_bpd() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        bpd_parameters: pintan_bpd("N", &[("921", "photoTAN"), ("922", "pushTAN")]),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+3920::Zugelassene TAN-Verfahren:922+0010::Initialisiert",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+
+    assert_eq!(handler.passport().current_tan_method(), Some("922"));
 }
 
 #[tokio::test]

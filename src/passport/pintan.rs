@@ -6,9 +6,24 @@ use crate::dialog::KnownReturncode;
 use crate::gv_result::{HbciMsgStatus, Konto, Limit, Value};
 use crate::tools::{ParameterFinder, ParameterQuery, Properties};
 
+pub const ONESTEP_TAN_METHOD_ID: &str = "999";
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PinTanPassport {
     data: PinTanPassportData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TanMethodSelection {
+    Selected(String),
+    OneStepFallback,
+    NeedsUserSelection(Vec<TanMethodOption>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TanMethodOption {
+    pub id: String,
+    pub name: Option<String>,
 }
 
 impl PinTanPassport {
@@ -84,6 +99,69 @@ impl PinTanPassport {
 
     pub fn allowed_twostep_mechanisms(&self) -> &[String] {
         &self.data.allowed_twostep_mechanisms
+    }
+
+    pub fn current_tan_method(&self) -> Option<&str> {
+        self.data
+            .tan_method
+            .as_deref()
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn bank_twostep_mechanism_ids(&self) -> Vec<String> {
+        self.data.twostep_mechanisms.keys().cloned().collect()
+    }
+
+    pub fn allowed_bank_twostep_mechanism_ids(&self) -> Vec<String> {
+        self.data
+            .twostep_mechanisms
+            .keys()
+            .filter(|id| self.data.allowed_twostep_mechanisms.contains(id))
+            .cloned()
+            .collect()
+    }
+
+    pub fn one_step_allowed(&self) -> bool {
+        if self.data.bpd_parameters.is_empty() {
+            return true;
+        }
+
+        ParameterFinder::find_all_query(
+            &self.data.bpd_parameters,
+            &ParameterQuery::BPD_PINTAN_CAN1STEP,
+        )
+        .map(|values| values.values().any(|value| value == "J"))
+        .unwrap_or(false)
+    }
+
+    pub fn determine_tan_method(&mut self) -> TanMethodSelection {
+        if self.data.allowed_twostep_mechanisms.is_empty() && self.one_step_allowed() {
+            return TanMethodSelection::OneStepFallback;
+        }
+
+        let user_options = self.allowed_twostep_options();
+        let bank_options = self.bank_twostep_options();
+
+        if user_options.is_empty() {
+            if self.one_step_allowed() || bank_options.is_empty() {
+                return TanMethodSelection::OneStepFallback;
+            }
+            return TanMethodSelection::NeedsUserSelection(bank_options);
+        }
+
+        if user_options.len() == 1 {
+            let selected = user_options[0].id.clone();
+            self.data.tan_method = Some(selected.clone());
+            return TanMethodSelection::Selected(selected);
+        }
+
+        if let Some(current) = self.current_tan_method().map(str::to_owned)
+            && user_options.iter().any(|option| option.id == current)
+        {
+            return TanMethodSelection::Selected(current);
+        }
+
+        TanMethodSelection::NeedsUserSelection(user_options)
     }
 
     pub fn only_bpd_gvs(&self) -> bool {
@@ -366,16 +444,38 @@ impl PinTanPassport {
         info
     }
 
-    fn current_tan_method(&self) -> Option<&str> {
-        self.data
-            .tan_method
-            .as_deref()
-            .filter(|value| !value.is_empty())
-    }
-
     fn current_twostep_mechanism(&self) -> Option<&Properties> {
         self.current_tan_method()
             .and_then(|tan_method| self.data.twostep_mechanisms.get(tan_method))
+    }
+
+    fn bank_twostep_options(&self) -> Vec<TanMethodOption> {
+        self.data
+            .twostep_mechanisms
+            .iter()
+            .map(|(id, mechanism)| TanMethodOption::from_mechanism(id, mechanism))
+            .collect()
+    }
+
+    fn allowed_twostep_options(&self) -> Vec<TanMethodOption> {
+        self.data
+            .twostep_mechanisms
+            .iter()
+            .filter(|(id, _)| self.data.allowed_twostep_mechanisms.contains(id))
+            .map(|(id, mechanism)| TanMethodOption::from_mechanism(id, mechanism))
+            .collect()
+    }
+}
+
+impl TanMethodOption {
+    fn from_mechanism(id: &str, mechanism: &Properties) -> Self {
+        Self {
+            id: id.to_owned(),
+            name: mechanism
+                .get("name")
+                .filter(|value| !value.is_empty())
+                .cloned(),
+        }
     }
 }
 

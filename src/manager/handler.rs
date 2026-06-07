@@ -161,6 +161,7 @@ where
         }
         self.passport
             .update_parameter_data_from_values(&values, "DialogInitRes");
+        self.passport.determine_tan_method();
         self.passport
             .update_accounts_from_values(&values, "DialogInitRes.UPD");
         if let Some(callback) = callback.as_ref() {

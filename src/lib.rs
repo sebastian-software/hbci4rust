@@ -35,7 +35,10 @@ pub use manager::{
     HbciVersion, HhdVersion, HhdVersionType, MatrixCode, OrderHashMode, QrCode, done, get_param,
     init, set_param,
 };
-pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};
+pub use passport::{
+    ONESTEP_TAN_METHOD_ID, PassportStorage, PinTanPassport, PinTanPassportData, TanMethodOption,
+    TanMethodSelection,
+};
 pub use tools::{
     ParameterFinder, ParameterQuery, Properties, has_text, join_strings, safe_filename, to_boolean,
     to_ins_code, to_parameter_code,
