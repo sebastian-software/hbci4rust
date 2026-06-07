@@ -501,10 +501,20 @@ impl HbciJob {
             .filter(|constraint| constraint.frontend_name == frontend_name)
             .map(|constraint| constraint.destination_name.clone())
             .collect::<Vec<_>>();
+        let lowlevel_value = self.lowlevel_value_for_frontend(frontend_name, value);
 
         for destination in destinations {
-            self.lowlevel_params.insert(destination, value.to_owned());
+            self.lowlevel_params
+                .insert(destination, lowlevel_value.clone());
         }
+    }
+
+    fn lowlevel_value_for_frontend(&self, frontend_name: &str, value: &str) -> String {
+        if self.name == "TAN2Step" && frontend_name == "orderhash" {
+            return format!("B{value}");
+        }
+
+        value.to_owned()
     }
 
     fn set_indexed_lowlevel_params_for_frontend(
@@ -609,6 +619,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "KUmsNew" => kums_new_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
+        "TAN2Step" => tan2step_constraints(),
         _ => Vec::new(),
     }
 }
@@ -686,6 +697,56 @@ fn saldo_req_all_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.number", "Saldo7.KTV.number", None::<String>),
         HbciJobConstraint::new("my.subnumber", "Saldo7.KTV.subnumber", Some("")),
     ]
+}
+
+fn tan2step_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = vec![
+        HbciJobConstraint::new("process", "TAN2Step5.process", None::<String>),
+        HbciJobConstraint::new("ordersegcode", "TAN2Step5.ordersegcode", Some("")),
+        HbciJobConstraint::new("orderaccount.bic", "TAN2Step5.OrderAccount.bic", Some("")),
+        HbciJobConstraint::new("orderaccount.iban", "TAN2Step5.OrderAccount.iban", Some("")),
+        HbciJobConstraint::new(
+            "orderaccount.number",
+            "TAN2Step5.OrderAccount.number",
+            Some(""),
+        ),
+        HbciJobConstraint::new(
+            "orderaccount.subnumber",
+            "TAN2Step5.OrderAccount.subnumber",
+            Some(""),
+        ),
+        HbciJobConstraint::new(
+            "orderaccount.blz",
+            "TAN2Step5.OrderAccount.KIK.blz",
+            Some(""),
+        ),
+        HbciJobConstraint::new(
+            "orderaccount.country",
+            "TAN2Step5.OrderAccount.KIK.country",
+            Some("DE"),
+        ),
+        HbciJobConstraint::new("orderhash", "TAN2Step5.orderhash", Some("")),
+        HbciJobConstraint::new("orderref", "TAN2Step5.orderref", Some("")),
+        HbciJobConstraint::new("listidx", "TAN2Step5.listidx", Some("")),
+        HbciJobConstraint::new("notlasttan", "TAN2Step5.notlasttan", Some("")),
+        HbciJobConstraint::new("storno", "TAN2Step5.storno", Some("")),
+        HbciJobConstraint::new("challengeklass", "TAN2Step5.challengeklass", Some("")),
+    ];
+
+    constraints.extend((1..=9).map(|index| {
+        HbciJobConstraint::new(
+            format!("ChallengeKlassParam{index}"),
+            format!("TAN2Step5.ChallengeKlassParams.param{index}"),
+            Some(""),
+        )
+    }));
+    constraints.push(HbciJobConstraint::new(
+        "tanmedia",
+        "TAN2Step5.tanmedia",
+        Some(""),
+    ));
+
+    constraints
 }
 
 #[cfg(test)]

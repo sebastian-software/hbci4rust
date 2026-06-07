@@ -3,14 +3,15 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use hbci4rust::{
-    CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, CommResponse, HbciCallback,
-    HbciHandler, HbciJobResultData, HbciResult, Konto, Limit, PassportStorage, PinTanPassport,
-    PinTanPassportData, ReplayCommClient, Value, done, init,
+    CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
+    HbciCallback, HbciHandler, HbciJobResultData, HbciResult, Konto, Limit, PassportStorage,
+    PinTanPassport, PinTanPassportData, ReplayCommClient, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
     sepa::CAMT_052_001_01_URN,
 };
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+const CHALLENGE_DATA: &str = include_str!("fixtures/hbci4java/secmech/challengedata.xml");
 
 #[derive(Debug)]
 struct RecordingCallback {
@@ -329,6 +330,43 @@ fn kums_all_camt_exposes_original_near_constraints() {
         Some("N")
     );
     assert_eq!(kums.constraint("my.curr"), None);
+}
+
+#[test]
+fn tan2step_exposes_original_near_v5_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut hktan = handler.new_job("TAN2Step").expect("job is in registry");
+
+    assert_eq!(hktan.constraints().len(), 24);
+    assert_eq!(
+        hktan
+            .constraint("process")
+            .expect("process constraint")
+            .destination_name,
+        "TAN2Step5.process"
+    );
+    assert_eq!(
+        hktan
+            .constraint("orderaccount.country")
+            .expect("order account country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        hktan
+            .constraint("ChallengeKlassParam9")
+            .expect("challenge param 9 constraint")
+            .destination_name,
+        "TAN2Step5.ChallengeKlassParams.param9"
+    );
+
+    hktan
+        .try_set_param("orderhash", "12345")
+        .expect("orderhash is accepted");
+    assert_eq!(hktan.param("orderhash"), Some("12345"));
+    assert_eq!(hktan.lowlevel_param("TAN2Step5.orderhash"), Some("B12345"));
 }
 
 #[test]
@@ -2235,6 +2273,68 @@ async fn handler_renders_saldo_request_from_lowlevel_params_like_original() {
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
 
     assert!(body.contains("HKSAL:2:7+DE02123456780000000000:MARKDEF1100+N+7'"));
+}
+
+#[tokio::test]
+async fn handler_renders_tan2step5_with_applied_challenge_params_like_original() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let challenge_info = ChallengeInfo::parse_xml(CHALLENGE_DATA).expect("challenge data parses");
+    let applied = challenge_info
+        .apply_params(
+            "HKAOM",
+            &BTreeMap::from([
+                ("BTG.value".to_owned(), "100.99".to_owned()),
+                ("Other.number".to_owned(), "9876543210".to_owned()),
+            ]),
+            &BTreeMap::from([("id".to_owned(), "HHD1.4".to_owned())]),
+        )
+        .expect("challenge params apply")
+        .expect("known challenge data");
+
+    let mut hktan = handler.new_job("TAN2Step").expect("job is in registry");
+    hktan.try_set_param("process", "1").expect("process");
+    hktan
+        .try_set_param("ordersegcode", "HKAOM")
+        .expect("order segment code");
+    hktan
+        .try_set_param("orderaccount.number", "12345678")
+        .expect("order account number");
+    hktan
+        .try_set_param("orderaccount.blz", "12345678")
+        .expect("order account bank code");
+    hktan
+        .try_set_param("orderhash", "12345")
+        .expect("order hash");
+    hktan
+        .try_set_param("notlasttan", "N")
+        .expect("not last TAN");
+    for (key, value) in applied.to_hktan_params() {
+        hktan
+            .try_set_param(key, value)
+            .expect("applied challenge parameter is accepted");
+    }
+
+    handler
+        .try_add_to_queue(hktan)
+        .expect("TAN2Step verifies and queues");
+    let status = handler.execute().await.expect("replay response");
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "TAN2Step");
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains(
+            "HKTAN:2:5+1+HKAOM+::12345678::280:12345678+@5@12345+++N+++10+100,99:::9876543210'"
+        ),
+        "{body}"
+    );
 }
 
 #[tokio::test]

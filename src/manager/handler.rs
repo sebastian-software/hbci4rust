@@ -392,6 +392,7 @@ fn render_job_into_custom_message(
         "KUmsNew" => render_kums_new(message, job, index, passport),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
+        "TAN2Step" => render_tan2step(message, job, index),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
@@ -618,6 +619,80 @@ fn render_kums_all_camt(
     Ok(())
 }
 
+fn render_tan2step(message: &mut HbciMessage, job: &HbciJob, index: usize) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.TAN2Step5");
+
+    message.set_value(&segment, "requested")?;
+    message.set_value(
+        &format!("{segment}.process"),
+        job_param_required(
+            job,
+            "TAN2Step5.process",
+            "process",
+            "TAN2Step requires process",
+        )?,
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.ordersegcode"),
+        job_param(job, "TAN2Step5.ordersegcode", "ordersegcode"),
+    )?;
+    set_tan_order_account_values(message, &segment, job)?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.orderhash"),
+        tan_orderhash_param(job).as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.orderref"),
+        job_param(job, "TAN2Step5.orderref", "orderref"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.listidx"),
+        job_param(job, "TAN2Step5.listidx", "listidx"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.notlasttan"),
+        job_param(job, "TAN2Step5.notlasttan", "notlasttan"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.storno"),
+        job_param(job, "TAN2Step5.storno", "storno"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.challengeklass"),
+        job_param(job, "TAN2Step5.challengeklass", "challengeklass"),
+    )?;
+    for index in 1..=9 {
+        set_optional_message_value(
+            message,
+            &format!("{segment}.ChallengeKlassParams.param{index}"),
+            job_param(
+                job,
+                &format!("TAN2Step5.ChallengeKlassParams.param{index}"),
+                &format!("ChallengeKlassParam{index}"),
+            ),
+        )?;
+    }
+    set_optional_message_value(
+        message,
+        &format!("{segment}.tanmedia"),
+        job_param(job, "TAN2Step5.tanmedia", "tanmedia"),
+    )?;
+
+    Ok(())
+}
+
 fn effective_job_account(
     job: &HbciJob,
     passport: &PinTanPassport,
@@ -682,6 +757,98 @@ fn job_param<'a>(job: &'a HbciJob, lowlevel_name: &str, frontend_name: &str) -> 
     job.lowlevel_param(lowlevel_name)
         .or_else(|| job.param(frontend_name))
         .filter(|value| !value.is_empty())
+}
+
+fn job_param_required<'a>(
+    job: &'a HbciJob,
+    lowlevel_name: &str,
+    frontend_name: &str,
+    message: &str,
+) -> HbciResult<&'a str> {
+    job_param(job, lowlevel_name, frontend_name)
+        .ok_or_else(|| HbciError::new(HbciErrorKind::InvalidArgument, message))
+}
+
+fn tan_orderhash_param(job: &HbciJob) -> Option<String> {
+    if let Some(value) = job
+        .lowlevel_param("TAN2Step5.orderhash")
+        .filter(|value| !value.is_empty())
+    {
+        return Some(value.to_owned());
+    }
+
+    job.param("orderhash")
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("B{value}"))
+}
+
+fn set_tan_order_account_values(
+    message: &mut HbciMessage,
+    segment: &str,
+    job: &HbciJob,
+) -> HbciResult<()> {
+    let account = tan_order_account(job);
+    if !has_account_identity(&account) {
+        return Ok(());
+    }
+
+    set_optional_message_value(
+        message,
+        &format!("{segment}.OrderAccount.iban"),
+        account.iban.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.OrderAccount.bic"),
+        account.bic.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.OrderAccount.number"),
+        account.number.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.OrderAccount.subnumber"),
+        account.subnumber.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.OrderAccount.KIK.country"),
+        account.country.as_deref().or(Some("DE")),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.OrderAccount.KIK.blz"),
+        account.blz.as_deref(),
+    )?;
+    Ok(())
+}
+
+fn tan_order_account(job: &HbciJob) -> Konto {
+    Konto {
+        iban: job_param(job, "TAN2Step5.OrderAccount.iban", "orderaccount.iban")
+            .map(ToOwned::to_owned),
+        bic: job_param(job, "TAN2Step5.OrderAccount.bic", "orderaccount.bic")
+            .map(ToOwned::to_owned),
+        number: job_param(job, "TAN2Step5.OrderAccount.number", "orderaccount.number")
+            .map(ToOwned::to_owned),
+        subnumber: job_param(
+            job,
+            "TAN2Step5.OrderAccount.subnumber",
+            "orderaccount.subnumber",
+        )
+        .map(ToOwned::to_owned),
+        country: job_param(
+            job,
+            "TAN2Step5.OrderAccount.KIK.country",
+            "orderaccount.country",
+        )
+        .map(ToOwned::to_owned),
+        blz: job_param(job, "TAN2Step5.OrderAccount.KIK.blz", "orderaccount.blz")
+            .map(ToOwned::to_owned),
+        ..Konto::default()
+    }
 }
 
 fn overlay_account_param(target: &mut Option<String>, value: Option<&str>) {
