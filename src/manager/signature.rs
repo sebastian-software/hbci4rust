@@ -301,8 +301,8 @@ fn fints_timestamp_from_system_time(system_time: SystemTime) -> HbciResult<(Stri
     let second = seconds_of_day % 60;
 
     Ok((
-        format!("{year:04}{month:02}{day:02}"),
-        format!("{hour:02}{minute:02}{second:02}"),
+        format!("{year:04}-{month:02}-{day:02}"),
+        format!("{hour:02}:{minute:02}:{second:02}"),
     ))
 }
 

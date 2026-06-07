@@ -17,7 +17,7 @@ use crate::sepa::CAMT_052_001_01_URN;
 use crate::swift::decode_umlauts;
 use crate::tools::Properties;
 
-use super::{ChallengeInfo, OrderHashMode};
+use super::{ChallengeInfo, OrderHashMode, PinTanSignatureContext, apply_pintan_signature_shell};
 
 #[derive(Clone)]
 pub struct HbciHandler<C = DefaultCommClient> {
@@ -157,8 +157,10 @@ where
             })?
             .to_owned();
         let request_ref = MessageReference::new("0", 1);
-        let body = self.render_dialog_init(&request_ref)?;
         let callback = super::callback();
+        let body = self
+            .render_dialog_init(&request_ref, callback.as_deref())
+            .await?;
 
         if let Some(callback) = callback.as_ref() {
             callback
@@ -377,23 +379,31 @@ where
         message.to_fints_bytes()
     }
 
-    fn render_dialog_init(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
+    async fn render_dialog_init(
+        &mut self,
+        request_ref: &MessageReference,
+        callback: Option<&dyn HbciCallback>,
+    ) -> HbciResult<Vec<u8>> {
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "DialogInit")?;
         let passport = self.passport.data();
         let country = if passport.country.is_empty() {
-            "DE"
+            "DE".to_owned()
         } else {
-            passport.country.as_str()
+            passport.country.clone()
         };
-        let blz = required_passport_value(&passport.blz, "PinTAN passport has no bank code")?;
+        let blz =
+            required_passport_value(&passport.blz, "PinTAN passport has no bank code")?.to_owned();
         let customer_id = passport
             .customer_id
             .as_deref()
             .filter(|value| !value.is_empty())
             .unwrap_or(&passport.user_id);
         let customer_id =
-            required_passport_value(customer_id, "PinTAN passport has no user id or customer id")?;
+            required_passport_value(customer_id, "PinTAN passport has no user id or customer id")?
+                .to_owned();
+        let bpd_version = self.passport.bpd_version().to_owned();
+        let upd_version = self.passport.upd_version().to_owned();
 
         message.set_value("DialogInit.MsgHead.dialogid", &request_ref.dialog_id)?;
         message.set_value("DialogInit.MsgHead.msgnum", &request_ref.msgnum)?;
@@ -403,13 +413,24 @@ where
         message.set_value("DialogInit.Idn.customerid", customer_id)?;
         message.set_value("DialogInit.Idn.sysid", "0")?;
         message.set_value("DialogInit.Idn.sysStatus", "0")?;
-        message.set_value("DialogInit.ProcPrep.BPD", self.passport.bpd_version())?;
-        message.set_value("DialogInit.ProcPrep.UPD", self.passport.upd_version())?;
+        message.set_value("DialogInit.ProcPrep.BPD", bpd_version)?;
+        message.set_value("DialogInit.ProcPrep.UPD", upd_version)?;
         message.set_value("DialogInit.ProcPrep.lang", "0")?;
         message.set_value("DialogInit.ProcPrep.prodName", "hbci4rust")?;
         message.set_value(
             "DialogInit.ProcPrep.prodVersion",
             product_version_for_proc_prep(),
+        )?;
+
+        let signature_context = PinTanSignatureContext::generate()?;
+        let sig_head = signature_context.sig_head_from_passport(&self.passport)?;
+        let signature = sign_pintan_user_sig_without_tan(&mut self.passport, callback).await?;
+        apply_pintan_signature_shell(
+            &mut message,
+            "DialogInit.SigHead",
+            "DialogInit.SigTail",
+            &sig_head,
+            &signature,
         )?;
 
         message.prepare_outgoing()?;
@@ -587,6 +608,14 @@ async fn request_pin(
 
     passport.set_pin(pin.clone());
     Ok(pin)
+}
+
+async fn sign_pintan_user_sig_without_tan(
+    passport: &mut PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<Vec<u8>> {
+    let pin = request_pin(passport, callback).await?;
+    UserSig::encode(Some(&pin), None)
 }
 
 async fn sign_pintan_user_sig_for_sca(

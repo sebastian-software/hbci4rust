@@ -315,7 +315,7 @@ fn creates_pintan_signature_context_from_system_time() {
 
     assert_eq!(
         context,
-        PinTanSignatureContext::new("REF8", "1", "19700102", "010101")
+        PinTanSignatureContext::new("REF8", "1", "1970-01-02", "01:01:01")
     );
 }
 

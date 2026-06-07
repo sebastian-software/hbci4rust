@@ -29,6 +29,12 @@ fn pintan_bpd(can1step: &str, mechanisms: &[(&str, &str)]) -> BTreeMap<String, S
     props
 }
 
+fn passport_with_cached_pin(data: PinTanPassportData) -> PinTanPassport {
+    let mut passport = PinTanPassport::new(data);
+    passport.set_pin("12345");
+    passport
+}
+
 #[derive(Debug)]
 struct RecordingCallback {
     events: Arc<Mutex<Vec<CallbackEvent>>>,
@@ -134,6 +140,49 @@ fn fints_response(
     body.push_str(&msgnum.to_string());
     body.push('\'');
     CommResponse::ok(body)
+}
+
+fn assert_signed_dialog_init_request(
+    body: &str,
+    customer_id: &str,
+    bpd_version: &str,
+    upd_version: &str,
+) {
+    assert!(body.starts_with("HNHBK:1:3+"), "{body}");
+    assert!(body.contains("+300+0+1'"), "{body}");
+    assert!(body.contains("HNSHK:2:4+PIN:1+999+"), "{body}");
+    assert!(
+        body.contains(&format!("HKIDN:3:2+280:12345678+{customer_id}+0+0'")),
+        "{body}"
+    );
+    assert!(
+        body.contains(&format!(
+            "HKVVB:4:3+{bpd_version}+{upd_version}+0+hbci4rust+0.1.0'"
+        )),
+        "{body}"
+    );
+    assert!(body.ends_with("HNHBS:6:1+1'"), "{body}");
+
+    let sig_head = fints_segment(body, "HNSHK");
+    let sig_tail = fints_segment(body, "HNSHA");
+    let sig_head_checkref = sig_head
+        .split('+')
+        .nth(3)
+        .expect("HNSHK has check reference");
+    let sig_tail_parts = sig_tail.split('+').collect::<Vec<_>>();
+
+    assert_eq!(sig_tail_parts.get(1).copied(), Some(sig_head_checkref));
+    assert_eq!(sig_tail_parts.get(2).copied(), Some(""));
+    assert_eq!(sig_tail_parts.get(3).copied(), Some("12345"));
+
+    let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
+    assert_eq!(size, format!("{:012}", body.len()));
+}
+
+fn fints_segment<'a>(body: &'a str, code: &str) -> &'a str {
+    body.split('\'')
+        .find(|segment| segment.starts_with(code))
+        .unwrap_or_else(|| panic!("{code} segment missing in {body}"))
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -2010,7 +2059,7 @@ fn passport_imports_bpd_and_upd_parameter_data_from_dialog_init_values() {
 
 #[tokio::test]
 async fn handler_init_imports_upd_accounts_from_replay_response() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2054,18 +2103,12 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
     assert_eq!(requests.len(), 1);
 
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert!(body.starts_with("HNHBK:1:3+"));
-    assert!(body.contains("HKIDN:2:2+280:12345678+customer+0+0'"));
-    assert!(body.contains("HKVVB:3:3+0+0+0+hbci4rust+0.1.0'"));
-    assert!(body.ends_with("HNHBS:4:1+1'"));
-
-    let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
-    assert_eq!(size, format!("{:012}", body.len()));
+    assert_signed_dialog_init_request(&body, "customer", "0", "0");
 }
 
 #[tokio::test]
 async fn handler_init_imports_allowed_twostep_mechanisms_from_3920_response() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2087,8 +2130,60 @@ async fn handler_init_imports_allowed_twostep_mechanisms_from_3920_response() {
 }
 
 #[tokio::test]
-async fn handler_init_selects_single_allowed_twostep_method_from_cached_bpd() {
+async fn handler_init_requests_pin_for_signed_dialog_init() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(ScriptedCallback {
+            events: events.clone(),
+            responses: Arc::new(Mutex::new(VecDeque::from([CallbackResponse::value(
+                "12345",
+            )]))),
+        }),
+    )
+    .expect("runtime init");
+
     let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay =
+        ReplayCommClient::new([Ok(custom_msg_response(&["HIRMG:2:2+0010::Initialisiert"]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+
+    handler.init().await.expect("dialog init replay response");
+
+    assert_eq!(handler.passport().pin(), Some("12345"));
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_dialog_init_request(&body, "customer", "0", "0");
+
+    let reasons = events
+        .lock()
+        .expect("callback event lock")
+        .iter()
+        .map(|event| event.reason)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons,
+        [
+            CallbackReason::NeedPtPin,
+            CallbackReason::NeedConnection,
+            CallbackReason::CloseConnection,
+        ]
+    );
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_init_selects_single_allowed_twostep_method_from_cached_bpd() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2121,7 +2216,7 @@ async fn handler_init_asks_callback_for_ambiguous_twostep_method() {
     )
     .expect("runtime init");
 
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2170,7 +2265,7 @@ async fn handler_init_rejects_unsupported_callback_twostep_method() {
     )
     .expect("runtime init");
 
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2198,7 +2293,7 @@ async fn handler_init_rejects_unsupported_callback_twostep_method() {
 
 #[tokio::test]
 async fn handler_init_uses_cached_bpd_and_upd_versions() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2229,7 +2324,7 @@ async fn handler_init_uses_cached_bpd_and_upd_versions() {
 
     let requests = replay.requests().expect("requests");
     let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert!(body.contains("HKVVB:3:3+5+7+0+hbci4rust+0.1.0'"));
+    assert_signed_dialog_init_request(&body, "customer", "5", "7");
 }
 
 #[tokio::test]
@@ -2245,7 +2340,7 @@ async fn handler_init_emits_institute_message_callbacks() {
     )
     .expect("runtime init");
 
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2280,7 +2375,7 @@ async fn handler_init_emits_institute_message_callbacks() {
 
 #[tokio::test]
 async fn handler_init_rejects_mismatched_response_reference() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2306,7 +2401,7 @@ async fn handler_init_rejects_mismatched_response_reference() {
 
 #[tokio::test]
 async fn handler_execute_uses_dialog_context_from_init_response() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2363,7 +2458,7 @@ async fn handler_execute_uses_dialog_context_from_init_response() {
     assert_eq!(requests.len(), 2);
 
     let init_body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert!(init_body.contains("+300+0+1'"));
+    assert_signed_dialog_init_request(&init_body, "customer", "0", "0");
 
     let execute_body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
     assert!(execute_body.contains("+300+DIALOG1+2'"));
@@ -2373,7 +2468,7 @@ async fn handler_execute_uses_dialog_context_from_init_response() {
 
 #[tokio::test]
 async fn handler_execute_rejects_mismatched_response_reference() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2406,7 +2501,7 @@ async fn handler_execute_rejects_mismatched_response_reference() {
 
 #[tokio::test]
 async fn handler_execute_rejects_mismatched_response_dialog_id() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2449,7 +2544,7 @@ async fn handler_execute_rejects_mismatched_response_dialog_id() {
 
 #[tokio::test]
 async fn handler_close_sends_dialog_end_and_resets_context() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2512,7 +2607,7 @@ async fn handler_close_sends_dialog_end_and_resets_context() {
 
 #[tokio::test]
 async fn handler_close_preserves_context_on_dialog_end_error() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2552,7 +2647,7 @@ async fn handler_close_preserves_context_on_dialog_end_error() {
 
 #[tokio::test]
 async fn handler_close_accepts_segment_error_when_global_status_is_ok_like_original() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
@@ -2588,7 +2683,7 @@ async fn handler_close_accepts_segment_error_when_global_status_is_ok_like_origi
 
 #[tokio::test]
 async fn handler_close_rejects_mismatched_response_dialog_id() {
-    let passport = PinTanPassport::new(PinTanPassportData {
+    let passport = passport_with_cached_pin(PinTanPassportData {
         country: "DE".to_owned(),
         blz: "12345678".to_owned(),
         host: Some("https://fints.example.test/fints".to_owned()),
