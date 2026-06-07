@@ -48,6 +48,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "MultiLastB2BSEPA",
     "MultiLastCOR1SEPA",
     "MultiLastSEPA",
+    "MultiUeb",
     "MultiUebSEPA",
     "Receipt",
     "SEPAInfo",
@@ -511,7 +512,7 @@ impl HbciJob {
             | "SaldoReq" | "SaldoReqAll" | "WPDepotList" | "WPDepotUms" => {
                 self.check_account_crc("my", callback).await
             }
-            "FestList" | "FestListAll" => self.check_account_crc("my", callback).await,
+            "FestList" | "FestListAll" | "MultiUeb" => self.check_account_crc("my", callback).await,
             "Last" => {
                 self.check_account_crc("my", callback).await?;
                 self.check_account_crc("other", callback).await
@@ -697,6 +698,10 @@ impl HbciJob {
         }
 
         if self.name == "VoP" && frontend_name == "pollingid" {
+            return binary_lowlevel_value(value);
+        }
+
+        if self.name == "MultiUeb" && frontend_name == "data" {
             return binary_lowlevel_value(value);
         }
 
@@ -893,6 +898,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "MultiLastB2BSEPA" => multi_last_sepa_constraints("SammelLastB2BSEPA1", "B2B"),
         "MultiLastCOR1SEPA" => multi_last_sepa_constraints("SammelLastCOR1SEPA1", "COR1"),
         "MultiLastSEPA" => multi_last_sepa_constraints("SammelLastSEPA1", "CORE"),
+        "MultiUeb" => multi_ueb_constraints(),
         "Kontoauszug" => kontoauszug_constraints(),
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
         "TermUeb" => term_ueb_constraints(),
@@ -1599,6 +1605,16 @@ fn last_constraints() -> Vec<HbciJobConstraint> {
 
 fn last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {
     last_sepa_constraints_for(lowlevel_segment, debit_type, true)
+}
+
+fn multi_ueb_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("data", "SammelUeb6.data", None::<String>),
+        HbciJobConstraint::new("my.country", "SammelUeb6.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "SammelUeb6.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "SammelUeb6.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "SammelUeb6.KTV.subnumber", Some("")),
+    ]
 }
 
 fn multi_last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {

@@ -1889,6 +1889,45 @@ fn ueb_sepa_exposes_original_near_v1_constraints() {
 }
 
 #[test]
+fn multi_ueb_exposes_original_near_v6_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("MultiUeb").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 5);
+    assert_eq!(
+        job.constraint("data")
+            .expect("data constraint")
+            .destination_name,
+        "SammelUeb6.data"
+    );
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("my account number constraint")
+            .destination_name,
+        "SammelUeb6.KTV.number"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("my country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert!(job.constraint("src.iban").is_none());
+    assert!(job.constraint("_sepapain").is_none());
+    assert!(job.constraint("Total.value").is_none());
+
+    job.try_set_param("data", "DTAUS+WITH:COLON")
+        .expect("binary data is accepted");
+    assert_eq!(job.param("data"), Some("DTAUS+WITH:COLON"));
+    assert_eq!(
+        job.lowlevel_param("SammelUeb6.data"),
+        Some("BDTAUS+WITH:COLON")
+    );
+}
+
+#[test]
 fn multi_ueb_sepa_exposes_original_near_v1_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -7344,6 +7383,58 @@ async fn handler_renders_ueb_sepa_with_generated_pain_like_original() {
     assert!(body.contains("<PmtInfId>SEPA-UEB</PmtInfId>"), "{body}");
     assert!(body.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
     assert!(body.contains("<Ustrd>Transfer usage</Ustrd>"));
+}
+
+#[tokio::test]
+async fn handler_renders_multi_ueb_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("MultiUeb").expect("job is in registry");
+    job.try_set_param("my.number", "1234567890")
+        .expect("my account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("my bank code is accepted");
+    job.try_set_param("data", "DTAUS+WITH:COLON")
+        .expect("binary data is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "MultiUeb");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert!(
+        !status.job_results[0]
+            .result_data
+            .keys()
+            .any(|key| key.starts_with("content."))
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.dialogid")
+            .map(String::as_str),
+        Some("0")
+    );
+    assert!(
+        !handler
+            .passport()
+            .persistent_data()
+            .keys()
+            .any(|key| key.starts_with("multiueb_"))
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains("HKSUB:3:6+1234567890::280:10020030+@16@DTAUS+WITH:COLON'"),
+        "{body}"
+    );
 }
 
 #[tokio::test]

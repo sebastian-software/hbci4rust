@@ -1134,6 +1134,7 @@ fn render_job_into_custom_message(
         "MultiLastB2BSEPA" => render_multi_last_b2b_sepa(message, job, index, passport),
         "MultiLastCOR1SEPA" => render_multi_last_cor1_sepa(message, job, index, passport),
         "MultiLastSEPA" => render_multi_last_sepa(message, job, index, passport),
+        "MultiUeb" => render_multi_ueb(message, job, index, passport),
         "MultiUebSEPA" => render_multi_ueb_sepa(message, job, index, passport),
         "Receipt" => render_receipt(message, job, index),
         "SEPAInfo" => render_sepa_info(message, index),
@@ -1489,6 +1490,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKBME",
             lowlevel_segment: "SammelLastB2BSEPA1",
             path: "CustomMsg.GV.SammelLastB2BSEPA1",
+        }),
+        "MultiUeb" => Ok(OrderhashSourceJobInfo {
+            code: "HKSUB",
+            lowlevel_segment: "SammelUeb6",
+            path: "CustomMsg.GV.SammelUeb6",
         }),
         "Last" => Ok(OrderhashSourceJobInfo {
             code: "HKLAS",
@@ -3782,6 +3788,34 @@ fn render_multi_ueb_sepa(
         "MultiUebSEPA",
         "SammelUebSEPA1",
     )
+}
+
+fn render_multi_ueb(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "SammelUeb6";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = effective_job_account(job, passport, lowlevel_segment, "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "MultiUeb requires my.number or a passport account for the current SammelUeb6 renderer",
+        ));
+    }
+
+    set_national_account_values(message, &segment, &account)?;
+    let data = job_param_required(job, "SammelUeb6.data", "data", "MultiUeb requires data")?;
+    message.set_value(&format!("{segment}.data"), data)?;
+
+    Ok(())
 }
 
 fn render_term_multi_ueb_sepa(
