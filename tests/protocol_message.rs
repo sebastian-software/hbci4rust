@@ -1,6 +1,7 @@
 use hbci4rust::{
     HbciErrorKind, PinTanPassport, PinTanPassportData, PinTanSigHead, UserSig,
-    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_user_sig_to_sig_tail,
+    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_signature_shell,
+    apply_pintan_user_sig_to_sig_tail,
     protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec},
 };
 
@@ -347,6 +348,58 @@ fn rejects_pintan_sigtail_checkref_when_sighead_has_none() {
     assert!(
         err.message().contains("DialogEnd.SigHead.seccheckref"),
         "{err}"
+    );
+}
+
+#[test]
+fn applies_pintan_signature_shell_like_hbci4java_sign_sequence() {
+    let mut message = dialog_end_message_shell();
+    let passport = pintan_passport_with_tan_method("921");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF4", "3", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+    let signature = UserSig::encode(Some("12345"), Some("987654")).expect("usersig encodes");
+
+    apply_pintan_signature_shell(
+        &mut message,
+        "DialogEnd.SigHead",
+        "DialogEnd.SigTail",
+        &sig_head,
+        &signature,
+    )
+    .expect("signature shell applies");
+
+    assert_eq!(message.value("DialogEnd.SigHead.seccheckref"), Some("REF4"));
+    assert_eq!(message.value("DialogEnd.SigTail.seccheckref"), Some("REF4"));
+    assert_eq!(
+        message.value("DialogEnd.SigTail.UserSig.pin"),
+        Some("12345")
+    );
+    assert_eq!(
+        message.value("DialogEnd.SigTail.UserSig.tan"),
+        Some("987654")
+    );
+    assert_eq!(message.value("DialogEnd.SigTail.sig"), None);
+
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+    let rendered = message.to_fints_string().expect("message renders");
+    let msg_size = message
+        .value("DialogEnd.MsgHead.msgsize")
+        .expect("message size is set");
+
+    assert_eq!(
+        rendered,
+        format!(
+            concat!(
+                "HNHBK:1:3+{}+300+DIALOG1+1'",
+                "HNSHK:2:4+PIN:2+921+REF4+1+1+1::0+3+1:20240229:070809+1:999:1+6:10:16+280:12345678:user:S:0:0'",
+                "HKEND:3:1+DIALOG1'",
+                "HNSHA:4:2+REF4++12345:987654'",
+                "HNHBS:5:1+1'",
+            ),
+            msg_size,
+        )
     );
 }
 
@@ -735,6 +788,27 @@ fn dialog_end_message_with_pintan_signature_shell() -> HbciMessage {
             ("DialogEnd.SigHead.KeyName.keyversion", "1"),
             ("DialogEnd.DialogEndS.dialogid", "DIALOG1"),
             ("DialogEnd.SigTail.seccheckref", "REF1"),
+            ("DialogEnd.MsgTail.msgnum", "1"),
+        ],
+    );
+
+    message
+}
+
+fn dialog_end_message_shell() -> HbciMessage {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("DialogEnd.MsgHead.dialogid", "DIALOG1"),
+            ("DialogEnd.MsgHead.msgnum", "1"),
+            ("DialogEnd.DialogEndS.dialogid", "DIALOG1"),
             ("DialogEnd.MsgTail.msgnum", "1"),
         ],
     );

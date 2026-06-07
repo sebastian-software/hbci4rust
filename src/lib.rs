@@ -33,8 +33,8 @@ pub use manager::{
     ChallengeInfo, ChallengeJob, ChallengeParam, FlickerCode, FlickerCodeVersion,
     FlickerDataElement, FlickerEncoding, FlickerRenderer, FlickerStartCode, HbciHandler,
     HbciVersion, HhdVersion, HhdVersionType, MatrixCode, OrderHashMode, PinTanSigHead, QrCode,
-    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_user_sig_to_sig_tail,
-    done, get_param, init, set_param,
+    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_signature_shell,
+    apply_pintan_user_sig_to_sig_tail, done, get_param, init, set_param,
 };
 pub use passport::{
     ONESTEP_TAN_METHOD_ID, PassportStorage, PinTanPassport, PinTanPassportData, PinTanScaState,

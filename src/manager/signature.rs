@@ -164,6 +164,18 @@ pub fn apply_pintan_sig_tail_from_head(
     Ok(())
 }
 
+pub fn apply_pintan_signature_shell(
+    message: &mut HbciMessage,
+    sig_head_path: &str,
+    sig_tail_path: &str,
+    sig_head: &PinTanSigHead,
+    signature: &[u8],
+) -> HbciResult<()> {
+    apply_pintan_sig_head(message, sig_head_path, sig_head)?;
+    apply_pintan_sig_tail_from_head(message, sig_head_path, sig_tail_path)?;
+    apply_pintan_user_sig_to_sig_tail(message, sig_tail_path, signature)
+}
+
 pub fn apply_pintan_user_sig_to_sig_tail(
     message: &mut HbciMessage,
     sig_tail_path: &str,
