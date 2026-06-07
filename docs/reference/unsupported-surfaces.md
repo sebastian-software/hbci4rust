@@ -108,6 +108,8 @@ These items remain release-candidate work, not hidden implementation support:
 Before any unsupported surface above becomes part of the public API:
 
 - add a new ADR;
+- follow the baseline/scope guard in
+  `docs/adr/0258-baseline-and-scope-change-guard.md`;
 - update this page;
 - update `docs/architecture/release-checklist.md`;
 - update job or result coverage notes when the source audit boundary changes;
@@ -133,3 +135,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0252: Unsupported V1 Surface Reference
 - ADR 0255: Malformed Bank Response Evidence
 - ADR 0257: Live Smoke Observation Boundary
+- ADR 0258: Baseline And Scope Change Guard

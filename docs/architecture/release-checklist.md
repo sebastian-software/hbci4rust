@@ -14,7 +14,7 @@ limitation through a new ADR.
 - [x] Upstream baseline is hbci4java tag `hbci4j-core-4.1.11` at
   `3b7ce667c73724daa1c836ed7333ed090c21a831`.
 - [x] The upstream reference is fetched into `target/reference/`, not vendored.
-- [ ] Any future baseline or scope change is recorded in a new ADR before code
+- [x] Any future baseline or scope change is recorded in a new ADR before code
   changes rely on it.
 
 Evidence:
@@ -22,6 +22,8 @@ Evidence:
 ```sh
 scripts/fetch-upstream.sh
 ```
+
+- ADR 0258
 
 ## Required Offline Gates
 
