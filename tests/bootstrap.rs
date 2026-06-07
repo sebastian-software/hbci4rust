@@ -3755,6 +3755,181 @@ async fn handler_executes_process2_tan_submission_from_stored_hitan_state() {
 }
 
 #[tokio::test]
+async fn handler_executes_process2_flow_automatically_and_merges_status() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.name".to_owned(),
+                "pushTAN".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.inputinfo".to_owned(),
+                "Bitte bestaetigen".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HITAN:3:5+1++ORDER-REF-100+Bitte geben Sie die TAN ein+@5@HHDUC",
+        ])),
+        Ok(custom_msg_response_for_request(
+            "0",
+            2,
+            &["HIRMG:2:2+0010::OK"],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    handler
+        .try_add_to_queue_with_initial_tan_job(saldo)
+        .expect("task and first HKTAN queue");
+
+    let status = handler
+        .execute_with_tan2step_process2()
+        .await
+        .expect("automatic process-2 flow executes");
+
+    assert!(status.success);
+    assert_eq!(
+        status
+            .job_results
+            .iter()
+            .map(|result| result.job_name.as_str())
+            .collect::<Vec<_>>(),
+        ["SaldoReq", "TAN2Step", "TAN2Step"]
+    );
+    assert_eq!(
+        status.messages,
+        vec!["0010:OK".to_owned(), "0010:OK".to_owned()]
+    );
+    assert_eq!(status.global_return_values.len(), 2);
+    assert_eq!(handler.passport().sca_state().order_ref, None);
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 2);
+    let first_body = String::from_utf8(requests[0].body.clone()).expect("first body is text");
+    let second_body = String::from_utf8(requests[1].body.clone()).expect("second body is text");
+    assert!(fints_segment(&first_body, "HKTAN").starts_with("HKTAN:4:5+4+HKSAL"));
+    assert!(second_body.contains("+300+0+2'"), "{second_body}");
+    assert!(fints_segment(&second_body, "HKTAN").starts_with("HKTAN:3:5+2"));
+    assert!(
+        fints_segment(&second_body, "HKTAN").contains("ORDER-REF-100"),
+        "{second_body}"
+    );
+
+    let events = events.lock().expect("callback event lock");
+    assert!(events.iter().any(|event| {
+        event.reason == CallbackReason::NeedPtTan && event.current_value.as_deref() == Some("HHDUC")
+    }));
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_process2_auto_execution_stops_when_no_orderref_was_returned() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&["HIRMG:2:2+0010::OK"]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    handler
+        .try_add_to_queue_with_initial_tan_job(saldo)
+        .expect("task and first HKTAN queue");
+
+    let status = handler
+        .execute_with_tan2step_process2()
+        .await
+        .expect("first message executes");
+
+    assert!(status.success);
+    assert_eq!(status.job_results.len(), 2);
+    assert_eq!(replay.requests().expect("requests").len(), 1);
+    assert!(
+        events
+            .lock()
+            .expect("callback event lock")
+            .iter()
+            .all(|event| event.reason != CallbackReason::NeedPtTan)
+    );
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
 async fn handler_rejects_process2_tan_submission_when_queue_is_not_empty() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let mut handler = HbciHandler::new("300", passport);

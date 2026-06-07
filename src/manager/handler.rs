@@ -425,6 +425,31 @@ where
         Ok(status)
     }
 
+    pub async fn execute_with_tan2step_process2(&mut self) -> HbciResult<HbciExecStatus> {
+        let mut status = self.execute().await?;
+        if self.should_execute_tan2step_process2_submission(&status) {
+            let submission_status = self.execute_tan2step_process2_submission().await?;
+            merge_exec_status(&mut status, submission_status);
+        }
+        Ok(status)
+    }
+
+    fn should_execute_tan2step_process2_submission(&self, status: &HbciExecStatus) -> bool {
+        status.success
+            && self
+                .passport
+                .current_tan_method()
+                .unwrap_or(ONESTEP_TAN_METHOD_ID)
+                != ONESTEP_TAN_METHOD_ID
+            && self.passport.tan2step_parameter("process").as_deref() != Some("1")
+            && self
+                .passport
+                .sca_state()
+                .order_ref
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+    }
+
     pub async fn close(&mut self) -> HbciResult<()> {
         if !self.dialog.is_open() {
             return Ok(());
@@ -589,6 +614,53 @@ where
 
         message.prepare_outgoing()?;
         message.to_fints_bytes()
+    }
+}
+
+fn merge_exec_status(target: &mut HbciExecStatus, mut source: HbciExecStatus) {
+    target.success = target.success && source.success;
+    target.job_results.append(&mut source.job_results);
+    target.messages.append(&mut source.messages);
+    target
+        .global_return_values
+        .append(&mut source.global_return_values);
+    target
+        .segment_return_values
+        .append(&mut source.segment_return_values);
+
+    for (customer_id, status) in source.dialog_statuses {
+        if let Some(existing) = target.dialog_statuses.get_mut(&customer_id) {
+            merge_dialog_status(existing, status);
+        } else {
+            target.dialog_statuses.insert(customer_id, status);
+        }
+    }
+    for (customer_id, mut messages) in source.exception_messages {
+        target
+            .exception_messages
+            .entry(customer_id)
+            .or_default()
+            .append(&mut messages);
+    }
+}
+
+fn merge_dialog_status(target: &mut HbciDialogStatus, mut source: HbciDialogStatus) {
+    if target.init_status.is_none() {
+        target.init_status = source.init_status.take();
+    }
+
+    let common_prefix_len = target
+        .message_statuses
+        .iter()
+        .zip(source.message_statuses.iter())
+        .take_while(|(left, right)| left == right)
+        .count();
+    target
+        .message_statuses
+        .extend(source.message_statuses.into_iter().skip(common_prefix_len));
+
+    if source.end_status.is_some() {
+        target.end_status = source.end_status;
     }
 }
 
