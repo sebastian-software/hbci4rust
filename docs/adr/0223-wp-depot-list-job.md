@@ -38,7 +38,7 @@ wire shape:
 - use the passport account as fallback for the depot KTV fields, matching the
   existing account-fallback pattern used by other jobs;
 - render `WPDepotList6` as `HKWPD` with depot account, optional quality,
-  optional max entries, and optional offset;
+  and optional max entries;
 - add an `orderhash_source_job_info` mapping so the job can participate in
   PinTAN order-hash preparation;
 - expose a Rust `GvrWPDepotList` result that stores decoded raw `data535` and
@@ -56,9 +56,9 @@ smaller than hbci4java's final `GVRWPDepotList`: callers can access the raw
 decoded depot payload now, while structured security position parity remains
 tracked as follow-up work.
 
-The Java constructor has no public `curr` constraint even though `WPDepotList6`
-contains an optional `curr` field, so this slice does not expose a new
-Rust-only `curr` parameter.
+The Java constructor has no public `curr` or `offset` constraint even though
+`WPDepotList6` contains optional `curr` and `offset` fields, so this slice does
+not expose new Rust-only `curr` or `offset` parameters.
 
 ## References
 - `target/reference/hbci4java/src/main/java/org/kapott/hbci/GV/GVWPDepotList.java`
