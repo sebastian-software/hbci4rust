@@ -58,8 +58,6 @@ legacy_jobs=(
   DauerList
   DauerNew
   Donation
-  Last
-  StornoLast
   TermUeb
   TermUebDel
   TermUebEdit

@@ -49,23 +49,25 @@ show:
 
 | Audit | Upstream surface | Rust v1 coverage | Intentional gap |
 | --- | --- | --- | --- |
-| Jobs | 68 `GV*.java` classes | 63 registered jobs | `GVTemplate`, `GVLastCOR1SEPA`, `GVMultiLastCOR1SEPA`, `GVMultiLast`, `GVMultiUeb` |
+| Jobs | 68 `GV*.java` classes | 61 registered jobs | `GVTemplate`, `GVLast`, `GVLastCOR1SEPA`, `GVMultiLast`, `GVMultiLastCOR1SEPA`, `GVMultiUeb`, `GVStornoLast` |
 | Results | 24 normalized `GVR*.java` shapes | 23 typed result shapes | `WPStammData` |
 
 The audit gaps are explicit v1 boundaries. `GVTemplate` is Java's dynamic
 `newLowlevelJob(...)` fallback, `WPStammData` is tied to the lowlevel
 `WPStammList` path, the two `COR1` direct-debit jobs were removed because
-`COR1` is no longer relevant for new SDD Core collections, and the two DTAUS
-bulk jobs were removed because German national transfer/direct-debit schemes
-were replaced by SEPA. They are not hidden PinTAN implementation holes.
+`COR1` is no longer relevant for new SDD Core collections, the two DTAUS bulk
+jobs were removed because German national transfer/direct-debit schemes were
+replaced by SEPA, and the classic national direct-debit jobs were removed for
+the same reason. They are not hidden PinTAN implementation holes.
 
 Some classic hbci4java payment jobs are currently still present for
 original-near compatibility, but they are not the product direction. See
 `docs/reference/modern-scope-audit.md` for the current split between modern v1
 surface, compatibility-carried legacy surface, and unsupported legacy surface.
-The original audit found 21 legacy candidates; after removing `COR1` and DTAUS
-bulk public jobs, 17 compatibility-carried legacy jobs remain. Their guarded
-cleanup path is documented in `docs/architecture/legacy-cleanup-plan.md`.
+The original audit found 21 legacy candidates; after removing `COR1`, DTAUS
+bulk, and classic direct-debit public jobs, 15 compatibility-carried legacy jobs
+remain. Their guarded cleanup path is documented in
+`docs/architecture/legacy-cleanup-plan.md`.
 
 ## What V1 Includes
 

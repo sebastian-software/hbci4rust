@@ -4,8 +4,9 @@ Snapshot date: 2026-06-07.
 
 This audit checked the original 21 compatibility-carried legacy job candidates
 for current relevance before removal or feature-gating work. ADR 0265 removed
-the two `COR1` candidates from the public registry, and ADR 0266 removed the two
-DTAUS bulk candidates. That leaves 17 compatibility-carried legacy candidates in
+the two `COR1` candidates from the public registry, ADR 0266 removed the two
+DTAUS bulk candidates, and ADR 0267 removed the two classic direct-debit
+candidates. That leaves 15 compatibility-carried legacy candidates in
 `scripts/audit-modern-scope.sh`.
 
 ## Finding
@@ -47,12 +48,12 @@ The current Rust port keeps the original-near field shapes:
 | `DauerList` | Classic standing-order list query keyed by national account identity. | `DauerSEPAList` | Legacy; remove or hide with the classic standing-order slice. |
 | `DauerNew` | Classic standing-order creation with national account fields and DTAUS-style usage. | `DauerSEPANew` | Legacy; remove or hide with the classic standing-order slice. |
 | `Donation` | hbci4java alias over classic `Ueb5` with donation-specific DTAUS usage fields. | `UebSEPA` plus caller-side remittance purpose handling | Legacy; remove or hide with classic domestic transfer aliases. |
-| `Last` | Classic domestic direct-debit submission predating the SEPA direct-debit rail. | `LastSEPA`, `LastB2BSEPA` | Legacy; remove or hide with the classic direct-debit slice. |
+| `Last` | Classic domestic direct-debit submission predating the SEPA direct-debit rail. | `LastSEPA`, `LastB2BSEPA` | Removed from public registry by ADR 0267. |
 | `LastCOR1SEPA` | SEPA job, but `COR1` is obsolete for new SDD Core collections. | `LastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
 | `MultiLast` | Classic domestic bulk direct debit with serialized DTAUS payload. | `MultiLastSEPA`, `MultiLastB2BSEPA` | Removed from public registry by ADR 0266. |
 | `MultiLastCOR1SEPA` | SEPA bulk job, but `COR1` is obsolete for new SDD Core collections. | `MultiLastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
 | `MultiUeb` | Classic domestic bulk transfer with serialized DTAUS payload. | `MultiUebSEPA` | Removed from public registry by ADR 0266. |
-| `StornoLast` | Classic domestic direct-debit objection path, tied to the pre-SEPA direct-debit surface. | Explicit future dispute/return workflow if needed | Legacy; remove or hide with the classic direct-debit slice. |
+| `StornoLast` | Classic domestic direct-debit objection path, tied to the pre-SEPA direct-debit surface. | Explicit future dispute/return workflow if needed | Removed from public registry by ADR 0267. |
 | `TermUeb` | Classic scheduled transfer with national source and destination account fields. | `TermUebSEPA`, `TermMultiUebSEPA` | Legacy; remove or hide with classic scheduled transfers. |
 | `TermUebDel` | Classic scheduled-transfer deletion using stored classic order data. | `TermUebSEPADel` | Legacy; remove or hide with classic scheduled transfers. |
 | `TermUebEdit` | Classic scheduled-transfer edit with national account fields and DTAUS-style usage. | `TermUebSEPAEdit` | Legacy; remove or hide with classic scheduled transfers. |
@@ -70,13 +71,13 @@ Remaining cleanup order remains conservative, with one correction: `UebForeign`
 is not a domestic transfer and should be handled last or behind a dedicated
 product-boundary ADR. `LastCOR1SEPA` and `MultiLastCOR1SEPA` were already
 removed from the public registry by ADR 0265. `MultiUeb` and `MultiLast` were
-already removed from the public registry by ADR 0266.
+already removed from the public registry by ADR 0266. `Last` and `StornoLast`
+were already removed from the public registry by ADR 0267.
 
-1. `Last`, `StornoLast`
-2. `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation`
-3. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`,
+1. `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation`
+2. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`,
    `DauerEdit`, `DauerDel`, `DauerList`
-4. `UebForeign`
+3. `UebForeign`
 
 ## Source Links
 

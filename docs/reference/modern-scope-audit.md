@@ -80,7 +80,6 @@ A detailed per-job current-relevance audit lives in
 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments are current, but this HKAOM/UebForeign2 job is an old FinTS shape rather than a modern ISO 20022-oriented cross-border payment surface. |
 | Classic scheduled transfers | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList` | They are the non-SEPA counterparts to the SEPA scheduled-transfer jobs. |
 | Classic standing orders | `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | They are the non-SEPA counterparts to the SEPA standing-order jobs. |
-| Classic direct debit and objection jobs | `Last`, `StornoLast` | They predate the SEPA direct-debit rail. |
 
 ## Intentionally Unsupported Legacy Surface
 
@@ -92,6 +91,7 @@ These surfaces remain out of scope, not merely deferred:
 - Java passport import/export;
 - `LastCOR1SEPA` and `MultiLastCOR1SEPA`;
 - `MultiUeb` and `MultiLast`;
+- `Last` and `StornoLast`;
 - arbitrary dynamic lowlevel jobs through public `newLowlevelJob(...)`;
 - `GVTemplate`;
 - `WPStammData` / lowlevel `WPStammList`.
@@ -120,9 +120,9 @@ scripts/audit-modern-scope.sh
 Current output:
 
 ```text
-registry=63
+registry=61
 modern=46
-legacy=17
+legacy=15
 duplicates=<none>
 unclassified=<none>
 stale=<none>

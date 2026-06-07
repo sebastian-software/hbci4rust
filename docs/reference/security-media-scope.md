@@ -18,8 +18,8 @@ security-media holes:
 ```text
 $ scripts/audit-job-coverage.sh
 upstream=68
-rust=63
-missing=LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,Template
+rust=61
+missing=Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template
 extra=<none>
 
 $ scripts/audit-result-coverage.sh
@@ -39,6 +39,10 @@ because `COR1` is no longer relevant for new SDD Core collections.
 
 `GVMultiLast` and `GVMultiUeb` were removed from the public registry because
 they are DTAUS bulk jobs over the old national payment rails. The SEPA bulk jobs
+remain in scope.
+
+`GVLast` and `GVStornoLast` were removed from the public registry because they
+are classic national direct-debit jobs. The SEPA Core and B2B direct-debit jobs
 remain in scope.
 
 `WPStammData` is intentionally excluded because the upstream result class is

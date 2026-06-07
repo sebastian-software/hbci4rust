@@ -22,8 +22,8 @@ Last checked: 2026-06-07.
 
 ```text
 upstream=68
-rust=63
-missing=LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,Template
+rust=61
+missing=Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template
 extra=<none>
 ```
 
@@ -41,6 +41,10 @@ and B2B SEPA direct-debit jobs remain in scope.
 in ADR 0266 because they are DTAUS bulk jobs over the old national payment
 rails. The modern SEPA bulk jobs remain in scope.
 
+`Last` and `StornoLast` were intentionally removed from the public registry in
+ADR 0267 because they are classic national direct-debit jobs over the old
+payment rail. The modern SEPA Core and B2B direct-debit jobs remain in scope.
+
 ## How To Recheck
 
 ```sh
@@ -50,8 +54,8 @@ scripts/audit-job-coverage.sh
 
 The audit exits successfully only when:
 
-- the only missing upstream `GV*.java` names are `LastCOR1SEPA`,
-  `MultiLast`, `MultiLastCOR1SEPA`, `MultiUeb`, and `Template`;
+- the only missing upstream `GV*.java` names are `Last`, `LastCOR1SEPA`,
+  `MultiLast`, `MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, and `Template`;
 - the Rust registry has no job names without a matching upstream `GV*.java`
   class.
 
@@ -65,5 +69,6 @@ not vendored and CI remains offline-only.
 - `docs/adr/0252-unsupported-v1-surface-reference.md`
 - `docs/adr/0265-remove-cor1-public-jobs.md`
 - `docs/adr/0266-remove-dtaus-bulk-public-jobs.md`
+- `docs/adr/0267-remove-classic-direct-debit-public-jobs.md`
 - `docs/reference/unsupported-surfaces.md`
 - `scripts/audit-job-coverage.sh`

@@ -61,7 +61,9 @@ public registry:
 - `LastCOR1SEPA`;
 - `MultiLastCOR1SEPA`;
 - `MultiLast`;
-- `MultiUeb`.
+- `MultiUeb`;
+- `Last`;
+- `StornoLast`.
 
 `LastCOR1SEPA` and `MultiLastCOR1SEPA` were compatibility-carried SEPA `COR1`
 direct-debit variants. EPC guidance states that `COR1` is no longer relevant
@@ -72,6 +74,12 @@ SEPA direct-debit jobs instead: `LastSEPA`, `MultiLastSEPA`, `LastB2BSEPA`, or
 `MultiLast` and `MultiUeb` were compatibility-carried DTAUS bulk jobs over the
 old national payment rails. Use the modern SEPA bulk jobs instead:
 `MultiUebSEPA`, `MultiLastSEPA`, or `MultiLastB2BSEPA`.
+
+`Last` and `StornoLast` were compatibility-carried classic national
+direct-debit jobs. Use `LastSEPA`, `LastB2BSEPA`, `MultiLastSEPA`, or
+`MultiLastB2BSEPA` for current direct-debit initiation. Any future
+direct-debit dispute or return workflow needs a new scoped decision rather than
+the old `LastObjection2` job.
 
 ## Dynamic Lowlevel Boundary
 
@@ -89,9 +97,9 @@ class. It is not treated as permission to construct arbitrary lowlevel jobs.
 available for original-near rendering, result inspection, and tests. They do
 not widen v1 into a dynamic lowlevel API.
 
-The current job coverage audit therefore allows exactly five missing upstream
-`GV*.java` classes: `LastCOR1SEPA`, `MultiLast`,
-`MultiLastCOR1SEPA`, `MultiUeb`, and `Template`.
+The current job coverage audit therefore allows exactly seven missing upstream
+`GV*.java` classes: `Last`, `LastCOR1SEPA`, `MultiLast`,
+`MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, and `Template`.
 
 ## Typed Result Boundary
 
@@ -181,3 +189,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0262: Non-Legacy Publication Scope
 - ADR 0265: Remove COR1 Public Jobs
 - ADR 0266: Remove DTAUS Bulk Public Jobs
+- ADR 0267: Remove Classic Direct Debit Public Jobs
