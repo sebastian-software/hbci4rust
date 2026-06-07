@@ -108,6 +108,63 @@ fn searches_bank_info_like_original() {
     assert_bank_codes(registry.search_bank_info("hamb"), &["10000000"]);
 }
 
+#[test]
+fn reports_supported_access_types_from_bank_info() {
+    let pin_tan = BankInfo::parse_property(
+        "21070020",
+        "Deutsche Bank|Kiel|DEUTDEHH210|63||https://fints.deutsche-bank.de/||300|",
+    );
+    let rdh = BankInfo::parse_property(
+        "60050000",
+        "Landesbank Baden-Württemberg|Stuttgart|SOLADESTXXX|09|195.145.2.44||210||",
+    );
+    let offline_only = BankInfo::parse_property("10011001", "N26 Bank|Berlin|NTSBDEB1XXX|09|||||");
+
+    assert!(pin_tan.supports_pin_tan());
+    assert!(!pin_tan.supports_rdh());
+    assert!(rdh.supports_rdh());
+    assert!(!rdh.supports_pin_tan());
+    assert!(!offline_only.supports_pin_tan());
+    assert!(!offline_only.supports_rdh());
+}
+
+#[test]
+fn bundled_bank_info_registry_loads_pinned_upstream_blz_properties() {
+    let registry = BankInfoRegistry::bundled();
+
+    assert_eq!(registry.len(), 4063);
+    assert_eq!(registry.banks().count(), registry.len());
+
+    let info = registry.get_bank_info("20041166").expect("comdirect info");
+    assert_eq!(info.name(), Some("comdirect bank AG"));
+    assert_eq!(info.location(), Some("Quickborn"));
+    assert_eq!(info.bic(), Some("COBADEHD066"));
+    assert_eq!(
+        info.pin_tan_address(),
+        Some("https://fints.comdirect.de/fints")
+    );
+    assert_eq!(info.pin_tan_version(), Some(HbciVersion::Hbci300));
+    assert!(info.supports_pin_tan());
+}
+
+#[test]
+fn bundled_registry_filters_and_searches_pin_tan_banks() {
+    let registry = BankInfoRegistry::bundled();
+
+    assert_eq!(registry.pin_tan_banks().count(), 2720);
+    assert_bank_codes(
+        registry.search_pin_tan_banks("comdirect"),
+        &[
+            "20041111", "20041133", "20041144", "20041155", "20041166", "20041177", "20041188",
+            "20041199",
+        ],
+    );
+    assert_eq!(
+        registry.search_pin_tan_banks("N26"),
+        Vec::<&BankInfo>::new()
+    );
+}
+
 fn assert_bank_codes(infos: Vec<&BankInfo>, expected: &[&str]) {
     let actual = infos
         .into_iter()

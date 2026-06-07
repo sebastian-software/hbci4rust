@@ -44,6 +44,12 @@ resources/protocol/hbci-plus.xml
 resources/protocol/hbci.dtd
 ```
 
+The bundled bank-info registry uses the pinned hbci4java BLZ table:
+
+```text
+resources/bank_info/blz.properties
+```
+
 ## Coverage Matrix
 
 | Area | Evidence | Current v1 claim | Limitation |
@@ -55,7 +61,7 @@ resources/protocol/hbci.dtd
 | PAIN generation | `tests/sepa.rs`; `tests/bootstrap.rs`; `docs/reference/migration-examples.md` | Generated PAIN.001/PAIN.008 payloads are checked for Java-compatible fields, sums, mixed-currency rejection, integration with job constraints, and parser roundtrips. | v1 does not claim byte-for-byte Java XML output identity for generated PAIN documents. Add Java-generated golden XML before making byte identity a release claim. |
 | SWIFT/MT940 parsing | `tests/swift.rs`; `tests/structures.rs`; copied MT940 fixtures | Umlaut decoding, tag extraction, block splitting, MT940 shell parsing, line parsing, balance correction, storno/year handling, SEPA counter-account mapping, and two copied upstream MT940 fixtures are covered. | MT942 is only covered for the current shell/unbooked-data boundary; full MT942 parser parity is not claimed. |
 | Security-mechanism parsers/renderers | `tests/secmech.rs`; copied `challengedata.xml`, QR, and matrix fixtures | Challenge info, HHD version detection, QR, matrix, flicker code parsing, and flicker rendering are covered against upstream-style fixtures and known test cases. | New TAN media payload variants from live banks need replay or fixture coverage before release acceptance depends on them. |
-| Bank-info parsing | `tests/bank_info.rs`; copied bank-info fixture | Properties parsing, lookup behavior, HBCI version mapping, and copied upstream bank-info examples are covered. | The production BLZ registry is not treated as a live, always-current artifact for v1 acceptance. |
+| Bank-info parsing and bundled lookup | `tests/bank_info.rs`; `resources/bank_info/blz.properties`; copied bank-info fixture | Properties parsing, lookup behavior, HBCI version mapping, copied upstream bank-info examples, bundled registry loading, and PinTAN filtering are covered. | The bundled BLZ registry is a pinned upstream snapshot, not a live, always-current bank-support guarantee. |
 
 ## Explicit V1 Limitations
 

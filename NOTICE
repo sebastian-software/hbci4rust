@@ -8,3 +8,6 @@ Upstream:
 HBCI4Java is licensed under LGPL 2.1 according to its repository README and
 LICENSE file. See docs/adr/0002-license-and-attribution.md for the porting
 license assumption and handling of inconsistent file headers.
+
+Copied upstream resources include protocol XML/DTD files, offline test
+fixtures, and the bundled bank-info table at resources/bank_info/blz.properties.

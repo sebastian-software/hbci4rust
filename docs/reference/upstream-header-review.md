@@ -56,16 +56,17 @@ The current port contains copied upstream protocol resources and offline
 fixtures in these paths:
 
 ```sh
-rg --files resources/protocol tests/fixtures/hbci4java | sort
+rg --files resources/protocol resources/bank_info tests/fixtures/hbci4java | sort
 ```
 
-There are 22 files in those local paths:
+There are 24 files in those local paths:
 
-- 20 copied upstream artifacts;
-- 2 local attribution README files.
+- 21 copied upstream artifacts;
+- 3 local attribution README files.
 
 The copied upstream artifacts are:
 
+- bank-info resource: `blz.properties`;
 - protocol resources: `hbci-201.xml`, `hbci-210.xml`, `hbci-220.xml`,
   `hbci-300.xml`, `hbci-plus.xml`, and `hbci.dtd`;
 - bank-info fixture: `test-bank-info.properties`;
@@ -91,6 +92,7 @@ Local attribution is present in:
 - `NOTICE`;
 - `LICENSE`;
 - `docs/adr/0002-license-and-attribution.md`;
+- `resources/bank_info/README.md`;
 - `resources/protocol/README.md`;
 - `tests/fixtures/hbci4java/README.md`.
 

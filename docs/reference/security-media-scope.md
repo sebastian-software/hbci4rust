@@ -63,6 +63,12 @@ high-level job.
 The security-media exclusions are therefore not hidden missing job classes. They
 are separate runtime and storage surfaces that v1 intentionally does not claim.
 
+The bundled pinned hbci4java BLZ table also supports the product boundary. It
+contains 4,063 rows, including 2,720 rows with PinTAN address/version columns,
+and the crate exposes that distinction through `BankInfoRegistry::bundled()`,
+`pin_tan_banks()`, and `search_pin_tan_banks(...)`. This is setup evidence from
+the pinned upstream snapshot, not a live-bank availability guarantee.
+
 ## Current External Evidence
 
 The following sources were checked for the v1 scope decision.

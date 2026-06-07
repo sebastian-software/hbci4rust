@@ -39,6 +39,7 @@ expected crate and porting artifacts:
 - architecture and release tracking: `docs/architecture/`;
 - migration/reference notes: `docs/reference/`;
 - rustification backlog: `docs/rustification/`;
+- original bank-info resources: `resources/bank_info/`;
 - original protocol resources: `resources/protocol/`;
 - maintenance scripts: `scripts/`;
 - library sources: `src/`;
@@ -55,11 +56,12 @@ Direct upstream attribution is present in:
 - `NOTICE`;
 - `docs/adr/0002-license-and-attribution.md`;
 - `docs/reference/upstream-header-review.md`;
+- `resources/bank_info/README.md`;
 - `resources/protocol/README.md`;
 - `tests/fixtures/hbci4java/README.md`.
 
-Copied protocol XML/DTD resources and copied offline fixtures both name the
-pinned hbci4java repository, tag, commit, and upstream source context.
+Copied bank-info resources, protocol XML/DTD resources, and offline fixtures
+name the pinned hbci4java repository, tag, commit, and upstream source context.
 
 ## Publication Guardrails
 

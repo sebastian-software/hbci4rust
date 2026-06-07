@@ -1,5 +1,13 @@
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
+use std::sync::OnceLock;
+
+const BUNDLED_BLZ_PROPERTIES: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/resources/bank_info/blz.properties"
+));
+
+static BUNDLED_BANK_INFO_REGISTRY: OnceLock<BankInfoRegistry> = OnceLock::new();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BankInfoRegistry {
@@ -7,6 +15,10 @@ pub struct BankInfoRegistry {
 }
 
 impl BankInfoRegistry {
+    pub fn bundled() -> &'static Self {
+        BUNDLED_BANK_INFO_REGISTRY.get_or_init(|| Self::parse_properties(BUNDLED_BLZ_PROPERTIES))
+    }
+
     pub fn parse_properties(text: &str) -> Self {
         let mut registry = Self::default();
 
@@ -52,6 +64,21 @@ impl BankInfoRegistry {
         self.banks
             .values()
             .filter(|info| bank_info_matches_query(info, &query))
+            .collect()
+    }
+
+    pub fn banks(&self) -> impl Iterator<Item = &BankInfo> {
+        self.banks.values()
+    }
+
+    pub fn pin_tan_banks(&self) -> impl Iterator<Item = &BankInfo> {
+        self.banks().filter(|info| info.supports_pin_tan())
+    }
+
+    pub fn search_pin_tan_banks(&self, query: &str) -> Vec<&BankInfo> {
+        self.search_bank_info(query)
+            .into_iter()
+            .filter(|info| info.supports_pin_tan())
             .collect()
     }
 
@@ -146,12 +173,20 @@ impl BankInfo {
         self.pin_tan_version
     }
 
+    pub fn supports_pin_tan(&self) -> bool {
+        has_text(self.pin_tan_address()) || self.pin_tan_version.is_some()
+    }
+
     pub fn rdh_address(&self) -> Option<&str> {
         self.rdh_address.as_deref()
     }
 
     pub fn rdh_version(&self) -> Option<HbciVersion> {
         self.rdh_version
+    }
+
+    pub fn supports_rdh(&self) -> bool {
+        has_text(self.rdh_address()) || self.rdh_version.is_some()
     }
 }
 
@@ -252,4 +287,8 @@ fn split_property_line(line: &str) -> Option<(&str, &str)> {
     }?;
 
     Some((&line[..separator], &line[separator + 1..]))
+}
+
+fn has_text(value: Option<&str>) -> bool {
+    value.is_some_and(|value| !value.trim().is_empty())
 }

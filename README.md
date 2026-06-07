@@ -87,6 +87,8 @@ documented in
 - Typed result data for the supported high-level result shapes.
 - SEPA/CAMT, SWIFT/MT940, status, structure, challenge, QR, matrix, and flicker
   helpers.
+- Bundled pinned hbci4java BLZ table for setup/search, including PinTAN access
+  filtering.
 - Signed HBCI-Plus/PinTAN dialog init, execution, close, one-step TAN,
   process-1, process-2, decoupled polling, TAN media selection, and QR/photoTAN
   callback coverage.
@@ -131,6 +133,9 @@ Current evidence supports that stance:
   deletion through online/app banking with IBAN and TAN/app approval; that
   supports keeping SEPA standing-order jobs while removing classic national
   `Dauer*` jobs.
+- The pinned hbci4java BLZ table bundled in this crate contains 4,063 bank rows,
+  with 2,720 rows exposing PinTAN address/version columns. That is useful setup
+  evidence, but still a snapshot rather than a live support promise.
 - EPC guidance says the SEPA `COR1` local instrument is no longer relevant for
   new SDD Core collections from 20 November 2016.
 - EU/ECB instant-payment guidance makes `InstUebSEPA` and verification-style
@@ -141,8 +146,9 @@ The detailed evidence and source links live in
 `docs/reference/modern-scope-audit.md`. The original 21 legacy cleanup
 candidates are checked one by one in
 `docs/reference/legacy-job-relevance-audit.md`; after the COR1, DTAUS bulk,
-classic direct-debit, and classic domestic transfer/account-transfer cleanups, 9
-legacy candidates remain in the public registry.
+classic direct-debit, classic domestic transfer/account-transfer, and classic
+scheduled-transfer/standing-order cleanups, 1 compatibility-carried legacy
+candidate remains in the public registry.
 
 ## Documentation Map
 

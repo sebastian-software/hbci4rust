@@ -223,6 +223,12 @@ ParameterQuery
 Properties
 ```
 
+`BankInfoRegistry::bundled()` exposes the pinned hbci4java BLZ table from
+`resources/bank_info/blz.properties`. Callers can iterate all entries with
+`banks()`, filter FinTS PinTAN-capable entries with `pin_tan_banks()`, or use
+`search_pin_tan_banks(...)` for setup-style bank search. The bundled table is a
+snapshot and must not be treated as a live bank-support guarantee.
+
 The crate also re-exports original-near helper functions:
 
 ```text

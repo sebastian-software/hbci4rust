@@ -82,10 +82,13 @@ Evidence:
 - ADR 0271
 - ADR 0272
 - ADR 0273
+- ADR 0274
 
 ## Protocol And Offline Parity
 
 - [x] Original protocol XML/DTD resources are loaded from `resources/protocol/`.
+- [x] The pinned hbci4java BLZ table is loaded from `resources/bank_info/` and
+  attributed as a copied upstream resource.
 - [x] FinTS wire parsing/rendering tests cover quoted delimiters, binary
   blocks, segment resolution, sequence validation, and value extraction.
 - [x] SEPA/CAMT/SWIFT/MT940 fixtures cover the current original-near parser and
