@@ -504,7 +504,7 @@ impl HbciJob {
             "CardList" => self.check_account_crc("my", callback).await,
             "DauerList" => self.check_account_crc("my", callback).await,
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
-            | "SaldoReq" | "SaldoReqAll" | "WPDepotList" => {
+            | "SaldoReq" | "SaldoReqAll" | "WPDepotList" | "WPDepotUms" => {
                 self.check_account_crc("my", callback).await
             }
             "FestList" => self.check_account_crc("my", callback).await,
@@ -916,6 +916,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "VoP" => vop_constraints(),
         "VoPAuth" => vop_auth_constraints(),
         "WPDepotList" => wp_depot_list_constraints(),
+        "WPDepotUms" => wp_depot_ums_constraints(),
         _ => Vec::new(),
     }
 }
@@ -2141,6 +2142,20 @@ fn wp_depot_list_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.blz", "WPDepotList6.Depot.KIK.blz", Some("")),
         HbciJobConstraint::new("quality", "WPDepotList6.quality", Some("")),
         HbciJobConstraint::new("maxentries", "WPDepotList6.maxentries", Some("")),
+    ]
+}
+
+fn wp_depot_ums_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.number", "WPDepotUms5.Depot.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "WPDepotUms5.Depot.subnumber", Some("")),
+        HbciJobConstraint::new("my.country", "WPDepotUms5.Depot.KIK.country", Some("")),
+        HbciJobConstraint::new("my.blz", "WPDepotUms5.Depot.KIK.blz", Some("")),
+        HbciJobConstraint::new("quality", "WPDepotUms5.quality", Some("")),
+        HbciJobConstraint::new("maxentries", "WPDepotUms5.maxentries", Some("")),
+        HbciJobConstraint::new("startdate", "WPDepotUms5.startdate", Some("")),
+        HbciJobConstraint::new("enddate", "WPDepotUms5.enddate", Some("")),
+        HbciJobConstraint::new("dummy", "WPDepotUms5.alldepots", Some("N")),
     ]
 }
 

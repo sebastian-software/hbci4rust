@@ -15,10 +15,10 @@ use crate::gv_result::{
     GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrKontoauszug,
     GvrKontoauszugEntry, GvrLastSepa, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry,
     GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb,
-    GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, GvrVoP, GvrWPDepotList, HbciDialogStatus,
-    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
-    HbciReturnValue, HbciStatus, Konto, KontoauszugFormat, Saldo, Value, VoPResult, VoPResultItem,
-    VoPStatus,
+    GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, GvrVoP, GvrWPDepotList, GvrWPDepotUms,
+    HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData,
+    HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, KontoauszugFormat, Saldo, Value, VoPResult,
+    VoPResultItem, VoPStatus,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1160,6 +1160,7 @@ fn render_job_into_custom_message(
         "VoP" => render_vop(message, job, index),
         "VoPAuth" => render_vop_auth(message, job, index),
         "WPDepotList" => render_wp_depot_list(message, job, index, passport),
+        "WPDepotUms" => render_wp_depot_ums(message, job, index, passport),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
@@ -1295,10 +1296,13 @@ fn render_task_segment_for_orderhash(
 
 fn task_order_account(task: &HbciJob, passport: &PinTanPassport) -> Option<Konto> {
     let task_info = orderhash_source_job_info(task.name()).ok()?;
-    let account = if matches!(task.name(), "Kontoauszug" | "KontoauszugPdf") {
-        effective_job_my_account(task, passport, task_info.lowlevel_segment, "my")
-    } else {
-        effective_job_account(task, passport, task_info.lowlevel_segment, "my")
+    let account = match task.name() {
+        "Kontoauszug" | "KontoauszugPdf" => {
+            effective_job_my_account(task, passport, task_info.lowlevel_segment, "my")
+        }
+        "WPDepotList" => wp_depot_list_account(task, passport).ok()?,
+        "WPDepotUms" => wp_depot_ums_account(task, passport).ok()?,
+        _ => effective_job_account(task, passport, task_info.lowlevel_segment, "my"),
     };
     has_account_identity(&account).then_some(account)
 }
@@ -1607,6 +1611,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKWPD",
             lowlevel_segment: "WPDepotList6",
             path: "CustomMsg.GV.WPDepotList6",
+        }),
+        "WPDepotUms" => Ok(OrderhashSourceJobInfo {
+            code: "HKWDU",
+            lowlevel_segment: "WPDepotUms5",
+            path: "CustomMsg.GV.WPDepotUms5",
         }),
         "SaldoReq" | "SaldoReqAll" => Ok(OrderhashSourceJobInfo {
             code: "HKSAL",
@@ -1924,6 +1933,14 @@ fn wp_depot_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.WPDepotListRes6".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.WPDepotListRes6", index + 1)
+    }
+}
+
+fn wp_depot_ums_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.WPDepotUmsRes5".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.WPDepotUmsRes5", index + 1)
     }
 }
 
@@ -2444,6 +2461,43 @@ fn render_wp_depot_list(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "WPDepotList6.maxentries", "maxentries"),
+    )
+}
+
+fn render_wp_depot_ums(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.WPDepotUms5");
+    let account = wp_depot_ums_account(job, passport)?;
+
+    message.set_value(&segment, "requested")?;
+    set_classic_national_account_values(message, &format!("{segment}.Depot"), &account)?;
+    message.set_value(
+        &format!("{segment}.alldepots"),
+        job_param(job, "WPDepotUms5.alldepots", "dummy").unwrap_or("N"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.startdate"),
+        job_param(job, "WPDepotUms5.startdate", "startdate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.enddate"),
+        job_param(job, "WPDepotUms5.enddate", "enddate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "WPDepotUms5.maxentries", "maxentries"),
     )
 }
 
@@ -4784,6 +4838,31 @@ fn wp_depot_list_account(job: &HbciJob, passport: &PinTanPassport) -> HbciResult
     Ok(account)
 }
 
+fn wp_depot_ums_account(job: &HbciJob, passport: &PinTanPassport) -> HbciResult<Konto> {
+    let number = job_param_required(
+        job,
+        "WPDepotUms5.Depot.number",
+        "my.number",
+        "WPDepotUms requires my.number",
+    )?;
+    let mut account = passport.account_by_number(number);
+
+    overlay_account_param(
+        &mut account.subnumber,
+        job_param(job, "WPDepotUms5.Depot.subnumber", "my.subnumber"),
+    );
+    overlay_account_param(
+        &mut account.country,
+        job_param(job, "WPDepotUms5.Depot.KIK.country", "my.country"),
+    );
+    overlay_account_param(
+        &mut account.blz,
+        job_param(job, "WPDepotUms5.Depot.KIK.blz", "my.blz"),
+    );
+
+    Ok(account)
+}
+
 fn standing_order_sepa_account(
     job: &HbciJob,
     passport: &PinTanPassport,
@@ -5374,6 +5453,9 @@ impl ParsedResponseStatus {
             "WPDepotList" => self
                 .wp_depot_list_result_for_root(wp_depot_list_response_root(index))
                 .map(HbciJobResultData::WPDepotList),
+            "WPDepotUms" => self
+                .wp_depot_ums_result_for_root(wp_depot_ums_response_root(index))
+                .map(HbciJobResultData::WPDepotUms),
             _ => None,
         }
     }
@@ -5445,6 +5527,7 @@ impl ParsedResponseStatus {
             "TANMediaList" => self.content_result_data([tan_media_list_response_root(index)]),
             "VoP" => self.content_result_data([vop_response_root(index)]),
             "WPDepotList" => self.content_result_data([wp_depot_list_response_root(index)]),
+            "WPDepotUms" => self.content_result_data([wp_depot_ums_response_root(index)]),
             _ => BTreeMap::new(),
         }
     }
@@ -5693,6 +5776,19 @@ impl ParsedResponseStatus {
 
         Some(GvrWPDepotList {
             data_535,
+            rest: None,
+        })
+    }
+
+    fn wp_depot_ums_result_for_root(&self, root: String) -> Option<GvrWPDepotUms> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        let data_536 = optional_value(&self.values, &format!("{root}.data536"))
+            .map(|data| vec![decode_umlauts(&data)])
+            .unwrap_or_default();
+
+        Some(GvrWPDepotUms {
+            data_536,
+            entries: Vec::new(),
             rest: None,
         })
     }

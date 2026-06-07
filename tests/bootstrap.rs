@@ -878,6 +878,106 @@ fn wp_depot_list_exposes_original_near_v6_constraints() {
 }
 
 #[test]
+fn wp_depot_ums_exposes_original_near_v5_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("WPDepotUms").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 9);
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("my.number constraint")
+            .destination_name,
+        "WPDepotUms5.Depot.number"
+    );
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("my.number constraint")
+            .default_value
+            .as_deref(),
+        None
+    );
+    assert_eq!(
+        job.constraint("my.subnumber")
+            .expect("my.subnumber constraint")
+            .destination_name,
+        "WPDepotUms5.Depot.subnumber"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("my.country constraint")
+            .destination_name,
+        "WPDepotUms5.Depot.KIK.country"
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("my.blz constraint")
+            .destination_name,
+        "WPDepotUms5.Depot.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("quality")
+            .expect("quality constraint")
+            .destination_name,
+        "WPDepotUms5.quality"
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "WPDepotUms5.maxentries"
+    );
+    assert_eq!(
+        job.constraint("startdate")
+            .expect("startdate constraint")
+            .destination_name,
+        "WPDepotUms5.startdate"
+    );
+    assert_eq!(
+        job.constraint("enddate")
+            .expect("enddate constraint")
+            .destination_name,
+        "WPDepotUms5.enddate"
+    );
+    assert_eq!(
+        job.constraint("dummy")
+            .expect("dummy constraint")
+            .destination_name,
+        "WPDepotUms5.alldepots"
+    );
+    assert_eq!(
+        job.constraint("dummy").unwrap().default_value.as_deref(),
+        Some("N")
+    );
+    assert!(job.constraint("offset").is_none());
+
+    job.try_set_param("my.number", "DEPOT1")
+        .expect("depot number is accepted");
+    job.try_set_param("quality", "1")
+        .expect("quality is accepted like hbci4java");
+    job.try_set_param_int("maxentries", 20)
+        .expect("maxentries is accepted");
+    job.try_set_param_date("startdate", "2024-01-02")
+        .expect("startdate is accepted");
+    job.try_set_param_date("enddate", "2024-01-31")
+        .expect("enddate is accepted");
+    assert_eq!(
+        job.lowlevel_param("WPDepotUms5.Depot.number"),
+        Some("DEPOT1")
+    );
+    assert_eq!(job.lowlevel_param("WPDepotUms5.quality"), Some("1"));
+    assert_eq!(job.lowlevel_param("WPDepotUms5.maxentries"), Some("20"));
+    assert_eq!(
+        job.lowlevel_param("WPDepotUms5.startdate"),
+        Some("2024-01-02")
+    );
+    assert_eq!(
+        job.lowlevel_param("WPDepotUms5.enddate"),
+        Some("2024-01-31")
+    );
+}
+
+#[test]
 fn fest_cond_list_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -12247,6 +12347,64 @@ async fn handler_renders_and_collects_wp_depot_list_raw_data_like_original() {
     assert!(
         body.contains("HKWPD:3:6+DEPOT1::280:12345678++1+20'"),
         "{body}"
+    );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_wp_depot_ums_raw_data_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIWDU:3:5+@8@Ums [\\]~",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut depot_ums = handler.new_job("WPDepotUms").expect("job is in registry");
+    depot_ums
+        .try_set_param("my.number", "DEPOT1")
+        .expect("depot number is accepted");
+    depot_ums
+        .try_set_param("quality", "1")
+        .expect("quality is accepted like hbci4java");
+    depot_ums
+        .try_set_param_int("maxentries", 20)
+        .expect("maxentries is accepted");
+    depot_ums
+        .try_set_param_date("startdate", "2024-01-02")
+        .expect("startdate is accepted");
+    depot_ums
+        .try_set_param_date("enddate", "2024-01-31")
+        .expect("enddate is accepted");
+
+    handler.add_to_queue(depot_ums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "WPDepotUms");
+    let Some(HbciJobResultData::WPDepotUms(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected WPDepotUms result data");
+    };
+    assert_eq!(result.data_536, vec!["Ums ÄÖÜß".to_owned()]);
+    assert!(result.entries.is_empty());
+    assert_eq!(result.rest, None);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.data536")
+            .map(String::as_str),
+        Some("Ums [\\]~")
+    );
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains("HKWDU:3:5+DEPOT1::280:12345678+N++20240102+20240131+20'"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("+1+20'"),
+        "quality must not be rendered into WPDepotUms5: {body}"
     );
     assert_signed_custom_msg_request(&body, "0", "1", 5);
 }

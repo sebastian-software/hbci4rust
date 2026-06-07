@@ -671,6 +671,7 @@ pub enum HbciJobResultData {
     TanMediaList(GvrTanMediaList),
     VoP(GvrVoP),
     WPDepotList(GvrWPDepotList),
+    WPDepotUms(GvrWPDepotUms),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -993,6 +994,27 @@ pub struct GvrVoP {
 pub struct GvrWPDepotList {
     pub data_535: Vec<String>,
     pub rest: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrWPDepotUms {
+    pub data_536: Vec<String>,
+    pub entries: Vec<GvrWPDepotUmsEntry>,
+    pub rest: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrWPDepotUmsEntry {
+    pub timestamp: Option<String>,
+    pub depot: Option<Konto>,
+    pub instruments: Vec<GvrWPDepotUmsInstrument>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrWPDepotUmsInstrument {
+    pub isin: Option<String>,
+    pub wkn: Option<String>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
