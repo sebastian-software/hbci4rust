@@ -423,6 +423,60 @@ fn saldo_jobs_expose_original_near_constraints() {
 }
 
 #[test]
+fn acc_info_exposes_original_near_v2_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("AccInfo").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 5);
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .destination_name,
+        "AccInfo2.KTV.KIK.country"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("bank code constraint")
+            .destination_name,
+        "AccInfo2.KTV.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("account number constraint")
+            .destination_name,
+        "AccInfo2.KTV.number"
+    );
+    assert_eq!(
+        job.constraint("my.subnumber")
+            .expect("subnumber constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("all")
+            .expect("allaccounts constraint")
+            .destination_name,
+        "AccInfo2.allaccounts"
+    );
+    assert_eq!(
+        job.constraint("all")
+            .expect("allaccounts constraint")
+            .default_value
+            .as_deref(),
+        Some("N")
+    );
+}
+
+#[test]
 fn kums_all_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -3011,6 +3065,98 @@ async fn handler_uses_replay_comm_client() {
     assert_signed_custom_msg_request(&body, "0", "1", 5);
     assert!(body.contains("HKSAL:3:7+DE02123456780000000000+N'"));
     assert!(!body.contains("SaldoReq"));
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_acc_info_like_original() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        accounts: vec![Konto {
+            country: Some("DE".to_owned()),
+            blz: Some("12345678".to_owned()),
+            number: Some("0000000000".to_owned()),
+            subnumber: Some("".to_owned()),
+            curr: Some("EUR".to_owned()),
+            ..Konto::default()
+        }],
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIKIF:3:2+0000000000::280:12345678+1+Max+Mustermann+Girokonto+EUR+20200102+1,234+0,500+12,345+1000,00:EUR+1111111111::280:12345678+Max Mustermann::Street 1:12345:Berlin:280:49123::mail.example.test+4+3+Bemerkung",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("AccInfo").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "AccInfo");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.My.number")
+            .map(String::as_str),
+        Some("0000000000")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.kredit.value")
+            .map(String::as_str),
+        Some("1000.00")
+    );
+
+    let Some(HbciJobResultData::AccInfo(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected AccInfo result data");
+    };
+    assert_eq!(result.entries.len(), 1);
+    let entry = &result.entries[0];
+    assert_eq!(entry.account.number.as_deref(), Some("0000000000"));
+    assert_eq!(entry.account.blz.as_deref(), Some("12345678"));
+    assert_eq!(entry.account.country.as_deref(), Some("DE"));
+    assert_eq!(entry.account.name.as_deref(), Some("Max"));
+    assert_eq!(entry.account.name2.as_deref(), Some("Mustermann"));
+    assert_eq!(entry.account.account_type.as_deref(), Some("Girokonto"));
+    assert_eq!(entry.account.curr.as_deref(), Some("EUR"));
+    assert_eq!(entry.account_kind, Some(1));
+    assert_eq!(entry.created.as_deref(), Some("2020-01-02"));
+    assert_eq!(entry.sollzins.as_deref(), Some("1.234"));
+    assert_eq!(entry.habenzins.as_deref(), Some("0.500"));
+    assert_eq!(entry.ueberzins.as_deref(), Some("12.345"));
+    assert_eq!(
+        entry.kredit.as_ref().map(|value| value.value.as_str()),
+        Some("1000.00")
+    );
+    assert_eq!(
+        entry
+            .ref_account
+            .as_ref()
+            .and_then(|account| account.number.as_deref()),
+        Some("1111111111")
+    );
+    assert_eq!(entry.versandart, Some(4));
+    assert_eq!(entry.turnus, Some(3));
+    assert_eq!(entry.comment.as_deref(), Some("Bemerkung"));
+    let address = entry.address.as_ref().expect("address");
+    assert_eq!(address.name1.as_deref(), Some("Max Mustermann"));
+    assert_eq!(address.street_pf.as_deref(), Some("Street 1"));
+    assert_eq!(address.plz.as_deref(), Some("12345"));
+    assert_eq!(address.ort.as_deref(), Some("Berlin"));
+    assert_eq!(address.country.as_deref(), Some("DE"));
+    assert_eq!(address.tel.as_deref(), Some("49123"));
+    assert_eq!(address.email.as_deref(), Some("mail.example.test"));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains("HKKIF:3:2+0000000000::280:12345678+N'"),
+        "{body}"
+    );
 }
 
 #[tokio::test]

@@ -24,10 +24,10 @@ pub use dialog::{DialogContext, KnownReturncode};
 pub use error::{HbciError, HbciErrorKind, HbciResult};
 pub use gv::{HbciJob, HbciJobConstraint, JobRegistry, PINTAN_JOB_NAMES};
 pub use gv_result::{
-    GvrKUms, GvrKUmsBTag, GvrKUmsLine, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo,
-    GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit,
-    Saldo, Value,
+    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrKUms, GvrKUmsBTag, GvrKUmsLine, GvrSaldoReq,
+    GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus, HbciExecStatus,
+    HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus,
+    HbciStatusCode, Konto, Limit, Saldo, Value,
 };
 pub use manager::{
     AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,

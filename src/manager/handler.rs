@@ -7,9 +7,10 @@ use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus,
-    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
-    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
+    GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
+    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
+    Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1038,6 +1039,7 @@ fn render_job_into_custom_message(
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
     match job.name() {
+        "AccInfo" => render_acc_info(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
@@ -1220,6 +1222,11 @@ struct OrderhashSourceJobInfo {
 
 fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInfo> {
     match job_name {
+        "AccInfo" => Ok(OrderhashSourceJobInfo {
+            code: "HKKIF",
+            lowlevel_segment: "AccInfo2",
+            path: "CustomMsg.GV.AccInfo2",
+        }),
         "KUmsAll" => Ok(OrderhashSourceJobInfo {
             code: "HKKAZ",
             lowlevel_segment: "KUmsZeit7",
@@ -1284,6 +1291,14 @@ fn kums_response_root(segment_name: &str, index: usize) -> String {
         format!("CustomMsgRes.GVRes.{segment_name}")
     } else {
         format!("CustomMsgRes.GVRes_{}.{segment_name}", index + 1)
+    }
+}
+
+fn acc_info_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.AccInfoRes2".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.AccInfoRes2", index + 1)
     }
 }
 
@@ -1394,6 +1409,35 @@ fn render_kums_all(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "KUmsZeit7.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_acc_info(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.AccInfo2");
+    let account = effective_job_account(job, passport, "AccInfo2", "my");
+    if account.number.as_deref().is_none_or(str::is_empty) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "AccInfo requires my.number or a passport account for the current AccInfo2 tracer renderer",
+        ));
+    }
+
+    set_national_account_values(message, &segment, &account)?;
+    message.set_value(
+        &format!("{segment}.allaccounts"),
+        job_param(job, "AccInfo2.allaccounts", "all").unwrap_or("N"),
     )?;
 
     Ok(())
@@ -1799,6 +1843,34 @@ fn set_account_values(message: &mut HbciMessage, segment: &str, account: &Konto)
     Ok(())
 }
 
+fn set_national_account_values(
+    message: &mut HbciMessage,
+    segment: &str,
+    account: &Konto,
+) -> HbciResult<()> {
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.number"),
+        account.number.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.subnumber"),
+        account.subnumber.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.KIK.country"),
+        account.country.as_deref().or(Some("DE")),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.KTV.KIK.blz"),
+        account.blz.as_deref(),
+    )?;
+    Ok(())
+}
+
 fn set_optional_message_value(
     message: &mut HbciMessage,
     path: &str,
@@ -1878,6 +1950,9 @@ impl ParsedResponseStatus {
         passport: &PinTanPassport,
     ) -> Option<HbciJobResultData> {
         match job.name() {
+            "AccInfo" => self
+                .acc_info_result_for_root(acc_info_response_root(index))
+                .map(HbciJobResultData::AccInfo),
             "SaldoReq" => self
                 .saldo_result_for_index(index, passport)
                 .map(HbciJobResultData::SaldoReq),
@@ -1899,6 +1974,7 @@ impl ParsedResponseStatus {
 
     fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
         match job.name() {
+            "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
             "KUmsAllCamt" => {
                 self.content_result_data([kums_response_root("KUmsZeitCamtRes1", index)])
@@ -1959,6 +2035,13 @@ impl ParsedResponseStatus {
             .collect();
 
         GvrSaldoReq { entries }
+    }
+
+    fn acc_info_result_for_root(&self, root: String) -> Option<GvrAccInfo> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        acc_info_entry_from_values(&self.values, &root).map(|entry| GvrAccInfo {
+            entries: vec![entry],
+        })
     }
 
     fn kums_result_for_root(&self, root: String) -> Option<HbciJobResultData> {
@@ -2037,6 +2120,72 @@ fn tan_media_info_from_values(
         activated_on: optional_value(values, &format!("{prefix}.activatedon")),
     })
     .filter(|info| info.media_category.is_some())
+}
+
+fn acc_info_entry_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrAccInfoEntry> {
+    let number = optional_value(values, &format!("{prefix}.My.number"))?;
+
+    Some(GvrAccInfoEntry {
+        account: Konto {
+            country: optional_value(values, &format!("{prefix}.My.KIK.country")),
+            blz: optional_value(values, &format!("{prefix}.My.KIK.blz")),
+            number: Some(number),
+            subnumber: optional_value(values, &format!("{prefix}.My.subnumber")),
+            name: optional_value(values, &format!("{prefix}.name")),
+            name2: optional_value(values, &format!("{prefix}.name2")),
+            acctype: optional_value(values, &format!("{prefix}.acctype")),
+            account_type: optional_value(values, &format!("{prefix}.accbez")),
+            curr: optional_value(values, &format!("{prefix}.curr")),
+            ..Konto::default()
+        },
+        account_kind: optional_i32(values, &format!("{prefix}.acctype")),
+        created: optional_value(values, &format!("{prefix}.opendate")),
+        sollzins: optional_value(values, &format!("{prefix}.sollzins")),
+        habenzins: optional_value(values, &format!("{prefix}.habenzins")),
+        ueberzins: optional_value(values, &format!("{prefix}.overdrivezins")),
+        kredit: value_from_values(values, &format!("{prefix}.kredit")),
+        ref_account: national_account_from_values(values, &format!("{prefix}.refkto")),
+        versandart: optional_i32(values, &format!("{prefix}.versandart")),
+        turnus: optional_i32(values, &format!("{prefix}.turnus")),
+        comment: optional_value(values, &format!("{prefix}.info")),
+        address: acc_info_address_from_values(values, &format!("{prefix}.Address")),
+    })
+}
+
+fn national_account_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Option<Konto> {
+    let number = optional_value(values, &format!("{prefix}.number"))?;
+
+    Some(Konto {
+        country: optional_value(values, &format!("{prefix}.KIK.country")),
+        blz: optional_value(values, &format!("{prefix}.KIK.blz")),
+        number: Some(number),
+        subnumber: optional_value(values, &format!("{prefix}.subnumber")),
+        curr: None,
+        ..Konto::default()
+    })
+}
+
+fn acc_info_address_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrAccInfoAddress> {
+    optional_value(values, &format!("{prefix}.name1"))?;
+
+    Some(GvrAccInfoAddress {
+        name1: optional_value(values, &format!("{prefix}.name1")),
+        name2: optional_value(values, &format!("{prefix}.name2")),
+        street_pf: optional_value(values, &format!("{prefix}.street_pf")),
+        plz_ort: optional_value(values, &format!("{prefix}.plz_ort")),
+        plz: optional_value(values, &format!("{prefix}.plz")),
+        ort: optional_value(values, &format!("{prefix}.ort")),
+        country: optional_value(values, &format!("{prefix}.country")),
+        tel: optional_value(values, &format!("{prefix}.tel")),
+        fax: optional_value(values, &format!("{prefix}.fax")),
+        email: optional_value(values, &format!("{prefix}.email")),
+    })
 }
 
 fn update_passport_tan_media_names_from_results(

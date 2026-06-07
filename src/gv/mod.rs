@@ -614,6 +614,7 @@ impl HbciJobConstraint {
 
 fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
+        "AccInfo" => acc_info_constraints(),
         "KUmsAll" => kums_all_constraints(),
         "KUmsAllCamt" => kums_all_camt_constraints(),
         "KUmsNew" => kums_new_constraints(),
@@ -623,6 +624,16 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TAN2Step" => tan2step_constraints(),
         _ => Vec::new(),
     }
+}
+
+fn acc_info_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.country", "AccInfo2.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "AccInfo2.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "AccInfo2.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "AccInfo2.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("all", "AccInfo2.allaccounts", Some("N")),
+    ]
 }
 
 fn kums_all_constraints() -> Vec<HbciJobConstraint> {

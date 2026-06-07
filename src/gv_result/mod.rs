@@ -649,9 +649,45 @@ impl Display for HbciJobResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HbciJobResultData {
+    AccInfo(GvrAccInfo),
     SaldoReq(GvrSaldoReq),
     KUms(GvrKUms),
     TanMediaList(GvrTanMediaList),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrAccInfo {
+    pub entries: Vec<GvrAccInfoEntry>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrAccInfoEntry {
+    pub account: Konto,
+    pub account_kind: Option<i32>,
+    pub created: Option<String>,
+    pub sollzins: Option<String>,
+    pub habenzins: Option<String>,
+    pub ueberzins: Option<String>,
+    pub kredit: Option<Value>,
+    pub ref_account: Option<Konto>,
+    pub versandart: Option<i32>,
+    pub turnus: Option<i32>,
+    pub comment: Option<String>,
+    pub address: Option<GvrAccInfoAddress>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrAccInfoAddress {
+    pub name1: Option<String>,
+    pub name2: Option<String>,
+    pub street_pf: Option<String>,
+    pub plz_ort: Option<String>,
+    pub plz: Option<String>,
+    pub ort: Option<String>,
+    pub country: Option<String>,
+    pub tel: Option<String>,
+    pub fax: Option<String>,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
