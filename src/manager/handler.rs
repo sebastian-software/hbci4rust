@@ -77,11 +77,30 @@ where
         task: &HbciJob,
         challenge_info: Option<&ChallengeInfo>,
     ) -> HbciResult<HbciJob> {
+        let tan_media = self.passport.tan_media_for_hktan_without_callback();
         new_tan2step_process1_job(
             &self.registry,
             &self.hbci_version,
             &self.passport,
             task,
+            tan_media.as_deref(),
+            challenge_info,
+        )
+    }
+
+    pub async fn new_tan2step_process1_job_with_tan_media_selection(
+        &mut self,
+        task: &HbciJob,
+        challenge_info: Option<&ChallengeInfo>,
+    ) -> HbciResult<HbciJob> {
+        let callback = super::callback();
+        let tan_media = choose_tan_media_if_needed(&mut self.passport, callback.as_deref()).await?;
+        new_tan2step_process1_job(
+            &self.registry,
+            &self.hbci_version,
+            &self.passport,
+            task,
+            tan_media.as_deref(),
             challenge_info,
         )
     }
@@ -441,6 +460,35 @@ fn format_tan_method_options(options: &[TanMethodOption]) -> String {
         .join("|")
 }
 
+async fn choose_tan_media_if_needed(
+    passport: &mut PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<Option<String>> {
+    if let Some(tan_media) = passport.tan_media().filter(|value| !value.is_empty()) {
+        return Ok(Some(tan_media.to_owned()));
+    }
+    if !passport.tan_media_required() {
+        return Ok(None);
+    }
+
+    if let Some(callback) = callback {
+        let response = callback
+            .handle(CallbackEvent {
+                reason: CallbackReason::NeedPtTanMedia,
+                message: "*** Enter the name of your TAN media".to_owned(),
+                data_type: CallbackDataType::Text,
+                current_value: Some(passport.tan_media_names_value()),
+            })
+            .await?;
+        if let Some(tan_media) = response.value.filter(|value| !value.trim().is_empty()) {
+            passport.set_tan_media(tan_media.clone());
+            return Ok(Some(tan_media));
+        }
+    }
+
+    Ok(Some("noref".to_owned()))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MessageReference {
     dialog_id: String,
@@ -481,6 +529,7 @@ fn new_tan2step_process1_job(
     hbci_version: &str,
     passport: &PinTanPassport,
     task: &HbciJob,
+    tan_media: Option<&str>,
     challenge_info: Option<&ChallengeInfo>,
 ) -> HbciResult<HbciJob> {
     let task_info = orderhash_source_job_info(task.name())?;
@@ -507,7 +556,7 @@ fn new_tan2step_process1_job(
         hktan.set_param_account("orderaccount", &account);
     }
 
-    if let Some(tan_media) = passport.tan_media().filter(|value| !value.is_empty()) {
+    if let Some(tan_media) = tan_media.filter(|value| !value.is_empty()) {
         hktan.try_set_param("tanmedia", tan_media)?;
     }
 

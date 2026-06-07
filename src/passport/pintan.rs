@@ -82,6 +82,18 @@ impl PinTanPassport {
         self.data.tan_media.as_deref()
     }
 
+    pub fn set_tan_media(&mut self, tan_media: impl Into<String>) {
+        self.data.tan_media = Some(tan_media.into());
+    }
+
+    pub fn tan_media_names(&self) -> &[String] {
+        &self.data.tan_media_names
+    }
+
+    pub fn tan_media_names_value(&self) -> String {
+        self.data.tan_media_names.join("|")
+    }
+
     pub fn tan_segment_version(&self) -> &str {
         self.current_twostep_mechanism()
             .and_then(|mechanism| mechanism.get("segversion").map(String::as_str))
@@ -166,6 +178,25 @@ impl PinTanPassport {
         }
 
         TanMethodSelection::NeedsUserSelection(user_options)
+    }
+
+    pub fn tan_media_required(&self) -> bool {
+        let version = self.tan_segment_version().parse::<u32>().unwrap_or(0);
+        version >= 3
+            && self
+                .current_secmech_info()
+                .get("needtanmedia")
+                .is_some_and(|value| value == "2")
+    }
+
+    pub fn tan_media_for_hktan_without_callback(&self) -> Option<String> {
+        if let Some(tan_media) = self.tan_media().filter(|value| !value.is_empty()) {
+            return Some(tan_media.to_owned());
+        }
+        if self.tan_media_required() {
+            return Some("noref".to_owned());
+        }
+        None
     }
 
     pub fn only_bpd_gvs(&self) -> bool {
@@ -338,6 +369,12 @@ impl PinTanPassport {
             self.data.user_name = Some(user_name);
             updated += 1;
         }
+        if let Some(tan_media_names) =
+            optional_value(values, &format!("{prefix}.UPD.tanmedia.names"))
+        {
+            self.data.tan_media_names = split_pipe_values(&tan_media_names);
+            updated += 1;
+        }
 
         updated
     }
@@ -493,6 +530,8 @@ pub struct PinTanPassportData {
     pub filter: Option<String>,
     pub tan_method: Option<String>,
     pub tan_media: Option<String>,
+    #[serde(default)]
+    pub tan_media_names: Vec<String>,
     #[serde(default)]
     pub tan_segment_version: Option<String>,
     #[serde(default)]
@@ -692,6 +731,14 @@ fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String
             Some(value.to_owned())
         }
     })
+}
+
+fn split_pipe_values(value: &str) -> Vec<String> {
+    value
+        .split('|')
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn prefixed_values(values: &BTreeMap<String, String>, prefix: &str) -> Properties {

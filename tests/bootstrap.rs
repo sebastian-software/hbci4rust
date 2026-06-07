@@ -80,6 +80,29 @@ impl HbciCallback for SecmechSelectingCallback {
     }
 }
 
+#[derive(Debug)]
+struct TanMediaSelectingCallback {
+    events: Arc<Mutex<Vec<CallbackEvent>>>,
+    selection: Option<String>,
+}
+
+#[async_trait]
+impl HbciCallback for TanMediaSelectingCallback {
+    async fn handle(&self, event: CallbackEvent) -> HbciResult<CallbackResponse> {
+        let reason = event.reason;
+        self.events.lock().expect("callback event lock").push(event);
+        if reason == CallbackReason::NeedPtTanMedia {
+            Ok(self
+                .selection
+                .as_ref()
+                .map(|value| CallbackResponse::value(value.clone()))
+                .unwrap_or_else(CallbackResponse::empty))
+        } else {
+            Ok(CallbackResponse::empty())
+        }
+    }
+}
+
 fn custom_msg_response(body_segments: &[&str]) -> CommResponse {
     custom_msg_response_for_request("0", 1, body_segments)
 }
@@ -1607,6 +1630,7 @@ fn rust_native_passport_storage_roundtrips() {
         filter: Some("Base64".to_owned()),
         tan_method: Some("921".to_owned()),
         tan_media: Some("phone".to_owned()),
+        tan_media_names: vec!["phone".to_owned(), "app".to_owned()],
         tan_segment_version: Some("5".to_owned()),
         bpd_version: Some("5".to_owned()),
         upd_version: Some("7".to_owned()),
@@ -1838,6 +1862,22 @@ fn passport_imports_allowed_twostep_mechanisms_from_3920_return_values() {
         0
     );
     assert_eq!(passport.allowed_twostep_mechanisms(), ["921", "922", "923"]);
+}
+
+#[test]
+fn passport_imports_tan_media_names_from_upd_values() {
+    let mut passport = PinTanPassport::new(PinTanPassportData::default());
+
+    let count = passport.update_parameter_data_from_values(
+        &BTreeMap::from([(
+            "DialogInitRes.UPD.tanmedia.names".to_owned(),
+            "mobile|push||photo".to_owned(),
+        )]),
+        "DialogInitRes",
+    );
+
+    assert_eq!(count, 1);
+    assert_eq!(passport.tan_media_names(), ["mobile", "push", "photo"]);
 }
 
 #[test]
@@ -2859,6 +2899,101 @@ async fn handler_prepares_process1_hktan_orderhash_from_rendered_task_segment() 
             .hash_segment_bytes(ORDER_SEGMENT)
             .expect("expected hash")
     );
+}
+
+#[tokio::test]
+async fn handler_prepares_process1_hktan_asks_callback_for_required_tan_media() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(TanMediaSelectingCallback {
+            events: events.clone(),
+            selection: Some("push-app".to_owned()),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media_names: vec!["mobile".to_owned(), "push-app".to_owned()],
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.needtanmedia".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+    let mut handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_process1_job_with_tan_media_selection(&saldo, None)
+        .await
+        .expect("process-1 HKTAN prepares");
+
+    assert_eq!(hktan.param("tanmedia"), Some("push-app"));
+    assert_eq!(handler.passport().tan_media(), Some("push-app"));
+    let events = events.lock().expect("callback event lock");
+    let media_event = events
+        .iter()
+        .find(|event| event.reason == CallbackReason::NeedPtTanMedia)
+        .expect("tan media callback event");
+    assert_eq!(media_event.data_type, CallbackDataType::Text);
+    assert_eq!(media_event.message, "*** Enter the name of your TAN media");
+    assert_eq!(
+        media_event.current_value.as_deref(),
+        Some("mobile|push-app")
+    );
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[test]
+fn handler_prepares_process1_hktan_uses_noref_for_required_tan_media_without_value() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.needtanmedia".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_process1_job(&saldo, None)
+        .expect("process-1 HKTAN prepares");
+
+    assert_eq!(hktan.param("tanmedia"), Some("noref"));
+    assert_eq!(handler.passport().tan_media(), None);
 }
 
 #[tokio::test]
