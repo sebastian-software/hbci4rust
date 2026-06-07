@@ -56,6 +56,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "SaldoReq",
     "SaldoReqAll",
     "Status",
+    "StornoLast",
     "TAN2Step",
     "TANList",
     "TANMediaList",
@@ -520,6 +521,10 @@ impl HbciJob {
                 self.check_account_crc("my", callback).await?;
                 self.check_account_crc("other", callback).await
             }
+            "StornoLast" => {
+                self.check_account_crc("my", callback).await?;
+                self.check_account_crc("other", callback).await
+            }
             "DauerEdit" | "DauerNew" | "Donation" | "TermUeb" | "TermUebEdit" | "Ueb"
             | "UebBZU" | "UebEil" | "UebGar" | "Umb" => {
                 self.check_account_crc("src", callback).await?;
@@ -932,6 +937,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
         "Status" => status_constraints(),
+        "StornoLast" => storno_last_constraints(),
         "TANList" => Vec::new(),
         "TANMediaList" => tan_media_list_constraints(),
         "TAN2Step" => tan2step_constraints(),
@@ -1605,6 +1611,39 @@ fn last_constraints() -> Vec<HbciJobConstraint> {
     }
 
     constraints
+}
+
+fn storno_last_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.country", "LastObjection2.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "LastObjection2.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "LastObjection2.My.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "LastObjection2.My.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "other.country",
+            "LastObjection2.Other.KIK.country",
+            Some("DE"),
+        ),
+        HbciJobConstraint::new("other.blz", "LastObjection2.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new(
+            "other.number",
+            "LastObjection2.Other.number",
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "other.subnumber",
+            "LastObjection2.Other.subnumber",
+            Some(""),
+        ),
+        HbciJobConstraint::new("btg.value", "LastObjection2.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "LastObjection2.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "LastObjection2.name", None::<String>),
+        HbciJobConstraint::new("date", "LastObjection2.Timestamp.date", None::<String>),
+        HbciJobConstraint::new("name2", "LastObjection2.name2", Some("")),
+        HbciJobConstraint::new("primanota", "LastObjection2.primanota", Some("")),
+        HbciJobConstraint::new("time", "LastObjection2.Timestamp.time", Some("")),
+        HbciJobConstraint::new("orderid", "LastObjection2.orderid", Some("")),
+    ]
 }
 
 fn last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {

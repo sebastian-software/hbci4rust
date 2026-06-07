@@ -1142,6 +1142,7 @@ fn render_job_into_custom_message(
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         "Status" => render_status(message, job, index),
+        "StornoLast" => render_storno_last(message, job, index, passport),
         "TANList" => render_tan_list(message, index),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
@@ -1596,6 +1597,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKPRO",
             lowlevel_segment: "Status4",
             path: "CustomMsg.GV.Status4",
+        }),
+        "StornoLast" => Ok(OrderhashSourceJobInfo {
+            code: "HKLSW",
+            lowlevel_segment: "LastObjection2",
+            path: "CustomMsg.GV.LastObjection2",
         }),
         "TANList" => Ok(OrderhashSourceJobInfo {
             code: "HKTAZ",
@@ -3996,6 +4002,98 @@ fn render_last(
             job_param(job, &format!("Last5.usage.{usage_name}"), &usage_name),
         )?;
     }
+
+    Ok(())
+}
+
+fn render_storno_last(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "LastObjection2";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let my_account = classic_national_job_account(
+        job,
+        passport.first_account().cloned(),
+        lowlevel_segment,
+        "My",
+        "my",
+    );
+    if !has_account_identity(&my_account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "StornoLast requires my.number or a passport account for the current LastObjection2 renderer",
+        ));
+    }
+    let other_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "other");
+    if !has_account_identity(&other_account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "StornoLast requires other.number for the current LastObjection2 renderer",
+        ));
+    }
+
+    set_classic_national_account_values(message, &format!("{segment}.My"), &my_account)?;
+    set_classic_national_account_values(message, &format!("{segment}.Other"), &other_account)?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.Timestamp.date"),
+        job,
+        "LastObjection2.Timestamp.date",
+        "date",
+        "StornoLast requires date",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.Timestamp.time"),
+        job_param(job, "LastObjection2.Timestamp.time", "time"),
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.value"),
+        job,
+        "LastObjection2.BTG.value",
+        "btg.value",
+        "StornoLast requires btg.value",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.curr"),
+        job,
+        "LastObjection2.BTG.curr",
+        "btg.curr",
+        "StornoLast requires btg.curr",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.name"),
+        job,
+        "LastObjection2.name",
+        "name",
+        "StornoLast requires name",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.name2"),
+        job_param(job, "LastObjection2.name2", "name2"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.primanota"),
+        job_param(job, "LastObjection2.primanota", "primanota"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.orderid"),
+        job_param(job, "LastObjection2.orderid", "orderid"),
+    )?;
 
     Ok(())
 }

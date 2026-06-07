@@ -2338,6 +2338,68 @@ fn last_exposes_original_near_v5_constraints() {
 }
 
 #[test]
+fn storno_last_exposes_original_near_v2_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("StornoLast").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 16);
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("my account number constraint")
+            .destination_name,
+        "LastObjection2.My.number"
+    );
+    assert_eq!(
+        job.constraint("other.number")
+            .expect("other account number constraint")
+            .destination_name,
+        "LastObjection2.Other.number"
+    );
+    assert_eq!(
+        job.constraint("date")
+            .expect("date constraint")
+            .destination_name,
+        "LastObjection2.Timestamp.date"
+    );
+    assert_eq!(
+        job.constraint("orderid")
+            .expect("orderid constraint")
+            .destination_name,
+        "LastObjection2.orderid"
+    );
+    assert_eq!(
+        job.constraint("primanota")
+            .expect("primanota constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert!(job.constraint("usage").is_none());
+    assert!(job.constraint("type").is_none());
+    assert!(job.constraint("key").is_none());
+
+    job.try_set_param("date", "2025-11-03")
+        .expect("date is accepted");
+    job.try_set_param("time", "12:03:04")
+        .expect("time is accepted");
+    job.try_set_param("orderid", "ORDER-STORNO")
+        .expect("order id is accepted");
+    assert_eq!(
+        job.lowlevel_param("LastObjection2.Timestamp.date"),
+        Some("2025-11-03")
+    );
+    assert_eq!(
+        job.lowlevel_param("LastObjection2.Timestamp.time"),
+        Some("12:03:04")
+    );
+    assert_eq!(
+        job.lowlevel_param("LastObjection2.orderid"),
+        Some("ORDER-STORNO")
+    );
+}
+
+#[test]
 fn last_sepa_exposes_original_near_v1_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -8253,6 +8315,71 @@ async fn handler_renders_last_like_original() {
     assert!(
         body.contains(
             "HKLAS:3:5+1234567890::280:10020030+99887766::280:20030040+Debtor Name++42,:EUR+05++Direct debit usage one:Direct debit usage two'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_storno_last_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("StornoLast").expect("job is in registry");
+    job.try_set_param("my.number", "1234567890")
+        .expect("my account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("my bank code is accepted");
+    job.try_set_param("other.number", "99887766")
+        .expect("other account number is accepted");
+    job.try_set_param("other.blz", "20030040")
+        .expect("other bank code is accepted");
+    job.try_set_param("name", "Debtor Name")
+        .expect("debtor name is accepted");
+    job.try_set_param("name2", "Debtor Name 2")
+        .expect("second debtor name is accepted");
+    job.try_set_param("btg.value", "42.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "EUR")
+        .expect("amount currency is accepted");
+    job.try_set_param("date", "2025-11-03")
+        .expect("date is accepted");
+    job.try_set_param("time", "12:03:04")
+        .expect("time is accepted");
+    job.try_set_param("primanota", "PN123")
+        .expect("primanota is accepted");
+    job.try_set_param("orderid", "ORDER-STORNO")
+        .expect("order id is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "StornoLast");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert!(
+        !status.job_results[0]
+            .result_data
+            .keys()
+            .any(|key| key.starts_with("content."))
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.dialogid")
+            .map(String::as_str),
+        Some("0")
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKLSW:3:2+1234567890::280:10020030+20251103:120304+42,:EUR+99887766::280:20030040+Debtor Name+Debtor Name 2+PN123++ORDER-STORNO'"
         ),
         "{body}"
     );
