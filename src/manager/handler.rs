@@ -7,16 +7,16 @@ use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
-    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
-    Value,
+    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerList, GvrDauerListAussetzung,
+    GvrDauerListEntry, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList,
+    HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData,
+    HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
 };
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
-use crate::sepa::CAMT_052_001_01_URN;
+use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN};
 use crate::swift::decode_umlauts;
 use crate::tools::Properties;
 
@@ -1040,6 +1040,7 @@ fn render_job_into_custom_message(
 ) -> HbciResult<()> {
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
+        "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
@@ -1227,6 +1228,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "AccInfo2",
             path: "CustomMsg.GV.AccInfo2",
         }),
+        "DauerSEPAList" => Ok(OrderhashSourceJobInfo {
+            code: "HKCDB",
+            lowlevel_segment: "DauerSEPAList2",
+            path: "CustomMsg.GV.DauerSEPAList2",
+        }),
         "KUmsAll" => Ok(OrderhashSourceJobInfo {
             code: "HKKAZ",
             lowlevel_segment: "KUmsZeit7",
@@ -1299,6 +1305,14 @@ fn acc_info_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.AccInfoRes2".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.AccInfoRes2", index + 1)
+    }
+}
+
+fn dauer_sepa_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.DauerSEPAListRes2".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.DauerSEPAListRes2", index + 1)
     }
 }
 
@@ -1438,6 +1452,46 @@ fn render_acc_info(
     message.set_value(
         &format!("{segment}.allaccounts"),
         job_param(job, "AccInfo2.allaccounts", "all").unwrap_or("N"),
+    )?;
+
+    Ok(())
+}
+
+fn render_dauer_sepa_list(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.DauerSEPAList2");
+    let account = dauer_sepa_list_account(job, passport);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerSEPAList requires my.iban, src.iban, my.number, or a passport account for the current DauerSEPAList2 tracer renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "DauerSEPAList2.sepadescr", "_sepadescriptor")
+            .unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.orderid"),
+        job_param(job, "DauerSEPAList2.orderid", "orderid"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "DauerSEPAList2.maxentries", "maxentries"),
     )?;
 
     Ok(())
@@ -1694,6 +1748,43 @@ fn effective_job_account(
     account
 }
 
+fn dauer_sepa_list_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
+    let mut account = passport.first_account().cloned().unwrap_or_default();
+
+    overlay_account_param(
+        &mut account.iban,
+        job.lowlevel_param("DauerSEPAList2.My.iban")
+            .or_else(|| job.param("my.iban"))
+            .or_else(|| job.param("src.iban"))
+            .filter(|value| !value.is_empty()),
+    );
+    overlay_account_param(
+        &mut account.bic,
+        job.lowlevel_param("DauerSEPAList2.My.bic")
+            .or_else(|| job.param("my.bic"))
+            .or_else(|| job.param("src.bic"))
+            .filter(|value| !value.is_empty()),
+    );
+    overlay_account_param(
+        &mut account.country,
+        job_param(job, "DauerSEPAList2.My.KIK.country", "my.country"),
+    );
+    overlay_account_param(
+        &mut account.blz,
+        job_param(job, "DauerSEPAList2.My.KIK.blz", "my.blz"),
+    );
+    overlay_account_param(
+        &mut account.number,
+        job_param(job, "DauerSEPAList2.My.number", "my.number"),
+    );
+    overlay_account_param(
+        &mut account.subnumber,
+        job_param(job, "DauerSEPAList2.My.subnumber", "my.subnumber"),
+    );
+
+    account
+}
+
 fn job_param<'a>(job: &'a HbciJob, lowlevel_name: &str, frontend_name: &str) -> Option<&'a str> {
     job.lowlevel_param(lowlevel_name)
         .or_else(|| job.param(frontend_name))
@@ -1871,6 +1962,36 @@ fn set_national_account_values(
     Ok(())
 }
 
+fn set_ktv_int_account_values(
+    message: &mut HbciMessage,
+    prefix: &str,
+    account: &Konto,
+) -> HbciResult<()> {
+    set_optional_message_value(message, &format!("{prefix}.iban"), account.iban.as_deref())?;
+    set_optional_message_value(message, &format!("{prefix}.bic"), account.bic.as_deref())?;
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.number"),
+        account.number.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.subnumber"),
+        account.subnumber.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.KIK.country"),
+        account.country.as_deref(),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{prefix}.KIK.blz"),
+        account.blz.as_deref(),
+    )?;
+    Ok(())
+}
+
 fn set_optional_message_value(
     message: &mut HbciMessage,
     path: &str,
@@ -1953,6 +2074,9 @@ impl ParsedResponseStatus {
             "AccInfo" => self
                 .acc_info_result_for_root(acc_info_response_root(index))
                 .map(HbciJobResultData::AccInfo),
+            "DauerSEPAList" => self
+                .dauer_list_result_for_root(dauer_sepa_list_response_root(index))
+                .map(HbciJobResultData::DauerList),
             "SaldoReq" => self
                 .saldo_result_for_index(index, passport)
                 .map(HbciJobResultData::SaldoReq),
@@ -1975,6 +2099,7 @@ impl ParsedResponseStatus {
     fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
+            "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
             "KUmsAllCamt" => {
                 self.content_result_data([kums_response_root("KUmsZeitCamtRes1", index)])
@@ -2041,6 +2166,13 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         acc_info_entry_from_values(&self.values, &root).map(|entry| GvrAccInfo {
             entries: vec![entry],
+        })
+    }
+
+    fn dauer_list_result_for_root(&self, root: String) -> Option<GvrDauerList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrDauerList {
+            entries: vec![dauer_list_entry_from_values(&self.values, &root)],
         })
     }
 
@@ -2185,6 +2317,61 @@ fn acc_info_address_from_values(
         tel: optional_value(values, &format!("{prefix}.tel")),
         fax: optional_value(values, &format!("{prefix}.fax")),
         email: optional_value(values, &format!("{prefix}.email")),
+    })
+}
+
+fn dauer_list_entry_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> GvrDauerListEntry {
+    GvrDauerListEntry {
+        my: ktv_int_account_from_values(values, &format!("{prefix}.My")),
+        other: Konto::default(),
+        value: None,
+        key: None,
+        addkey: None,
+        usage: Vec::new(),
+        nextdate: None,
+        orderid: optional_value(values, &format!("{prefix}.orderid")),
+        firstdate: optional_value(values, &format!("{prefix}.DauerDetails.firstdate")),
+        timeunit: optional_value(values, &format!("{prefix}.DauerDetails.timeunit")),
+        turnus: optional_i32(values, &format!("{prefix}.DauerDetails.turnus")),
+        execday: optional_i32(values, &format!("{prefix}.DauerDetails.execday")),
+        exectime: optional_value(values, &format!("{prefix}.DauerDetails.exectime")),
+        lastdate: optional_value(values, &format!("{prefix}.DauerDetails.lastdate")),
+        aussetzung: dauer_list_aussetzung_from_values(values, &format!("{prefix}.Aussetzung")),
+        can_change: optional_jn(values, &format!("{prefix}.canchange")).unwrap_or(true),
+        can_skip: optional_jn(values, &format!("{prefix}.canskip")).unwrap_or(true),
+        can_delete: optional_jn(values, &format!("{prefix}.candel")).unwrap_or(true),
+        pmtinfid: None,
+        purposecode: None,
+        sepadescr: optional_value(values, &format!("{prefix}.sepadescr")),
+        sepapain_raw: optional_value(values, &format!("{prefix}.sepapain")),
+    }
+}
+
+fn ktv_int_account_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Konto {
+    Konto {
+        iban: optional_value(values, &format!("{prefix}.iban")),
+        bic: optional_value(values, &format!("{prefix}.bic")),
+        number: optional_value(values, &format!("{prefix}.number")),
+        subnumber: optional_value(values, &format!("{prefix}.subnumber")),
+        country: optional_value(values, &format!("{prefix}.KIK.country")),
+        blz: optional_value(values, &format!("{prefix}.KIK.blz")),
+        ..Konto::default()
+    }
+}
+
+fn dauer_list_aussetzung_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrDauerListAussetzung> {
+    Some(GvrDauerListAussetzung {
+        annual: optional_jn(values, &format!("{prefix}.annual"))?,
+        startdate: optional_value(values, &format!("{prefix}.startdate")),
+        enddate: optional_value(values, &format!("{prefix}.enddate")),
+        number: optional_value(values, &format!("{prefix}.number")),
+        newvalue: value_from_values(values, &format!("{prefix}.newvalue")),
     })
 }
 
@@ -2569,6 +2756,10 @@ fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String
 
 fn optional_i32(values: &BTreeMap<String, String>, key: &str) -> Option<i32> {
     optional_value(values, key).and_then(|value| value.parse().ok())
+}
+
+fn optional_jn(values: &BTreeMap<String, String>, key: &str) -> Option<bool> {
+    optional_value(values, key).map(|value| value == "J")
 }
 
 fn required_message_value<'a>(

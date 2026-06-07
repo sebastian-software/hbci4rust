@@ -6,7 +6,7 @@ use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallb
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::{Konto, Value};
 use crate::protocol::normalize_iso_date;
-use crate::sepa::CAMT_052_001_01_URN;
+use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN};
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
@@ -615,6 +615,7 @@ impl HbciJobConstraint {
 fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "AccInfo" => acc_info_constraints(),
+        "DauerSEPAList" => dauer_sepa_list_constraints(),
         "KUmsAll" => kums_all_constraints(),
         "KUmsAllCamt" => kums_all_camt_constraints(),
         "KUmsNew" => kums_new_constraints(),
@@ -624,6 +625,26 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TAN2Step" => tan2step_constraints(),
         _ => Vec::new(),
     }
+}
+
+fn dauer_sepa_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.bic", "DauerSEPAList2.My.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "DauerSEPAList2.My.iban", None::<String>),
+        HbciJobConstraint::new("src.bic", "DauerSEPAList2.My.bic", Some("")),
+        HbciJobConstraint::new("src.iban", "DauerSEPAList2.My.iban", Some("")),
+        HbciJobConstraint::new("my.country", "DauerSEPAList2.My.KIK.country", Some("")),
+        HbciJobConstraint::new("my.blz", "DauerSEPAList2.My.KIK.blz", Some("")),
+        HbciJobConstraint::new("my.number", "DauerSEPAList2.My.number", Some("")),
+        HbciJobConstraint::new("my.subnumber", "DauerSEPAList2.My.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "_sepadescriptor",
+            "DauerSEPAList2.sepadescr",
+            Some(PAIN_001_001_02_URN),
+        ),
+        HbciJobConstraint::new("orderid", "DauerSEPAList2.orderid", Some("")),
+        HbciJobConstraint::new("maxentries", "DauerSEPAList2.maxentries", Some("")),
+    ]
 }
 
 fn acc_info_constraints() -> Vec<HbciJobConstraint> {

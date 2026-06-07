@@ -650,6 +650,7 @@ impl Display for HbciJobResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HbciJobResultData {
     AccInfo(GvrAccInfo),
+    DauerList(GvrDauerList),
     SaldoReq(GvrSaldoReq),
     KUms(GvrKUms),
     TanMediaList(GvrTanMediaList),
@@ -688,6 +689,46 @@ pub struct GvrAccInfoAddress {
     pub tel: Option<String>,
     pub fax: Option<String>,
     pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrDauerList {
+    pub entries: Vec<GvrDauerListEntry>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrDauerListEntry {
+    pub my: Konto,
+    pub other: Konto,
+    pub value: Option<Value>,
+    pub key: Option<String>,
+    pub addkey: Option<String>,
+    pub usage: Vec<String>,
+    pub nextdate: Option<String>,
+    pub orderid: Option<String>,
+    pub firstdate: Option<String>,
+    pub timeunit: Option<String>,
+    pub turnus: Option<i32>,
+    pub execday: Option<i32>,
+    pub exectime: Option<String>,
+    pub lastdate: Option<String>,
+    pub aussetzung: Option<GvrDauerListAussetzung>,
+    pub can_change: bool,
+    pub can_skip: bool,
+    pub can_delete: bool,
+    pub pmtinfid: Option<String>,
+    pub purposecode: Option<String>,
+    pub sepadescr: Option<String>,
+    pub sepapain_raw: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrDauerListAussetzung {
+    pub annual: bool,
+    pub startdate: Option<String>,
+    pub enddate: Option<String>,
+    pub number: Option<String>,
+    pub newvalue: Option<Value>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

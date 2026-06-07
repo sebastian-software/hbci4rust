@@ -8,7 +8,7 @@ use hbci4rust::{
     HbciStatus, Konto, Limit, OrderHashMode, PassportStorage, PinTanPassport, PinTanPassportData,
     ReplayCommClient, TanMethodSelection, UserSig, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
-    sepa::CAMT_052_001_01_URN,
+    sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN},
 };
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -473,6 +473,48 @@ fn acc_info_exposes_original_near_v2_constraints() {
             .default_value
             .as_deref(),
         Some("N")
+    );
+}
+
+#[test]
+fn dauer_sepa_list_exposes_original_near_v2_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler
+        .new_job("DauerSEPAList")
+        .expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 11);
+    assert_eq!(
+        job.constraint("my.iban")
+            .expect("iban constraint")
+            .destination_name,
+        "DauerSEPAList2.My.iban"
+    );
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban alias")
+            .destination_name,
+        "DauerSEPAList2.My.iban"
+    );
+    assert_eq!(
+        job.constraint("src.bic")
+            .expect("source bic alias")
+            .destination_name,
+        "DauerSEPAList2.My.bic"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_001_001_02_URN)
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "DauerSEPAList2.maxentries"
     );
 }
 
@@ -3155,6 +3197,95 @@ async fn handler_renders_and_collects_acc_info_like_original() {
     assert_signed_custom_msg_request(&body, "0", "1", 5);
     assert!(
         body.contains("HKKIF:3:2+0000000000::280:12345678+N'"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_dauer_sepa_list_envelope_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let pain = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Document xmlns=\"urn:sepade:xsd:pain.001.001.02\"><CstmrCdtTrfInitn/></Document>";
+    let hicdb = format!(
+        "HICDB:3:2+DE02123456780000000000:MARKDEF1100+urn?:sepade?:xsd?:pain.001.001.02+@{}@{}+ORDER123+20251101:M:1:1::20261231+J:20260101:20260201:2:2,00:EUR+N+J+N",
+        pain.len(),
+        pain
+    );
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        hicdb.as_str(),
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler
+        .new_job("DauerSEPAList")
+        .expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban alias is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic alias is accepted");
+    job.try_set_param_int("maxentries", 10)
+        .expect("max entries is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "DauerSEPAList");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.DauerDetails.firstdate")
+            .map(String::as_str),
+        Some("2025-11-01")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.sepapain")
+            .map(String::as_str),
+        Some(pain)
+    );
+
+    let Some(HbciJobResultData::DauerList(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected DauerList result data");
+    };
+    assert_eq!(result.entries.len(), 1);
+    let entry = &result.entries[0];
+    assert_eq!(entry.my.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(entry.my.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(entry.sepadescr.as_deref(), Some(PAIN_001_001_02_URN));
+    assert_eq!(entry.sepapain_raw.as_deref(), Some(pain));
+    assert_eq!(entry.orderid.as_deref(), Some("ORDER123"));
+    assert_eq!(entry.firstdate.as_deref(), Some("2025-11-01"));
+    assert_eq!(entry.timeunit.as_deref(), Some("M"));
+    assert_eq!(entry.turnus, Some(1));
+    assert_eq!(entry.execday, Some(1));
+    assert_eq!(entry.lastdate.as_deref(), Some("2026-12-31"));
+    assert!(!entry.can_change);
+    assert!(entry.can_skip);
+    assert!(!entry.can_delete);
+    let aussetzung = entry.aussetzung.as_ref().expect("aussetzung");
+    assert!(aussetzung.annual);
+    assert_eq!(aussetzung.startdate.as_deref(), Some("2026-01-01"));
+    assert_eq!(aussetzung.enddate.as_deref(), Some("2026-02-01"));
+    assert_eq!(aussetzung.number.as_deref(), Some("2"));
+    assert_eq!(
+        aussetzung
+            .newvalue
+            .as_ref()
+            .map(|value| value.value.as_str()),
+        Some("2.00")
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKCDB:3:2+DE02123456780000000000:MARKDEF1100+urn?:sepade?:xsd?:pain.001.001.02++10'"
+        ),
         "{body}"
     );
 }

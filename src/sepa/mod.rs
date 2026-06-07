@@ -6,6 +6,7 @@ use crate::gv_result::{GvrKUmsBTag, GvrKUmsLine, Konto, Saldo, Value};
 
 pub const DATE_FORMAT: &str = "%Y-%m-%d";
 pub const DATE_UNDEFINED: &str = "1999-01-01";
+pub const PAIN_001_001_02_URN: &str = "urn:sepade:xsd:pain.001.001.02";
 pub const CAMT_052_001_01_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.01";
 pub const CAMT_052_001_02_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.02";
 pub const CAMT_052_001_03_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.03";
