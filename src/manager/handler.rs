@@ -1121,6 +1121,7 @@ fn render_job_into_custom_message(
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
         "KUmsZeitSEPA" => render_kums_zeit_sepa(message, job, index, passport),
+        "LastB2BSEPA" => render_last_b2b_sepa(message, job, index, passport),
         "LastCOR1SEPA" => render_last_cor1_sepa(message, job, index, passport),
         "LastSEPA" => render_last_sepa(message, job, index, passport),
         "Receipt" => render_receipt(message, job, index),
@@ -1419,6 +1420,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKIPZ",
             lowlevel_segment: "InstUebSEPA1",
             path: "CustomMsg.GV.InstUebSEPA1",
+        }),
+        "LastB2BSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKBSE",
+            lowlevel_segment: "LastB2BSEPA1",
+            path: "CustomMsg.GV.LastB2BSEPA1",
         }),
         "LastCOR1SEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKDSC",
@@ -1752,6 +1758,14 @@ fn last_cor1_sepa_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.LastCOR1SEPARes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.LastCOR1SEPARes1", index + 1)
+    }
+}
+
+fn last_b2b_sepa_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.LastB2BSEPARes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.LastB2BSEPARes1", index + 1)
     }
 }
 
@@ -3388,6 +3402,24 @@ fn render_last_cor1_sepa(
     )
 }
 
+fn render_last_b2b_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_last_direct_debit_sepa(
+        message,
+        job,
+        index,
+        passport,
+        LastDirectDebitSepaRenderSpec {
+            job_name: "LastB2BSEPA",
+            lowlevel_segment: "LastB2BSEPA1",
+        },
+    )
+}
+
 #[derive(Debug, Clone, Copy)]
 struct LastDirectDebitSepaRenderSpec {
     job_name: &'static str,
@@ -4758,6 +4790,9 @@ impl ParsedResponseStatus {
             "InstUebSEPA" => self
                 .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::InstUebSepa),
+            "LastB2BSEPA" => self
+                .last_sepa_result_for_root(last_b2b_sepa_response_root(index))
+                .map(HbciJobResultData::LastSepa),
             "LastCOR1SEPA" => self
                 .last_sepa_result_for_root(last_cor1_sepa_response_root(index))
                 .map(HbciJobResultData::LastSepa),
@@ -4828,6 +4863,7 @@ impl ParsedResponseStatus {
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
+            "LastB2BSEPA" => self.content_result_data([last_b2b_sepa_response_root(index)]),
             "LastCOR1SEPA" => self.content_result_data([last_cor1_sepa_response_root(index)]),
             "LastSEPA" => self.content_result_data([last_sepa_response_root(index)]),
             "Kontoauszug" => self.content_result_data([kontoauszug_response_root(index)]),
@@ -5801,7 +5837,7 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
                 }
             }
-            "LastCOR1SEPA" | "LastSEPA" => {
+            "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
                 let Some(order_id) = result
                     .result_data
                     .get("content.orderid")
@@ -5809,10 +5845,10 @@ fn update_passport_job_persistent_data_from_results(
                 else {
                     continue;
                 };
-                let lowlevel_segment = if result.job_name == "LastCOR1SEPA" {
-                    "LastCOR1SEPA1"
-                } else {
-                    "LastSEPA1"
+                let lowlevel_segment = match result.job_name.as_str() {
+                    "LastB2BSEPA" => "LastB2BSEPA1",
+                    "LastCOR1SEPA" => "LastCOR1SEPA1",
+                    _ => "LastSEPA1",
                 };
                 let snapshot =
                     last_sepa_request_persistent_snapshot(job, passport, lowlevel_segment);

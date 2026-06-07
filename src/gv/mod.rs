@@ -391,7 +391,9 @@ impl HbciJob {
 
         let params = self.sepa_generation_params(lowlevel_segment);
         let xml = match self.name.as_str() {
-            "LastCOR1SEPA" | "LastSEPA" => generate_pain_008_001_01_direct_debit(&params)?,
+            "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
+                generate_pain_008_001_01_direct_debit(&params)?
+            }
             _ => generate_pain_001_001_02_transfer(&params)?,
         };
         self.set_frontend_and_lowlevel_param("_sepapain", xml);
@@ -404,6 +406,7 @@ impl HbciJob {
             "DauerSEPAEdit" => Some("DauerSEPAEdit1"),
             "DauerSEPANew" => Some("DauerSEPANew1"),
             "InstUebSEPA" => Some("InstUebSEPA1"),
+            "LastB2BSEPA" => Some("LastB2BSEPA1"),
             "LastCOR1SEPA" => Some("LastCOR1SEPA1"),
             "LastSEPA" => Some("LastSEPA1"),
             "TermUebSEPA" => Some("TermUebSEPA1"),
@@ -824,6 +827,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "FestList" => fest_list_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
+        "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
         "LastCOR1SEPA" => last_sepa_constraints("LastCOR1SEPA1", "COR1"),
         "LastSEPA" => last_sepa_constraints("LastSEPA1", "CORE"),
         "Kontoauszug" => kontoauszug_constraints(),
