@@ -179,6 +179,32 @@ fn assert_signed_dialog_init_request(
     assert_eq!(size, format!("{:012}", body.len()));
 }
 
+fn assert_signed_dialog_end_request(body: &str, dialog_id: &str, msgnum: &str) {
+    assert!(body.starts_with("HNHBK:1:3+"), "{body}");
+    assert!(
+        body.contains(&format!("+300+{dialog_id}+{msgnum}'")),
+        "{body}"
+    );
+    assert!(body.contains("HNSHK:2:4+PIN:"), "{body}");
+    assert!(body.contains(&format!("HKEND:3:1+{dialog_id}'")), "{body}");
+    assert!(body.ends_with(&format!("HNHBS:5:1+{msgnum}'")), "{body}");
+
+    let sig_head = fints_segment(body, "HNSHK");
+    let sig_tail = fints_segment(body, "HNSHA");
+    let sig_head_checkref = sig_head
+        .split('+')
+        .nth(3)
+        .expect("HNSHK has check reference");
+    let sig_tail_parts = sig_tail.split('+').collect::<Vec<_>>();
+
+    assert_eq!(sig_tail_parts.get(1).copied(), Some(sig_head_checkref));
+    assert_eq!(sig_tail_parts.get(2).copied(), Some(""));
+    assert_eq!(sig_tail_parts.get(3).copied(), Some("12345"));
+
+    let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
+    assert_eq!(size, format!("{:012}", body.len()));
+}
+
 fn fints_segment<'a>(body: &'a str, code: &str) -> &'a str {
     body.split('\'')
         .find(|segment| segment.starts_with(code))
@@ -2596,13 +2622,7 @@ async fn handler_close_sends_dialog_end_and_resets_context() {
     assert_eq!(requests.len(), 3);
 
     let close_body = String::from_utf8(requests[2].body.clone()).expect("request body is text");
-    assert!(close_body.starts_with("HNHBK:1:3+"));
-    assert!(close_body.contains("+300+DIALOG1+3'"));
-    assert!(close_body.contains("HKEND:2:1+DIALOG1'"));
-    assert!(close_body.ends_with("HNHBS:3:1+3'"));
-
-    let size = &close_body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
-    assert_eq!(size, format!("{:012}", close_body.len()));
+    assert_signed_dialog_end_request(&close_body, "DIALOG1", "3");
 }
 
 #[tokio::test]
@@ -2641,8 +2661,7 @@ async fn handler_close_preserves_context_on_dialog_end_error() {
     assert_eq!(requests.len(), 2);
 
     let close_body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
-    assert!(close_body.contains("+300+DIALOG1+2'"));
-    assert!(close_body.contains("HKEND:2:1+DIALOG1'"));
+    assert_signed_dialog_end_request(&close_body, "DIALOG1", "2");
 }
 
 #[tokio::test]

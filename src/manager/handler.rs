@@ -320,7 +320,10 @@ where
             )
         })?;
         let request_ref = MessageReference::new(dialog_id, self.dialog.current_message_number());
-        let body = self.render_dialog_end(&request_ref)?;
+        let callback = super::callback();
+        let body = self
+            .render_dialog_end(&request_ref, callback.as_deref())
+            .await?;
 
         let response = self.comm.send(CommRequest::new(host, body)).await?;
         if response.status >= 400 {
@@ -366,7 +369,11 @@ where
         message.to_fints_bytes()
     }
 
-    fn render_dialog_end(&self, request_ref: &MessageReference) -> HbciResult<Vec<u8>> {
+    async fn render_dialog_end(
+        &mut self,
+        request_ref: &MessageReference,
+        callback: Option<&dyn HbciCallback>,
+    ) -> HbciResult<Vec<u8>> {
         let syntax = load_protocol_spec(&self.hbci_version)?.parse_syntax()?;
         let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd")?;
 
@@ -374,6 +381,17 @@ where
         message.set_value("DialogEnd.MsgHead.msgnum", &request_ref.msgnum)?;
         message.set_value("DialogEnd.DialogEndS.dialogid", &request_ref.dialog_id)?;
         message.set_value("DialogEnd.MsgTail.msgnum", &request_ref.msgnum)?;
+
+        let signature_context = PinTanSignatureContext::generate()?;
+        let sig_head = signature_context.sig_head_from_passport(&self.passport)?;
+        let signature = sign_pintan_user_sig_for_sca(&mut self.passport, callback).await?;
+        apply_pintan_signature_shell(
+            &mut message,
+            "DialogEnd.SigHead",
+            "DialogEnd.SigTail",
+            &sig_head,
+            &signature,
+        )?;
 
         message.prepare_outgoing()?;
         message.to_fints_bytes()
