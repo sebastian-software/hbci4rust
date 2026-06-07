@@ -68,6 +68,8 @@ fn callback_reason_codes_match_hbci4java_constants_for_ported_variants() {
     assert_eq!(CallbackReason::NeedPtSecMech.original_code(), 27);
     assert_eq!(CallbackReason::HaveIbanError.original_code(), 30);
     assert_eq!(CallbackReason::NeedPtTanMedia.original_code(), 32);
+    assert_eq!(CallbackReason::NeedPtPhotoTan.original_code(), 33);
+    assert_eq!(CallbackReason::NeedPtQrTan.original_code(), 34);
     assert_eq!(CallbackReason::NeedPtDecoupled.original_code(), 35);
     assert_eq!(CallbackReason::NeedPtDecoupledRetry.original_code(), 36);
 
@@ -76,6 +78,8 @@ fn callback_reason_codes_match_hbci4java_constants_for_ported_variants() {
     assert_eq!(CallbackReason::HAVE_CRC_ERROR, 19);
     assert_eq!(CallbackReason::HAVE_IBAN_ERROR, 30);
     assert_eq!(CallbackReason::NEED_PT_TANMEDIA, 32);
+    assert_eq!(CallbackReason::NEED_PT_PHOTOTAN, 33);
+    assert_eq!(CallbackReason::NEED_PT_QRTAN, 34);
     assert_eq!(CallbackReason::NEED_PT_DECOUPLED, 35);
     assert_eq!(CallbackReason::NEED_PT_DECOUPLED_RETRY, 36);
 }
@@ -117,6 +121,14 @@ fn callback_reason_decodes_ported_original_codes() {
     assert_eq!(
         CallbackReason::from_original_code(CallbackReason::NEED_PT_TANMEDIA),
         CallbackReason::NeedPtTanMedia
+    );
+    assert_eq!(
+        CallbackReason::from_original_code(CallbackReason::NEED_PT_PHOTOTAN),
+        CallbackReason::NeedPtPhotoTan
+    );
+    assert_eq!(
+        CallbackReason::from_original_code(CallbackReason::NEED_PT_QRTAN),
+        CallbackReason::NeedPtQrTan
     );
     assert_eq!(
         CallbackReason::from_original_code(CallbackReason::NEED_PT_DECOUPLED),

@@ -59,10 +59,8 @@ HHD 1.3/1.4, photoTAN, and decoupled methods.
 
 Remaining work:
 
-- port `FlickerCode` and `ChallengeInfo`;
-- decide how callback payloads expose QR/photoTAN images to applications;
-- integrate these helpers into HITAN/SCA processing once the PinTAN dialog
-  continuation flow is ported.
+- extend QR/photoTAN callback fixtures when more bank-specific payload shapes
+  appear.
 
 ## Links
 

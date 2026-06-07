@@ -34,9 +34,10 @@ use crate::tools::Properties;
 use tokio::time::sleep;
 
 use super::{
-    ChallengeInfo, HhdVersion, HhdVersionType, OrderHashMode, PinTanSignatureContext,
-    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_user_sig_to_sig_tail,
-    collect_pintan_segment_codes, collect_pintan_signature_range,
+    ChallengeInfo, HhdVersion, HhdVersionType, MatrixCode, OrderHashMode, PinTanSignatureContext,
+    QrCode, apply_pintan_sig_head, apply_pintan_sig_tail_from_head,
+    apply_pintan_user_sig_to_sig_tail, collect_pintan_segment_codes,
+    collect_pintan_signature_range,
 };
 
 const CLASSIC_INLAND_USER4_SNAPSHOT_SUFFIXES: &[&str] = &[
@@ -1009,24 +1010,33 @@ async fn request_tan_for_sca(
     }
 
     let secmech = passport.current_secmech_info();
-    if HhdVersion::find(Some(&secmech)).hhd_type() == HhdVersionType::Decoupled {
-        notify_decoupled_sca_required(
-            callback,
-            format_sca_challenge_message(&secmech, challenge),
-            sca.hhd_uc.clone(),
-        )
-        .await?;
+    let hhd_type = HhdVersion::find(Some(&secmech)).hhd_type();
+    let message = format_sca_challenge_message(&secmech, challenge);
+    if hhd_type == HhdVersionType::Decoupled {
+        notify_decoupled_sca_required(callback, message, sca.hhd_uc.clone()).await?;
         return Ok(None);
     }
 
-    let tan = request_tan_value(
-        callback,
-        format_sca_challenge_message(&secmech, challenge),
-        sca.hhd_uc.clone(),
-    )
-    .await?;
+    let reason = sca_tan_callback_reason(hhd_type, sca.hhd_uc.as_deref(), &message);
+    let tan = request_tan_value_with_reason(callback, reason, message, sca.hhd_uc.clone()).await?;
 
     Ok(Some(tan))
+}
+
+fn sca_tan_callback_reason(
+    hhd_type: HhdVersionType,
+    hhd_uc: Option<&str>,
+    message: &str,
+) -> CallbackReason {
+    match hhd_type {
+        HhdVersionType::PhotoTan if MatrixCode::try_parse(hhd_uc).is_some() => {
+            CallbackReason::NeedPtPhotoTan
+        }
+        HhdVersionType::QrCode if QrCode::try_parse(hhd_uc, Some(message)).is_some() => {
+            CallbackReason::NeedPtQrTan
+        }
+        _ => CallbackReason::NeedPtTan,
+    }
 }
 
 async fn notify_decoupled_sca_required(
@@ -1119,6 +1129,15 @@ async fn request_tan_value(
     message: String,
     current_value: Option<String>,
 ) -> HbciResult<String> {
+    request_tan_value_with_reason(callback, CallbackReason::NeedPtTan, message, current_value).await
+}
+
+async fn request_tan_value_with_reason(
+    callback: Option<&dyn HbciCallback>,
+    reason: CallbackReason,
+    message: String,
+    current_value: Option<String>,
+) -> HbciResult<String> {
     let Some(callback) = callback else {
         return Err(HbciError::new(
             HbciErrorKind::Callback,
@@ -1128,7 +1147,7 @@ async fn request_tan_value(
 
     let response = callback
         .handle(CallbackEvent {
-            reason: CallbackReason::NeedPtTan,
+            reason,
             message,
             data_type: CallbackDataType::Text,
             current_value,

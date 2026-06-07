@@ -30,9 +30,8 @@ Add Rust-cased callback reasons for the two hbci4java decoupled PinTAN codes:
 Map them to and from the original hbci4java constants `35` and `36` through
 `original_code()` and `from_original_code(...)`.
 
-Keep PhotoTAN and QR-TAN callback constants out of this slice. The Rust port can
-already parse QR/photoTAN payload helpers, but dedicated callback emission for
-those methods is a separate UI/runtime decision.
+Keep PhotoTAN and QR-TAN callback constants out of this slice. ADR 0245 records
+their dedicated callback emission once that runtime decision is made.
 
 ## Consequences
 

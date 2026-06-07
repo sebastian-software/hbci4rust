@@ -53,6 +53,8 @@ pub enum CallbackReason {
     NeedPtTan,
     NeedPtSecMech,
     NeedPtTanMedia,
+    NeedPtPhotoTan,
+    NeedPtQrTan,
     NeedPtDecoupled,
     NeedPtDecoupledRetry,
     NeedConnection,
@@ -82,6 +84,8 @@ impl CallbackReason {
     pub const NEED_PT_SECMECH: i32 = 27;
     pub const HAVE_IBAN_ERROR: i32 = 30;
     pub const NEED_PT_TANMEDIA: i32 = 32;
+    pub const NEED_PT_PHOTOTAN: i32 = 33;
+    pub const NEED_PT_QRTAN: i32 = 34;
     pub const NEED_PT_DECOUPLED: i32 = 35;
     pub const NEED_PT_DECOUPLED_RETRY: i32 = 36;
 
@@ -98,6 +102,8 @@ impl CallbackReason {
             Self::NeedPtTan => Self::NEED_PT_TAN,
             Self::NeedPtSecMech => Self::NEED_PT_SECMECH,
             Self::NeedPtTanMedia => Self::NEED_PT_TANMEDIA,
+            Self::NeedPtPhotoTan => Self::NEED_PT_PHOTOTAN,
+            Self::NeedPtQrTan => Self::NEED_PT_QRTAN,
             Self::NeedPtDecoupled => Self::NEED_PT_DECOUPLED,
             Self::NeedPtDecoupledRetry => Self::NEED_PT_DECOUPLED_RETRY,
             Self::NeedConnection => Self::NEED_CONNECTION,
@@ -123,6 +129,8 @@ impl CallbackReason {
             Self::NEED_PT_TAN => Self::NeedPtTan,
             Self::NEED_PT_SECMECH => Self::NeedPtSecMech,
             Self::NEED_PT_TANMEDIA => Self::NeedPtTanMedia,
+            Self::NEED_PT_PHOTOTAN => Self::NeedPtPhotoTan,
+            Self::NEED_PT_QRTAN => Self::NeedPtQrTan,
             Self::NEED_PT_DECOUPLED => Self::NeedPtDecoupled,
             Self::NEED_PT_DECOUPLED_RETRY => Self::NeedPtDecoupledRetry,
             Self::NEED_CONNECTION => Self::NeedConnection,

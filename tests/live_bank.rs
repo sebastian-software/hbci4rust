@@ -36,7 +36,9 @@ impl HbciCallback for LiveEnvCallback {
             CallbackReason::NeedPtPin => {
                 Ok(CallbackResponse::value(env_required("HBCI4RUST_LIVE_PIN")?))
             }
-            CallbackReason::NeedPtTan => {
+            CallbackReason::NeedPtTan
+            | CallbackReason::NeedPtPhotoTan
+            | CallbackReason::NeedPtQrTan => {
                 Ok(CallbackResponse::value(env_required("HBCI4RUST_LIVE_TAN")?))
             }
             CallbackReason::NeedPtSecMech => Ok(env_optional("HBCI4RUST_LIVE_TAN_METHOD")

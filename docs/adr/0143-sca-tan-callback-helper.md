@@ -51,8 +51,6 @@ Remaining work:
 
 - encode the returned TAN into the PinTAN user signature;
 - clear consumed SCA runtime state at the same lifecycle point as signing;
-- add specialized QR/photoTAN callback variants once those public flows are
-  decided;
 - wire the helper into automatic HKTAN queue patching and dialog repeats.
 
 ## Links

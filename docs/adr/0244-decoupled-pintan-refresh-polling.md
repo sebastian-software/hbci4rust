@@ -65,9 +65,8 @@ value from the application. The handler now has enough behavior to exercise
 pending approval (`3956`) and successful approval through deterministic offline
 fixtures.
 
-The Rust port intentionally keeps QR/photoTAN callback emission separate. Those
-methods share parts of the HHD detection logic, but their UI payloads and
-application expectations should be decided in their own ADRs.
+The Rust port intentionally keeps QR/photoTAN callback emission separate. ADR
+0245 records that later runtime decision.
 
 ## Links
 
