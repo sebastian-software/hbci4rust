@@ -396,7 +396,7 @@ impl HbciJob {
             "DauerLastSEPANew" | "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
                 generate_pain_008_001_01_direct_debit(&params)?
             }
-            "MultiLastCOR1SEPA" | "MultiLastSEPA" => {
+            "MultiLastB2BSEPA" | "MultiLastCOR1SEPA" | "MultiLastSEPA" => {
                 let total = sum_sepa_transaction_values(&params)?;
                 self.set_frontend_and_lowlevel_param("Total.value", total.value);
                 if let Some(currency) = total.curr {
@@ -428,6 +428,7 @@ impl HbciJob {
             "LastB2BSEPA" => Some("LastB2BSEPA1"),
             "LastCOR1SEPA" => Some("LastCOR1SEPA1"),
             "LastSEPA" => Some("LastSEPA1"),
+            "MultiLastB2BSEPA" => Some("SammelLastB2BSEPA1"),
             "MultiLastCOR1SEPA" => Some("SammelLastCOR1SEPA1"),
             "MultiLastSEPA" => Some("SammelLastSEPA1"),
             "MultiUebSEPA" => Some("SammelUebSEPA1"),
@@ -481,7 +482,7 @@ impl HbciJob {
     fn sepa_generation_param_name(&self, name: &str) -> String {
         if matches!(
             self.name.as_str(),
-            "MultiLastCOR1SEPA" | "MultiLastSEPA" | "MultiUebSEPA"
+            "MultiLastB2BSEPA" | "MultiLastCOR1SEPA" | "MultiLastSEPA" | "MultiUebSEPA"
         ) {
             name.to_owned()
         } else {
@@ -865,6 +866,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
         "LastCOR1SEPA" => last_sepa_constraints("LastCOR1SEPA1", "COR1"),
         "LastSEPA" => last_sepa_constraints("LastSEPA1", "CORE"),
+        "MultiLastB2BSEPA" => multi_last_sepa_constraints("SammelLastB2BSEPA1", "B2B"),
         "MultiLastCOR1SEPA" => multi_last_sepa_constraints("SammelLastCOR1SEPA1", "COR1"),
         "MultiLastSEPA" => multi_last_sepa_constraints("SammelLastSEPA1", "CORE"),
         "Kontoauszug" => kontoauszug_constraints(),
