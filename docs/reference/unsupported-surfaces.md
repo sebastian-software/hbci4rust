@@ -91,11 +91,13 @@ limitations before they influence acceptance.
 
 ## Release And Packaging Boundaries
 
-These items remain release-candidate work, not hidden implementation support:
+These release and packaging boundaries remain explicit guardrails, not hidden
+implementation support:
 
-- final release-candidate offline gate output must be recorded after the last
-  release commit;
-- upstream header inconsistencies must be rechecked before publishing;
+- final release-candidate offline gate output is recorded by
+  `scripts/run-release-candidate-checks.sh --package`;
+- upstream header inconsistencies must be rechecked again if the baseline or
+  copied artifacts change before publishing;
 - risky parser or generator behavior needs Java golden artifacts or explicit
   limitation entries, tracked in `docs/reference/parser-generator-goldens.md`;
 - malformed bank responses added before v1 need deterministic replay or fixture

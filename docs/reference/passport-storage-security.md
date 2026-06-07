@@ -44,6 +44,9 @@ a 32-byte key and generated 24-byte nonce. The crate documents XChaCha20Poly1305
 as the ChaCha20Poly1305 variant with an extended 192-bit nonce.
 
 The loader now rejects unsupported AEAD metadata instead of ignoring it.
+ADR 0260 keeps v1 without AEAD associated data. Instead, v1 relies on explicit
+metadata validation before decryption plus authenticated decryption failure for
+valid-looking tampering of KDF parameters, nonce, salt, or ciphertext.
 
 ## Envelope Validation
 
@@ -71,21 +74,20 @@ decryption.
 - rejection of wrong passphrases;
 - rejection of unsupported AEAD and KDF metadata;
 - rejection of invalid nonce length before decryption;
+- rejection of ciphertext and valid-looking KDF parameter tampering during
+  authenticated decryption;
 - absence of obvious plaintext passport fields in the serialized envelope.
 
 The persisted v1 fixture lives at
 `tests/fixtures/passport/pintan-v1-envelope.json`. It uses only dummy values and
 the dummy passphrase `hbci4rust-v1-fixture-passphrase`.
 
-## Remaining Work
+## Future Format Work
 
-Before the first published release:
-
-- rerun the release-candidate gates after the final commit;
-- decide whether to bind envelope metadata as AEAD associated data or keep v1's
-  explicit metadata validation policy;
 - keep the checked-in v1 fixture loading or add explicit migration fixtures
-  before changing the envelope version.
+  before changing the envelope version;
+- record a new ADR before adding AEAD associated data or otherwise changing
+  valid persisted bytes.
 
 Reviewed sources:
 
@@ -95,3 +97,4 @@ Reviewed sources:
   `https://docs.rs/argon2/0.5.3/argon2/`
 - `chacha20poly1305` 0.10.1 docs:
   `https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/`
+- ADR 0260

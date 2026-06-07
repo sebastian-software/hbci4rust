@@ -14,8 +14,10 @@ keys remain Java-compatible (`SaldoReq`, `src.iban`, and similar).
 
 ## Current State
 
-The v1 PinTAN/HBCI-Plus port is well beyond the initial bootstrap, but it is
-not release-complete yet:
+The scoped v1 PinTAN/HBCI-Plus port is release-candidate complete against the
+operational checklist in `docs/architecture/release-checklist.md`. This is not a
+claim that every hbci4java surface is present; the out-of-scope security media
+and lowlevel APIs remain intentionally excluded from v1.
 
 - ADRs record the major porting decisions.
 - The crate exposes async callback and communication traits, including a replay
@@ -31,9 +33,7 @@ not release-complete yet:
 - Rust-native PinTAN passport storage is implemented with a versioned encrypted
   envelope.
 
-The remaining v1 work is mostly runtime confidence, broader replay fixtures,
-public API hardening, release documentation, and packaging review. The current
-readiness estimate and the Java migration map live in:
+The release evidence and Java migration map live in:
 
 - `docs/architecture/v1-readiness.md`
 - `docs/architecture/release-checklist.md`
@@ -55,6 +55,7 @@ readiness estimate and the Java migration map live in:
 cargo fmt
 cargo test
 cargo clippy --all-targets
+scripts/run-release-candidate-checks.sh --package
 ```
 
 CI is offline-only. Live bank access stays ignored and environment-gated.

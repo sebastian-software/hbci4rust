@@ -3,8 +3,9 @@
 Snapshot date: 2026-06-07.
 
 This page records the current crate packaging review for the scoped v1
-PinTAN/HBCI-Plus port. It is not a release declaration. A release candidate
-still has to rerun the package checks after the final release-candidate commit.
+PinTAN/HBCI-Plus port. Final local package evidence is captured by
+`scripts/run-release-candidate-checks.sh --package`; rerun it after any
+source-controlled change before publishing.
 
 ## Cargo Metadata
 
@@ -60,14 +61,14 @@ Direct upstream attribution is present in:
 Copied protocol XML/DTD resources and copied offline fixtures both name the
 pinned hbci4java repository, tag, commit, and upstream source context.
 
-## Remaining Release Work
+## Publication Guardrails
 
-Before publishing any crate release:
+Before publishing any crate release after further source-controlled changes:
 
 - rerun `cargo package --list` on the final release-candidate commit;
-- run `cargo publish --dry-run` or an equivalent local package verification;
 - use `scripts/run-release-candidate-checks.sh --package` to run the offline
   gates and package checks with per-command logs under `target/release-gates/`;
 - rerun the upstream header review if the baseline or copied artifacts changed
   since `docs/reference/upstream-header-review.md`;
-- update `docs/architecture/release-checklist.md` with final command evidence.
+- update `docs/architecture/release-checklist.md` if the release acceptance
+  command set changes.

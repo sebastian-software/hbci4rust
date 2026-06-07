@@ -59,9 +59,10 @@ the current v1 hardening slice.
 The storage format remains version `1`; the changes reject malformed envelopes
 more explicitly and do not change valid persisted bytes.
 
-This is not a full cryptographic audit. Before the first published release, run
-the final package checks and decide whether to add AEAD associated data for
-metadata binding or leave metadata validation as the v1 policy.
+This is not a full cryptographic audit. ADR 0260 resolves the follow-up
+metadata-binding question by keeping explicit metadata validation as the v1
+policy. Final package checks are governed by ADR 0259 and the release
+checklist.
 
 ## Links
 
@@ -71,6 +72,8 @@ metadata binding or leave metadata validation as the v1 policy.
 - `docs/architecture/release-checklist.md`
 - ADR 0008: Rust-Native Passport Storage
 - ADR 0246: V1 Release Checklist
+- ADR 0259: Release Candidate Check Runner
+- ADR 0260: Passport Envelope Metadata Binding
 - OWASP Password Storage Cheat Sheet:
   `https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html`
 - `argon2` crate docs: `https://docs.rs/argon2/latest/argon2/`

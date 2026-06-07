@@ -218,6 +218,33 @@ fn passport_storage_rejects_wrong_passphrase_and_tampered_metadata() {
 
     let mut envelope: Value = serde_json::from_slice(&bytes).expect("envelope parses");
 
+    envelope["ciphertext"][0] = Value::from(
+        envelope["ciphertext"][0]
+            .as_u64()
+            .expect("ciphertext byte")
+            ^ 1,
+    );
+    let err = PassportStorage::load_from_slice(
+        &serde_json::to_vec(&envelope).expect("tampered envelope serializes"),
+        b"correct horse battery staple",
+    )
+    .expect_err("ciphertext tampering is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Storage);
+    assert_eq!(err.message(), "failed to decrypt passport");
+
+    let mut envelope: Value = serde_json::from_slice(&bytes).expect("envelope parses");
+
+    envelope["kdf"]["time_cost"] = Value::from(1);
+    let err = PassportStorage::load_from_slice(
+        &serde_json::to_vec(&envelope).expect("tampered envelope serializes"),
+        b"correct horse battery staple",
+    )
+    .expect_err("valid-looking KDF metadata tampering is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Storage);
+    assert_eq!(err.message(), "failed to decrypt passport");
+
+    let mut envelope: Value = serde_json::from_slice(&bytes).expect("envelope parses");
+
     envelope["aead"] = Value::String("aes-gcm".to_owned());
     let err = PassportStorage::load_from_slice(
         &serde_json::to_vec(&envelope).expect("tampered envelope serializes"),
