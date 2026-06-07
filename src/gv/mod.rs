@@ -803,6 +803,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "AccInfo" => acc_info_constraints(),
         "CardList" => card_list_constraints(),
+        "DauerDel" => dauer_del_constraints(),
         "DauerEdit" => dauer_edit_constraints(),
         "DauerList" => dauer_list_constraints(),
         "DauerNew" => dauer_new_constraints(),
@@ -952,6 +953,39 @@ fn dauer_edit_constraints() -> Vec<HbciJobConstraint> {
     for index in 0..CLASSIC_USAGE_LINE_COUNT {
         let frontend = classic_usage_name(index);
         let destination = format!("DauerEdit5.usage.{frontend}");
+        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
+    }
+
+    constraints
+}
+
+fn dauer_del_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = vec![
+        HbciJobConstraint::new("src.number", "DauerDel4.My.number", Some("")),
+        HbciJobConstraint::new("src.subnumber", "DauerDel4.My.subnumber", Some("")),
+        HbciJobConstraint::new("dst.blz", "DauerDel4.Other.KIK.blz", Some("")),
+        HbciJobConstraint::new("dst.number", "DauerDel4.Other.number", Some("")),
+        HbciJobConstraint::new("dst.subnumber", "DauerDel4.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "DauerDel4.BTG.value", Some("")),
+        HbciJobConstraint::new("btg.curr", "DauerDel4.BTG.curr", Some("")),
+        HbciJobConstraint::new("name", "DauerDel4.name", Some("")),
+        HbciJobConstraint::new("firstdate", "DauerDel4.DauerDetails.firstdate", Some("")),
+        HbciJobConstraint::new("timeunit", "DauerDel4.DauerDetails.timeunit", Some("")),
+        HbciJobConstraint::new("turnus", "DauerDel4.DauerDetails.turnus", Some("")),
+        HbciJobConstraint::new("execday", "DauerDel4.DauerDetails.execday", Some("")),
+        HbciJobConstraint::new("src.blz", "DauerDel4.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.country", "DauerDel4.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dst.country", "DauerDel4.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("name2", "DauerDel4.name2", Some("")),
+        HbciJobConstraint::new("key", "DauerDel4.key", Some("52")),
+        HbciJobConstraint::new("date", "DauerDel4.date", Some("")),
+        HbciJobConstraint::new("orderid", "DauerDel4.orderid", Some("")),
+        HbciJobConstraint::new("lastdate", "DauerDel4.DauerDetails.lastdate", Some("")),
+    ];
+
+    for index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let frontend = classic_usage_name(index);
+        let destination = format!("DauerDel4.usage.{frontend}");
         constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
     }
 

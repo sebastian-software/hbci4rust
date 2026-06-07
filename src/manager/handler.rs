@@ -253,6 +253,7 @@ where
 
     fn prepare_job_from_passport(&self, job: &mut HbciJob) -> HbciResult<()> {
         match job.name() {
+            "DauerDel" => apply_dauer_snapshot_to_job(job, &self.passport, "DauerDel4"),
             "DauerEdit" => apply_dauer_snapshot_to_job(job, &self.passport, "DauerEdit5"),
             "TermUebDel" => apply_term_ueb_snapshot_to_job(job, &self.passport, "TermUebDel3"),
             "TermUebEdit" => apply_term_ueb_snapshot_to_job(job, &self.passport, "TermUebEdit4"),
@@ -1099,6 +1100,7 @@ fn render_job_into_custom_message(
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
         "CardList" => render_card_list(message, job, index, passport),
+        "DauerDel" => render_dauer_del(message, job, index, passport),
         "DauerEdit" => render_dauer_edit(message, job, index, passport),
         "DauerList" => render_dauer_list(message, job, index, passport),
         "DauerNew" => render_dauer_new(message, job, index, passport),
@@ -1327,6 +1329,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKAZK",
             lowlevel_segment: "CardList2",
             path: "CustomMsg.GV.CardList2",
+        }),
+        "DauerDel" => Ok(OrderhashSourceJobInfo {
+            code: "HKDAL",
+            lowlevel_segment: "DauerDel4",
+            path: "CustomMsg.GV.DauerDel4",
         }),
         "DauerEdit" => Ok(OrderhashSourceJobInfo {
             code: "HKDAN",
@@ -2615,6 +2622,137 @@ fn render_dauer_edit(
         message,
         &format!("{segment}.DauerDetails.lastdate"),
         job_param(job, "DauerEdit5.DauerDetails.lastdate", "lastdate"),
+    )?;
+
+    Ok(())
+}
+
+fn render_dauer_del(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "DauerDel4";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let src_account = classic_national_job_account(
+        job,
+        passport.first_account().cloned(),
+        lowlevel_segment,
+        "My",
+        "src",
+    );
+    if !has_account_identity(&src_account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerDel requires src.number or a passport account for the current DauerDel4 renderer",
+        ));
+    }
+    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
+    if !has_account_identity(&dst_account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerDel requires dst.number for the current DauerDel4 renderer",
+        ));
+    }
+
+    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
+    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.name"),
+        job,
+        "DauerDel4.name",
+        "name",
+        "DauerDel requires name",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.name2"),
+        job_param(job, "DauerDel4.name2", "name2"),
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.value"),
+        job,
+        "DauerDel4.BTG.value",
+        "btg.value",
+        "DauerDel requires btg.value",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.curr"),
+        job,
+        "DauerDel4.BTG.curr",
+        "btg.curr",
+        "DauerDel requires btg.curr",
+    )?;
+    message.set_value(
+        &format!("{segment}.key"),
+        job_param(job, "DauerDel4.key", "key").unwrap_or("52"),
+    )?;
+    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let usage_name = classic_usage_frontend_name(usage_index);
+        set_optional_message_value(
+            message,
+            &format!("{segment}.usage.{usage_name}"),
+            job_param(job, &format!("DauerDel4.usage.{usage_name}"), &usage_name),
+        )?;
+    }
+    set_optional_message_value(
+        message,
+        &format!("{segment}.date"),
+        job_param(job, "DauerDel4.date", "date"),
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.orderid"),
+        job,
+        "DauerDel4.orderid",
+        "orderid",
+        "DauerDel requires orderid",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.firstdate"),
+        job,
+        "DauerDel4.DauerDetails.firstdate",
+        "firstdate",
+        "DauerDel requires firstdate",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.timeunit"),
+        job,
+        "DauerDel4.DauerDetails.timeunit",
+        "timeunit",
+        "DauerDel requires timeunit",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.turnus"),
+        job,
+        "DauerDel4.DauerDetails.turnus",
+        "turnus",
+        "DauerDel requires turnus",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.execday"),
+        job,
+        "DauerDel4.DauerDetails.execday",
+        "execday",
+        "DauerDel requires execday",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.DauerDetails.lastdate"),
+        job_param(job, "DauerDel4.DauerDetails.lastdate", "lastdate"),
     )?;
 
     Ok(())
