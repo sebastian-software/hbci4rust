@@ -34,7 +34,7 @@ pub use manager::{
     FlickerDataElement, FlickerEncoding, FlickerRenderer, FlickerStartCode, HbciHandler,
     HbciVersion, HhdVersion, HhdVersionType, MatrixCode, OrderHashMode, PinTanSigHead,
     PinTanSignatureContext, QrCode, apply_pintan_sig_head, apply_pintan_sig_tail_from_head,
-    apply_pintan_signature_shell, apply_pintan_user_sig_to_sig_tail,
+    apply_pintan_signature_shell, apply_pintan_user_sig_to_sig_tail, collect_pintan_segment_codes,
     collect_pintan_signature_range, done, get_param, init, set_param,
 };
 pub use passport::{

@@ -252,6 +252,38 @@ pub fn collect_pintan_signature_range(
     Ok(range)
 }
 
+pub fn collect_pintan_segment_codes(range: &str) -> HbciResult<Vec<String>> {
+    let bytes = range.as_bytes();
+    let mut codes = Vec::new();
+    let mut pos = 0;
+
+    while pos < bytes.len() {
+        let Some(colon_offset) = bytes[pos..].iter().position(|byte| *byte == b':') else {
+            break;
+        };
+        let colon = pos + colon_offset;
+        let code = std::str::from_utf8(&bytes[pos..colon]).map_err(|err| {
+            HbciError::with_source(
+                HbciErrorKind::Protocol,
+                "PinTAN signed range contains a non-UTF-8 segment code",
+                err,
+            )
+        })?;
+        codes.push(code.to_owned());
+
+        pos = colon;
+        while pos < bytes.len() && bytes[pos] != b'\'' {
+            pos = position_of_next_fints_delimiter(bytes, pos + 1)?;
+        }
+        if pos >= bytes.len() {
+            break;
+        }
+        pos += 1;
+    }
+
+    Ok(codes)
+}
+
 pub fn apply_pintan_user_sig_to_sig_tail(
     message: &mut HbciMessage,
     sig_tail_path: &str,
@@ -277,6 +309,56 @@ fn top_level_child_index(children: &[SyntaxElement], path: &str) -> HbciResult<u
                 format!("message has no top-level signature element {path}"),
             )
         })
+}
+
+fn position_of_next_fints_delimiter(bytes: &[u8], mut pos: usize) -> HbciResult<usize> {
+    let mut quoting = false;
+
+    while pos < bytes.len() {
+        let byte = bytes[pos];
+        if !quoting {
+            match byte {
+                b'?' => quoting = true,
+                b'@' => {
+                    let length_start = pos + 1;
+                    let Some(length_end_offset) =
+                        bytes[length_start..].iter().position(|byte| *byte == b'@')
+                    else {
+                        return Err(HbciError::new(
+                            HbciErrorKind::Protocol,
+                            "PinTAN signed range contains an unterminated binary length",
+                        ));
+                    };
+                    let length_end = length_start + length_end_offset;
+                    let length_text = std::str::from_utf8(&bytes[length_start..length_end])
+                        .map_err(|err| {
+                            HbciError::with_source(
+                                HbciErrorKind::Protocol,
+                                "PinTAN signed range contains a non-UTF-8 binary length",
+                                err,
+                            )
+                        })?;
+                    let binary_len = length_text.parse::<usize>().map_err(|err| {
+                        HbciError::with_source(
+                            HbciErrorKind::Protocol,
+                            format!("invalid PinTAN signed range binary length {length_text}"),
+                            err,
+                        )
+                    })?;
+                    pos = length_end + 1 + binary_len;
+                    continue;
+                }
+                b'\'' | b'+' | b':' => break,
+                _ => {}
+            }
+        } else {
+            quoting = false;
+        }
+
+        pos += 1;
+    }
+
+    Ok(pos)
 }
 
 fn random_seccheckref() -> String {

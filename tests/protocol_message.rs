@@ -3,7 +3,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use hbci4rust::{
     HbciErrorKind, PinTanPassport, PinTanPassportData, PinTanSigHead, PinTanSignatureContext,
     UserSig, apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_signature_shell,
-    apply_pintan_user_sig_to_sig_tail, collect_pintan_signature_range,
+    apply_pintan_user_sig_to_sig_tail, collect_pintan_segment_codes,
+    collect_pintan_signature_range,
     protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec},
 };
 
@@ -519,6 +520,65 @@ fn collects_pintan_signature_range_skips_unused_custom_message_jobs() {
     assert!(!range.contains("HKKAZ"), "{range}");
     assert!(!range.contains("HNSHA"), "{range}");
     assert!(!range.contains("HNHBS"), "{range}");
+}
+
+#[test]
+fn collects_pintan_segment_codes_from_signed_range_like_hbci4java() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg").expect("message tree builds");
+    let passport = pintan_passport_with_tan_method("999");
+    let sig_head = PinTanSigHead::from_passport(&passport, "REF10", "1", "2024-02-29", "07:08:09")
+        .expect("pintan sighead values derive from passport");
+    let signature = UserSig::encode(Some("12345"), None).expect("usersig encodes");
+
+    apply_pintan_signature_shell(
+        &mut message,
+        "CustomMsg.SigHead",
+        "CustomMsg.SigTail",
+        &sig_head,
+        &signature,
+    )
+    .expect("signature shell applies");
+    set_all(
+        &mut message,
+        [
+            ("CustomMsg.MsgHead.dialogid", "DIALOG1"),
+            ("CustomMsg.MsgHead.msgnum", "2"),
+            ("CustomMsg.GV.Saldo7.KTV.iban", "DE02123456780000000000"),
+            ("CustomMsg.GV.Saldo7.allaccounts", "N"),
+            ("CustomMsg.MsgTail.msgnum", "2"),
+        ],
+    );
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+    let range = collect_pintan_signature_range(&message, "CustomMsg.SigHead", "CustomMsg.SigTail")
+        .expect("signature range collects");
+
+    let codes = collect_pintan_segment_codes(&range).expect("segment codes collect");
+
+    assert_eq!(codes, ["HNSHK", "HKSAL"]);
+}
+
+#[test]
+fn collect_pintan_segment_codes_skips_quoted_delimiters_and_binary_blocks() {
+    let range = "HNSHK:2:4+PIN:1+999+REF'HKSAL:3:7+@12@abc:def+'xyz+N'HKXYZ:4:1+foo?:bar?+baz?''";
+
+    let codes = collect_pintan_segment_codes(range).expect("segment codes collect");
+
+    assert_eq!(codes, ["HNSHK", "HKSAL", "HKXYZ"]);
+}
+
+#[test]
+fn collect_pintan_segment_codes_rejects_malformed_binary_blocks() {
+    let err = collect_pintan_segment_codes("HNSHK:2:4+@xx@abc'")
+        .expect_err("invalid binary length is rejected");
+
+    assert_eq!(err.kind(), HbciErrorKind::Protocol);
 }
 
 #[test]
