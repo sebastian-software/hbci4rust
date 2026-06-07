@@ -4,7 +4,7 @@ set -euo pipefail
 target="${HBCI4RUST_UPSTREAM_TARGET:-target/reference/hbci4java}"
 upstream_dir="$target/src/main/java/org/kapott/hbci/GV"
 registry_file="${HBCI4RUST_REGISTRY_FILE:-src/gv/mod.rs}"
-expected_missing="${HBCI4RUST_EXPECTED_MISSING_GV:-Template}"
+expected_missing="${HBCI4RUST_EXPECTED_MISSING_GV:-LastCOR1SEPA,MultiLastCOR1SEPA,Template}"
 
 join_csv() {
   awk 'BEGIN { first = 1 } { if (!first) printf ","; printf "%s", $0; first = 0 }'

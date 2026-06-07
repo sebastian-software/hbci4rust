@@ -53,6 +53,19 @@ presence does not change the unsupported security-media boundary.
 The guarded cleanup path for those compatibility-carried jobs is recorded in
 `docs/architecture/legacy-cleanup-plan.md`.
 
+## Removed Legacy Public Jobs
+
+The following hbci4java high-level jobs are deliberately absent from the v1
+public registry:
+
+- `LastCOR1SEPA`;
+- `MultiLastCOR1SEPA`.
+
+They were compatibility-carried SEPA `COR1` direct-debit variants. EPC guidance
+states that `COR1` is no longer relevant for new SDD Core collections from
+20 November 2016. Use the modern CORE or B2B SEPA direct-debit jobs instead:
+`LastSEPA`, `MultiLastSEPA`, `LastB2BSEPA`, or `MultiLastB2BSEPA`.
+
 ## Dynamic Lowlevel Boundary
 
 The public v1 job surface is a static PinTAN-compatible registry. It does not
@@ -69,8 +82,8 @@ class. It is not treated as permission to construct arbitrary lowlevel jobs.
 available for original-near rendering, result inspection, and tests. They do
 not widen v1 into a dynamic lowlevel API.
 
-The current job coverage audit therefore allows exactly one missing upstream
-`GV*.java` class: `Template`.
+The current job coverage audit therefore allows exactly three missing upstream
+`GV*.java` classes: `LastCOR1SEPA`, `MultiLastCOR1SEPA`, and `Template`.
 
 ## Typed Result Boundary
 
@@ -158,3 +171,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0258: Baseline And Scope Change Guard
 - ADR 0261: Security Media Scope Evidence
 - ADR 0262: Non-Legacy Publication Scope
+- ADR 0265: Remove COR1 Public Jobs

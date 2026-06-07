@@ -2,9 +2,10 @@
 
 Snapshot date: 2026-06-07.
 
-This audit checks the 21 compatibility-carried legacy job candidates from
-`scripts/audit-modern-scope.sh` for current relevance before any removal or
-feature-gating work.
+This audit checked the original 21 compatibility-carried legacy job candidates
+for current relevance before removal or feature-gating work. ADR 0265 has since
+removed the two `COR1` candidates from the public registry, leaving 19
+compatibility-carried legacy candidates in `scripts/audit-modern-scope.sh`.
 
 ## Finding
 
@@ -15,8 +16,9 @@ German domestic payment jobs, but it is not precise enough for the whole set.
   account-number/bank-sort-code, classic FinTS segments, DTAUS-style usage
   fields, or already serialized DTAUS payloads. Their modern v1 counterparts are
   SEPA jobs with IBAN/BIC and PAIN payloads.
-- 2 candidates are SEPA `COR1` variants. They are not non-SEPA, but the `COR1`
-  local instrument is no longer relevant for new SDD Core collections.
+- 2 candidates were SEPA `COR1` variants. They were not non-SEPA, but the
+  `COR1` local instrument is no longer relevant for new SDD Core collections.
+  ADR 0265 removed them from the public registry.
 - 1 candidate, `UebForeign`, represents a still-current user need: foreign or
   foreign-currency payments. The current port is nevertheless legacy-carried
   because it is the old HKAOM/UebForeign2 job shape, not a modern ISO 20022
@@ -45,9 +47,9 @@ The current Rust port keeps the original-near field shapes:
 | `DauerNew` | Classic standing-order creation with national account fields and DTAUS-style usage. | `DauerSEPANew` | Legacy; remove or hide with the classic standing-order slice. |
 | `Donation` | hbci4java alias over classic `Ueb5` with donation-specific DTAUS usage fields. | `UebSEPA` plus caller-side remittance purpose handling | Legacy; remove or hide with classic domestic transfer aliases. |
 | `Last` | Classic domestic direct-debit submission predating the SEPA direct-debit rail. | `LastSEPA`, `LastB2BSEPA` | Legacy; remove or hide with the classic direct-debit slice. |
-| `LastCOR1SEPA` | SEPA job, but `COR1` is obsolete for new SDD Core collections. | `LastSEPA` with `CORE` | Legacy; clean first because the external evidence is strong and the surface is small. |
+| `LastCOR1SEPA` | SEPA job, but `COR1` is obsolete for new SDD Core collections. | `LastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
 | `MultiLast` | Classic domestic bulk direct debit with serialized DTAUS payload. | `MultiLastSEPA`, `MultiLastB2BSEPA` | Legacy; remove or hide with DTAUS bulk jobs. |
-| `MultiLastCOR1SEPA` | SEPA bulk job, but `COR1` is obsolete for new SDD Core collections. | `MultiLastSEPA` with `CORE` | Legacy; clean first with `LastCOR1SEPA`. |
+| `MultiLastCOR1SEPA` | SEPA bulk job, but `COR1` is obsolete for new SDD Core collections. | `MultiLastSEPA` with `CORE` | Removed from public registry by ADR 0265. |
 | `MultiUeb` | Classic domestic bulk transfer with serialized DTAUS payload. | `MultiUebSEPA` | Legacy; remove or hide with DTAUS bulk jobs. |
 | `StornoLast` | Classic domestic direct-debit objection path, tied to the pre-SEPA direct-debit surface. | Explicit future dispute/return workflow if needed | Legacy; remove or hide with the classic direct-debit slice. |
 | `TermUeb` | Classic scheduled transfer with national source and destination account fields. | `TermUebSEPA`, `TermMultiUebSEPA` | Legacy; remove or hide with classic scheduled transfers. |
@@ -63,17 +65,17 @@ The current Rust port keeps the original-near field shapes:
 
 ## Cleanup Implications
 
-Recommended cleanup order remains conservative, with one correction: `UebForeign`
+Remaining cleanup order remains conservative, with one correction: `UebForeign`
 is not a domestic transfer and should be handled last or behind a dedicated
-product-boundary ADR.
+product-boundary ADR. `LastCOR1SEPA` and `MultiLastCOR1SEPA` were already
+removed from the public registry by ADR 0265.
 
-1. `LastCOR1SEPA`, `MultiLastCOR1SEPA`
-2. `MultiUeb`, `MultiLast`
-3. `Last`, `StornoLast`
-4. `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation`
-5. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`,
+1. `MultiUeb`, `MultiLast`
+2. `Last`, `StornoLast`
+3. `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation`
+4. `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`,
    `DauerEdit`, `DauerDel`, `DauerList`
-6. `UebForeign`
+5. `UebForeign`
 
 ## Source Links
 

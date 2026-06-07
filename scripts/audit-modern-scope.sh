@@ -59,9 +59,7 @@ legacy_jobs=(
   DauerNew
   Donation
   Last
-  LastCOR1SEPA
   MultiLast
-  MultiLastCOR1SEPA
   MultiUeb
   StornoLast
   TermUeb

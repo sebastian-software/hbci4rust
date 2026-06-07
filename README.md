@@ -40,7 +40,7 @@ fn main() -> hbci4rust::HbciResult<()> {
 ## Status
 
 The scoped v1 PinTAN/HBCI-Plus port is release-candidate complete against
-`docs/architecture/release-checklist.md`: **50 of 50 blocking checklist items
+`docs/architecture/release-checklist.md`: **51 of 51 blocking checklist items
 are resolved**.
 
 This means the selected v1 surface is covered, not that every historical
@@ -49,12 +49,14 @@ show:
 
 | Audit | Upstream surface | Rust v1 coverage | Intentional gap |
 | --- | --- | --- | --- |
-| Jobs | 68 `GV*.java` classes | 67 registered jobs | `GVTemplate` |
+| Jobs | 68 `GV*.java` classes | 65 registered jobs | `GVTemplate`, `GVLastCOR1SEPA`, `GVMultiLastCOR1SEPA` |
 | Results | 24 normalized `GVR*.java` shapes | 23 typed result shapes | `WPStammData` |
 
-Both audit gaps are lowlevel boundaries. `GVTemplate` is Java's dynamic
-`newLowlevelJob(...)` fallback, and `WPStammData` is tied to the lowlevel
-`WPStammList` path. They are not hidden PinTAN implementation holes.
+The audit gaps are explicit v1 boundaries. `GVTemplate` is Java's dynamic
+`newLowlevelJob(...)` fallback, `WPStammData` is tied to the lowlevel
+`WPStammList` path, and the two `COR1` direct-debit jobs were removed from the
+public registry because `COR1` is no longer relevant for new SDD Core
+collections. They are not hidden PinTAN implementation holes.
 
 Some classic hbci4java payment jobs are currently still present for
 original-near compatibility, but they are not the product direction. See
@@ -121,8 +123,10 @@ Current evidence supports that stance:
 
 The detailed evidence and source links live in
 `docs/reference/security-media-scope.md` and
-`docs/reference/modern-scope-audit.md`. The 21 legacy cleanup candidates are
-checked one by one in `docs/reference/legacy-job-relevance-audit.md`.
+`docs/reference/modern-scope-audit.md`. The original 21 legacy cleanup
+candidates are checked one by one in
+`docs/reference/legacy-job-relevance-audit.md`; after the first COR1 cleanup,
+19 remain in the public registry.
 
 ## Documentation Map
 

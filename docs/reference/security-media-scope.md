@@ -12,13 +12,14 @@ are not the current v1 acceptance gap.
 ## Local Port Evidence
 
 The release-candidate audits show that the remaining upstream job/result gaps
-inside the selected Java comparison are lowlevel boundaries:
+inside the selected Java comparison are explicit v1 boundaries, not hidden
+security-media holes:
 
 ```text
 $ scripts/audit-job-coverage.sh
 upstream=68
-rust=67
-missing=Template
+rust=65
+missing=LastCOR1SEPA,MultiLastCOR1SEPA,Template
 extra=<none>
 
 $ scripts/audit-result-coverage.sh
@@ -32,6 +33,9 @@ extra=<none>
 `GVTemplate` is hbci4java's dynamic `newLowlevelJob(...)` fallback. v1 keeps a
 static PinTAN job registry and does not expose arbitrary caller-selected
 lowlevel segments.
+
+`GVLastCOR1SEPA` and `GVMultiLastCOR1SEPA` were removed from the public registry
+because `COR1` is no longer relevant for new SDD Core collections.
 
 `WPStammData` is intentionally excluded because the upstream result class is
 documented around the lowlevel `WPStammList` path instead of a normal

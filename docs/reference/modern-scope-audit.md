@@ -82,7 +82,6 @@ A detailed per-job current-relevance audit lives in
 | Classic standing orders | `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | They are the non-SEPA counterparts to the SEPA standing-order jobs. |
 | Classic direct debit and objection jobs | `Last`, `StornoLast` | They predate the SEPA direct-debit rail. |
 | DTAUS bulk jobs | `MultiUeb`, `MultiLast` | They accept already serialized DTAUS payloads. National transfer/direct-debit schemes have been replaced by SEPA. |
-| COR1 variants | `LastCOR1SEPA`, `MultiLastCOR1SEPA` | EPC says `COR1` is no longer relevant for new SDD Core collections from 20 November 2016. |
 
 ## Intentionally Unsupported Legacy Surface
 
@@ -92,6 +91,7 @@ These surfaces remain out of scope, not merely deferred:
 - PCSC, CTAPI, DDV, native card-reader integration;
 - RDH, RAH, and RSA key-file live support;
 - Java passport import/export;
+- `LastCOR1SEPA` and `MultiLastCOR1SEPA`;
 - arbitrary dynamic lowlevel jobs through public `newLowlevelJob(...)`;
 - `GVTemplate`;
 - `WPStammData` / lowlevel `WPStammList`.
@@ -120,9 +120,9 @@ scripts/audit-modern-scope.sh
 Current output:
 
 ```text
-registry=67
+registry=65
 modern=46
-legacy=21
+legacy=19
 duplicates=<none>
 unclassified=<none>
 stale=<none>

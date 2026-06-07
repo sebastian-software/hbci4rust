@@ -57,7 +57,8 @@ and full logs under `target/release-gates/`.
 ## Source Surface Coverage
 
 - [x] Static high-level job registry covers all in-scope upstream `GV*.java`
-  classes except the intentional `GVTemplate` lowlevel boundary.
+  classes except the intentional `GVTemplate` lowlevel boundary and the
+  unsupported `COR1` direct-debit jobs.
 - [x] Normalized typed result coverage covers all in-scope upstream `GVR*.java`
   shapes except the intentional `WPStammData` lowlevel boundary.
 - [x] Coverage audit docs are current after the final release-candidate commit.
@@ -70,6 +71,7 @@ Evidence:
 - `docs/reference/java-to-rust-mapping.md`
 - `docs/reference/unsupported-surfaces.md`
 - ADR 0252
+- ADR 0265
 
 ## Protocol And Offline Parity
 
