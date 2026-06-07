@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::str;
 
-use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason};
+use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallback};
 use crate::comm::{CommClient, CommRequest, CommResponse, DefaultCommClient};
 use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
@@ -11,7 +11,7 @@ use crate::gv_result::{
     HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
     Value,
 };
-use crate::passport::PinTanPassport;
+use crate::passport::{PinTanPassport, TanMethodOption, TanMethodSelection};
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
 use crate::sepa::CAMT_052_001_01_URN;
 use crate::swift::decode_umlauts;
@@ -161,7 +161,10 @@ where
         }
         self.passport
             .update_parameter_data_from_values(&values, "DialogInitRes");
-        self.passport.determine_tan_method();
+        let selection = self.passport.determine_tan_method();
+        if let Some(selected) = choose_tan_method_if_needed(selection, callback.as_deref()).await? {
+            self.passport.set_current_tan_method(selected);
+        }
         self.passport
             .update_accounts_from_values(&values, "DialogInitRes.UPD");
         if let Some(callback) = callback.as_ref() {
@@ -385,6 +388,57 @@ fn required_passport_value<'a>(value: &'a str, message: &str) -> HbciResult<&'a 
 
 fn product_version_for_proc_prep() -> String {
     env!("CARGO_PKG_VERSION").chars().take(5).collect()
+}
+
+async fn choose_tan_method_if_needed(
+    selection: TanMethodSelection,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<Option<String>> {
+    let TanMethodSelection::NeedsUserSelection(options) = selection else {
+        return Ok(None);
+    };
+    let Some(callback) = callback else {
+        return Ok(None);
+    };
+
+    choose_tan_method(callback, &options).await.map(Some)
+}
+
+async fn choose_tan_method(
+    callback: &dyn HbciCallback,
+    options: &[TanMethodOption],
+) -> HbciResult<String> {
+    let response = callback
+        .handle(CallbackEvent {
+            reason: CallbackReason::NeedPtSecMech,
+            message: "*** Select a pintan method from the list".to_owned(),
+            data_type: CallbackDataType::Select,
+            current_value: Some(format_tan_method_options(options)),
+        })
+        .await?;
+    let Some(selected) = response.value.filter(|value| !value.is_empty()) else {
+        return Err(HbciError::new(
+            HbciErrorKind::Callback,
+            "callback did not select a pintan method",
+        ));
+    };
+
+    if options.iter().any(|option| option.id == selected) {
+        Ok(selected)
+    } else {
+        Err(HbciError::new(
+            HbciErrorKind::Callback,
+            format!("selected pintan method not supported: {selected}"),
+        ))
+    }
+}
+
+fn format_tan_method_options(options: &[TanMethodOption]) -> String {
+    options
+        .iter()
+        .map(|option| format!("{}:{}", option.id, option.name.as_deref().unwrap_or("null")))
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

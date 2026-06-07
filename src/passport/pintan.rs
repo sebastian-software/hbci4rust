@@ -108,6 +108,10 @@ impl PinTanPassport {
             .filter(|value| !value.is_empty())
     }
 
+    pub fn set_current_tan_method(&mut self, method: impl Into<String>) {
+        self.data.tan_method = Some(method.into());
+    }
+
     pub fn bank_twostep_mechanism_ids(&self) -> Vec<String> {
         self.data.twostep_mechanisms.keys().cloned().collect()
     }

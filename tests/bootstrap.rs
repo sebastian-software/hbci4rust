@@ -61,6 +61,25 @@ impl HbciCallback for ScriptedCallback {
     }
 }
 
+#[derive(Debug)]
+struct SecmechSelectingCallback {
+    events: Arc<Mutex<Vec<CallbackEvent>>>,
+    selection: String,
+}
+
+#[async_trait]
+impl HbciCallback for SecmechSelectingCallback {
+    async fn handle(&self, event: CallbackEvent) -> HbciResult<CallbackResponse> {
+        let reason = event.reason;
+        self.events.lock().expect("callback event lock").push(event);
+        if reason == CallbackReason::NeedPtSecMech {
+            Ok(CallbackResponse::value(self.selection.clone()))
+        } else {
+            Ok(CallbackResponse::empty())
+        }
+    }
+}
+
 fn custom_msg_response(body_segments: &[&str]) -> CommResponse {
     custom_msg_response_for_request("0", 1, body_segments)
 }
@@ -2046,6 +2065,95 @@ async fn handler_init_selects_single_allowed_twostep_method_from_cached_bpd() {
     handler.init().await.expect("dialog init replay response");
 
     assert_eq!(handler.passport().current_tan_method(), Some("922"));
+}
+
+#[tokio::test]
+async fn handler_init_asks_callback_for_ambiguous_twostep_method() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(SecmechSelectingCallback {
+            events: events.clone(),
+            selection: "921".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        bpd_parameters: pintan_bpd("N", &[("921", "photoTAN"), ("922", "pushTAN")]),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+3920::Zugelassene TAN-Verfahren:922:921+0010::Initialisiert",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+
+    assert_eq!(handler.passport().current_tan_method(), Some("921"));
+    let events = events.lock().expect("callback event lock");
+    let secmech_event = events
+        .iter()
+        .find(|event| event.reason == CallbackReason::NeedPtSecMech)
+        .expect("secmech callback event");
+    assert_eq!(secmech_event.data_type, CallbackDataType::Select);
+    assert_eq!(
+        secmech_event.message,
+        "*** Select a pintan method from the list"
+    );
+    assert_eq!(
+        secmech_event.current_value.as_deref(),
+        Some("921:photoTAN|922:pushTAN")
+    );
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_init_rejects_unsupported_callback_twostep_method() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(SecmechSelectingCallback {
+            events: events.clone(),
+            selection: "999".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        bpd_parameters: pintan_bpd("N", &[("921", "photoTAN"), ("922", "pushTAN")]),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+3920::Zugelassene TAN-Verfahren:922:921+0010::Initialisiert",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    let err = handler
+        .init()
+        .await
+        .expect_err("unsupported callback method is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Callback);
+    assert_eq!(err.message(), "selected pintan method not supported: 999");
+    assert_eq!(handler.passport().current_tan_method(), None);
+    drop(events);
+    done().expect("runtime reset");
 }
 
 #[tokio::test]
