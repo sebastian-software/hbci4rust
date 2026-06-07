@@ -681,6 +681,58 @@ fn dauer_sepa_del_exposes_original_near_v1_constraints() {
 }
 
 #[test]
+fn ueb_sepa_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("UebSEPA").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 22);
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban constraint")
+            .destination_name,
+        "UebSEPA1.My.iban"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_001_001_02_URN)
+    );
+    assert_eq!(
+        job.constraint("_sepapain")
+            .expect("sepa pain")
+            .destination_name,
+        "UebSEPA1.sepapain"
+    );
+    assert!(
+        job.constraint("dst.iban")
+            .expect("destination iban dummy constraint")
+            .indexed
+    );
+    assert_eq!(
+        job.constraint("btg.curr")
+            .expect("amount currency dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("EUR")
+    );
+    assert_eq!(
+        job.constraint("batchbook")
+            .expect("batchbook dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("0")
+    );
+    assert!(
+        job.constraint("endtoendid")
+            .expect("endtoendid dummy constraint")
+            .indexed
+    );
+}
+
+#[test]
 fn kums_all_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -3671,6 +3723,58 @@ async fn handler_generates_pain_for_dauer_sepa_new_from_original_params() {
         body.contains("<CdtrAcct><Id><IBAN>DE99123456780000000000</IBAN></Id></CdtrAcct>"),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn handler_renders_ueb_sepa_with_generated_pain_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("UebSEPA").expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param("src.name", "Sender Name")
+        .expect("source name is accepted");
+    job.try_set_param("dst.name", "Receiver Name")
+        .expect("destination name is accepted");
+    job.try_set_param("dst.iban", "DE99123456780000000000")
+        .expect("destination iban is accepted");
+    job.try_set_param("dst.bic", "DEUTDEDB277")
+        .expect("destination bic is accepted");
+    job.try_set_param("btg.value", "12.30")
+        .expect("amount value is accepted");
+    job.try_set_param("usage", "Transfer usage")
+        .expect("usage is accepted");
+    job.try_set_param("sepaid", "SEPA-UEB")
+        .expect("sepa id is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "UebSEPA");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("basic.dialogid")
+            .map(String::as_str),
+        Some("0")
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKCCS:3:1+DE02123456780000000000:MARKDEF1100+"));
+    assert!(body.contains("<MsgId>SEPA-UEB</MsgId>"), "{body}");
+    assert!(body.contains("<PmtInfId>SEPA-UEB</PmtInfId>"), "{body}");
+    assert!(body.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
+    assert!(body.contains("<Ustrd>Transfer usage</Ustrd>"));
 }
 
 #[tokio::test]

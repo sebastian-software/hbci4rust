@@ -364,6 +364,7 @@ impl HbciJob {
             "DauerSEPADel" => Some("DauerSEPADel1"),
             "DauerSEPAEdit" => Some("DauerSEPAEdit1"),
             "DauerSEPANew" => Some("DauerSEPANew1"),
+            "UebSEPA" => Some("UebSEPA1"),
             _ => None,
         }
     }
@@ -395,7 +396,7 @@ impl HbciJob {
             }
 
             if let Some(sepa_name) = name.strip_prefix(&sepa_prefix) {
-                params.insert(sepa_name.to_owned(), value.clone());
+                params.insert(single_transfer_sepa_name(sepa_name), value.clone());
             } else if name == &date_name {
                 params
                     .entry("date".to_owned())
@@ -641,6 +642,10 @@ fn indexed_destination_name(destination: &str, index: usize) -> String {
     }
 }
 
+fn single_transfer_sepa_name(name: &str) -> String {
+    name.replace("[0]", "")
+}
+
 fn is_word_part(part: &str) -> bool {
     !part.is_empty()
         && part
@@ -683,6 +688,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
         "DauerSEPANew" => dauer_sepa_new_constraints(),
+        "UebSEPA" => ueb_sepa_constraints(),
         "KUmsAll" => kums_all_constraints(),
         "KUmsAllCamt" => kums_all_camt_constraints(),
         "KUmsNew" => kums_new_constraints(),
@@ -711,6 +717,42 @@ fn dauer_sepa_list_constraints() -> Vec<HbciJobConstraint> {
         ),
         HbciJobConstraint::new("orderid", "DauerSEPAList2.orderid", Some("")),
         HbciJobConstraint::new("maxentries", "DauerSEPAList2.maxentries", Some("")),
+    ]
+}
+
+fn ueb_sepa_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("src.bic", "UebSEPA1.My.bic", None::<String>),
+        HbciJobConstraint::new("src.iban", "UebSEPA1.My.iban", None::<String>),
+        HbciJobConstraint::new("src.country", "UebSEPA1.My.KIK.country", Some("")),
+        HbciJobConstraint::new("src.blz", "UebSEPA1.My.KIK.blz", Some("")),
+        HbciJobConstraint::new("src.number", "UebSEPA1.My.number", Some("")),
+        HbciJobConstraint::new("src.subnumber", "UebSEPA1.My.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "_sepadescriptor",
+            "UebSEPA1.sepadescr",
+            Some(PAIN_001_001_02_URN),
+        ),
+        HbciJobConstraint::new("_sepapain", "UebSEPA1.sepapain", None::<String>),
+        HbciJobConstraint::new("src.bic", "UebSEPA1.sepa.src.bic", Some("")),
+        HbciJobConstraint::new("src.iban", "UebSEPA1.sepa.src.iban", Some("")),
+        HbciJobConstraint::new("src.name", "UebSEPA1.sepa.src.name", Some("")),
+        HbciJobConstraint::new("dst.bic", "UebSEPA1.sepa.dst.bic", Some("")).indexed(true),
+        HbciJobConstraint::new("dst.iban", "UebSEPA1.sepa.dst.iban", Some("")).indexed(true),
+        HbciJobConstraint::new("dst.name", "UebSEPA1.sepa.dst.name", Some("")).indexed(true),
+        HbciJobConstraint::new("btg.value", "UebSEPA1.sepa.btg.value", Some("")).indexed(true),
+        HbciJobConstraint::new("btg.curr", "UebSEPA1.sepa.btg.curr", Some("EUR")).indexed(true),
+        HbciJobConstraint::new("usage", "UebSEPA1.sepa.usage", Some("")).indexed(true),
+        HbciJobConstraint::new("batchbook", "UebSEPA1.sepa.batchbook", Some("0")),
+        HbciJobConstraint::new("sepaid", "UebSEPA1.sepa.sepaid", Some("")),
+        HbciJobConstraint::new("pmtinfid", "UebSEPA1.sepa.pmtinfid", Some("")),
+        HbciJobConstraint::new(
+            "endtoendid",
+            "UebSEPA1.sepa.endtoendid",
+            Some("NOTPROVIDED"),
+        )
+        .indexed(true),
+        HbciJobConstraint::new("purposecode", "UebSEPA1.sepa.purposecode", Some("")).indexed(true),
     ]
 }
 

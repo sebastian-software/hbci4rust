@@ -1059,6 +1059,7 @@ fn render_job_into_custom_message(
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
+        "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
@@ -1257,6 +1258,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCDL",
             lowlevel_segment: "DauerSEPADel1",
             path: "CustomMsg.GV.DauerSEPADel1",
+        }),
+        "UebSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKCCS",
+            lowlevel_segment: "UebSEPA1",
+            path: "CustomMsg.GV.UebSEPA1",
         }),
         "KUmsAll" => Ok(OrderhashSourceJobInfo {
             code: "HKKAZ",
@@ -1558,6 +1564,43 @@ fn render_dauer_sepa_new(
     )
 }
 
+fn render_ueb_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "UebSEPA1";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "UebSEPA requires src.iban, src.number, or a passport account for the current UebSEPA1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "UebSEPA1.sepadescr", "_sepadescriptor").unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "UebSEPA1.sepapain",
+        "_sepapain",
+        "UebSEPA requires _sepapain or SEPA parameters for PAIN generation",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    Ok(())
+}
+
 fn render_dauer_sepa_edit(
     message: &mut HbciMessage,
     job: &HbciJob,
@@ -1645,7 +1688,7 @@ fn render_dauer_sepa_order_job(
         job,
         &format!("{lowlevel_segment}.sepapain"),
         "_sepapain",
-        &format!("{job_name} requires caller-provided _sepapain until PAIN generation is ported"),
+        &format!("{job_name} requires _sepapain or SEPA parameters for PAIN generation"),
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
 
