@@ -7,10 +7,11 @@ use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerList, GvrDauerListAussetzung,
-    GvrDauerListEntry, GvrDauerNew, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo,
-    GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
+    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
+    GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
+    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
+    Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1046,6 +1047,7 @@ fn render_job_into_custom_message(
 ) -> HbciResult<()> {
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
+        "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
@@ -1245,6 +1247,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "DauerSEPANew1",
             path: "CustomMsg.GV.DauerSEPANew1",
         }),
+        "DauerSEPAEdit" => Ok(OrderhashSourceJobInfo {
+            code: "HKCDN",
+            lowlevel_segment: "DauerSEPAEdit1",
+            path: "CustomMsg.GV.DauerSEPAEdit1",
+        }),
         "KUmsAll" => Ok(OrderhashSourceJobInfo {
             code: "HKKAZ",
             lowlevel_segment: "KUmsZeit7",
@@ -1325,6 +1332,14 @@ fn dauer_sepa_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.DauerSEPAListRes2".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.DauerSEPAListRes2", index + 1)
+    }
+}
+
+fn dauer_sepa_edit_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.DauerSEPAEditRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.DauerSEPAEditRes1", index + 1)
     }
 }
 
@@ -1523,69 +1538,149 @@ fn render_dauer_sepa_new(
     index: usize,
     passport: &PinTanPassport,
 ) -> HbciResult<()> {
+    render_dauer_sepa_order_job(
+        message,
+        job,
+        index,
+        passport,
+        DauerSepaOrderRenderSpec {
+            job_name: "DauerSEPANew",
+            lowlevel_segment: "DauerSEPANew1",
+            include_order_id: false,
+            include_date: false,
+        },
+    )
+}
+
+fn render_dauer_sepa_edit(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    render_dauer_sepa_order_job(
+        message,
+        job,
+        index,
+        passport,
+        DauerSepaOrderRenderSpec {
+            job_name: "DauerSEPAEdit",
+            lowlevel_segment: "DauerSEPAEdit1",
+            include_order_id: true,
+            include_date: true,
+        },
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DauerSepaOrderRenderSpec {
+    job_name: &'static str,
+    lowlevel_segment: &'static str,
+    include_order_id: bool,
+    include_date: bool,
+}
+
+fn render_dauer_sepa_order_job(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+    spec: DauerSepaOrderRenderSpec,
+) -> HbciResult<()> {
+    let job_name = spec.job_name;
+    let lowlevel_segment = spec.lowlevel_segment;
     let root = if index == 0 {
         "CustomMsg.GV".to_owned()
     } else {
         format!("CustomMsg.GV_{}", index + 1)
     };
-    let segment = format!("{root}.DauerSEPANew1");
-    let account = standing_order_sepa_account(job, passport, "DauerSEPANew1");
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
     if !has_account_identity(&account) {
         return Err(HbciError::new(
             HbciErrorKind::InvalidArgument,
-            "DauerSEPANew requires src.iban, src.number, or a passport account for the current DauerSEPANew1 renderer",
+            format!(
+                "{job_name} requires src.iban, src.number, or a passport account for the current {lowlevel_segment} renderer"
+            ),
         ));
     }
 
     set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
     message.set_value(
         &format!("{segment}.sepadescr"),
-        job_param(job, "DauerSEPANew1.sepadescr", "_sepadescriptor").unwrap_or(PAIN_001_001_02_URN),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.sepadescr"),
+            "_sepadescriptor",
+        )
+        .unwrap_or(PAIN_001_001_02_URN),
     )?;
     let sepapain = job_param_required(
         job,
-        "DauerSEPANew1.sepapain",
+        &format!("{lowlevel_segment}.sepapain"),
         "_sepapain",
-        "DauerSEPANew requires caller-provided _sepapain until PAIN generation is ported",
+        &format!("{job_name} requires caller-provided _sepapain until PAIN generation is ported"),
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    if spec.include_date {
+        set_optional_message_value(
+            message,
+            &format!("{segment}.date"),
+            job_param(job, &format!("{lowlevel_segment}.date"), "date"),
+        )?;
+    }
+    if spec.include_order_id {
+        set_required_message_value_from_job(
+            message,
+            &format!("{segment}.orderid"),
+            job,
+            &format!("{lowlevel_segment}.orderid"),
+            "orderid",
+            &format!("{job_name} requires orderid"),
+        )?;
+    }
 
     set_required_message_value_from_job(
         message,
         &format!("{segment}.DauerDetails.firstdate"),
         job,
-        "DauerSEPANew1.DauerDetails.firstdate",
+        &format!("{lowlevel_segment}.DauerDetails.firstdate"),
         "firstdate",
-        "DauerSEPANew requires firstdate",
+        &format!("{job_name} requires firstdate"),
     )?;
     set_required_message_value_from_job(
         message,
         &format!("{segment}.DauerDetails.timeunit"),
         job,
-        "DauerSEPANew1.DauerDetails.timeunit",
+        &format!("{lowlevel_segment}.DauerDetails.timeunit"),
         "timeunit",
-        "DauerSEPANew requires timeunit",
+        &format!("{job_name} requires timeunit"),
     )?;
     set_required_message_value_from_job(
         message,
         &format!("{segment}.DauerDetails.turnus"),
         job,
-        "DauerSEPANew1.DauerDetails.turnus",
+        &format!("{lowlevel_segment}.DauerDetails.turnus"),
         "turnus",
-        "DauerSEPANew requires turnus",
+        &format!("{job_name} requires turnus"),
     )?;
     set_required_message_value_from_job(
         message,
         &format!("{segment}.DauerDetails.execday"),
         job,
-        "DauerSEPANew1.DauerDetails.execday",
+        &format!("{lowlevel_segment}.DauerDetails.execday"),
         "execday",
-        "DauerSEPANew requires execday",
+        &format!("{job_name} requires execday"),
     )?;
     set_optional_message_value(
         message,
         &format!("{segment}.DauerDetails.lastdate"),
-        job_param(job, "DauerSEPANew1.DauerDetails.lastdate", "lastdate"),
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.DauerDetails.lastdate"),
+            "lastdate",
+        ),
     )?;
 
     Ok(())
@@ -2231,6 +2326,9 @@ impl ParsedResponseStatus {
             "AccInfo" => self
                 .acc_info_result_for_root(acc_info_response_root(index))
                 .map(HbciJobResultData::AccInfo),
+            "DauerSEPAEdit" => self
+                .dauer_edit_result_for_root(dauer_sepa_edit_response_root(index))
+                .map(HbciJobResultData::DauerEdit),
             "DauerSEPAList" => self
                 .dauer_list_result_for_root(dauer_sepa_list_response_root(index))
                 .map(HbciJobResultData::DauerList),
@@ -2259,6 +2357,7 @@ impl ParsedResponseStatus {
     fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
+            "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
@@ -2341,6 +2440,14 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         Some(GvrDauerNew {
             order_id: optional_value(&self.values, &format!("{root}.orderid")),
+        })
+    }
+
+    fn dauer_edit_result_for_root(&self, root: String) -> Option<GvrDauerEdit> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrDauerEdit {
+            order_id: optional_value(&self.values, &format!("{root}.orderid")),
+            order_id_old: optional_value(&self.values, &format!("{root}.orderidold")),
         })
     }
 
@@ -2592,6 +2699,20 @@ fn update_passport_dauer_persistent_data_from_results(
                     continue;
                 };
                 let snapshot = dauer_persistent_snapshot(&result.result_data);
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+                }
+            }
+            "DauerSEPAEdit" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot =
+                    dauer_sepa_request_persistent_snapshot(job, passport, "DauerSEPAEdit1");
                 if !snapshot.is_empty() {
                     passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
                 }
