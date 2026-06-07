@@ -11371,6 +11371,147 @@ async fn handler_prepares_process2_hktan_from_stored_hitan_orderref() {
     );
 }
 
+#[tokio::test]
+async fn handler_prepares_decoupled_status_hktan_from_stored_orderref() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITAN:3:5+4++ORDER-REF-DECOUPLED+Bitte bestaetigen Sie in der App+@5@HHDUC",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut first = handler.new_job("TAN2Step").expect("job is in registry");
+    first
+        .try_set_param("process", "4")
+        .expect("process is accepted");
+    handler.add_to_queue(first);
+    handler.execute().await.expect("hitan response parses");
+
+    let mut status_poll = handler
+        .new_tan2step_decoupled_status_job()
+        .expect("decoupled status HKTAN prepares");
+    let lowlevel = status_poll.verify_constraints().expect("HKTAN verifies");
+
+    assert_eq!(status_poll.name(), "TAN2Step");
+    assert_eq!(status_poll.param("process"), Some("S"));
+    assert_eq!(status_poll.param("orderref"), Some("ORDER-REF-DECOUPLED"));
+    assert_eq!(status_poll.param("notlasttan"), Some("N"));
+    assert_eq!(
+        lowlevel.get("TAN2Step5.process").map(String::as_str),
+        Some("S")
+    );
+    assert_eq!(
+        lowlevel.get("TAN2Step5.orderref").map(String::as_str),
+        Some("ORDER-REF-DECOUPLED")
+    );
+    assert_eq!(
+        lowlevel.get("TAN2Step5.notlasttan").map(String::as_str),
+        Some("N")
+    );
+}
+
+#[test]
+fn handler_rejects_decoupled_status_hktan_without_stored_orderref() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let handler = HbciHandler::new("300", passport);
+
+    let err = handler
+        .new_tan2step_decoupled_status_job()
+        .expect_err("missing order reference is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "PinTAN SCA state does not contain an order reference for decoupled HKTAN status polling"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_decoupled_status_request_without_tan_callback() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.name".to_owned(),
+                "pushTAN".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.inputinfo".to_owned(),
+                "Bitte bestaetigen".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HITAN:3:5+4++ORDER-REF-DECOUPLED+Bitte bestaetigen Sie in der App+@5@HHDUC",
+        ])),
+        Ok(custom_msg_response_for_request(
+            "0",
+            2,
+            &["HIRMG:2:2+0010::OK"],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut first = handler.new_job("TAN2Step").expect("job is in registry");
+    first
+        .try_set_param("process", "4")
+        .expect("process is accepted");
+    handler.add_to_queue(first);
+    handler.execute().await.expect("hitan response parses");
+
+    let status_poll = handler
+        .new_tan2step_decoupled_status_job()
+        .expect("decoupled status HKTAN prepares");
+    handler
+        .try_add_to_queue(status_poll)
+        .expect("status poll queues");
+    let status = handler.execute().await.expect("status poll executes");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "TAN2Step");
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 2);
+    let body = String::from_utf8(requests[1].body.clone()).expect("request body is text");
+    let hktan = fints_segment(&body, "HKTAN");
+    assert!(hktan.starts_with("HKTAN:3:5+S"), "{body}");
+    assert!(hktan.contains("ORDER-REF-DECOUPLED"), "{body}");
+    assert!(hktan.ends_with("++N"), "{body}");
+    assert_eq!(
+        fints_segment(&body, "HNSHA")
+            .split('+')
+            .collect::<Vec<_>>()
+            .get(3)
+            .copied(),
+        Some("12345")
+    );
+    assert!(
+        events
+            .lock()
+            .expect("callback event lock")
+            .iter()
+            .all(|event| event.reason != CallbackReason::NeedPtTan)
+    );
+    done().expect("runtime reset");
+}
+
 #[test]
 fn handler_rejects_process2_hktan_without_stored_orderref() {
     let passport = passport_with_cached_pin(signed_pintan_data());

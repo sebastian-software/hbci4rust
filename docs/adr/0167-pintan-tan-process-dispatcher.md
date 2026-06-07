@@ -45,4 +45,5 @@ Open follow-up work:
 - generalize process-1 inserted-message queue modeling beyond one queued business job;
 - decide whether `execute()` should eventually call this dispatcher by default;
 - hide or link HKTAN helper results like hbci4java if upstream parity demands it;
-- add decoupled process `S` polling.
+- add the full decoupled process `S` polling loop; ADR 0242 covers the status
+  request helper and PIN-only signing boundary.

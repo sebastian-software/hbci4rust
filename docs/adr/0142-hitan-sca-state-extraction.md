@@ -46,7 +46,8 @@ Remaining work:
 - add the final `NeedPtTan` callback and TAN response collection;
 - build the process-1 step-2 HKTAN message using `orderref`;
 - port process variant 2;
-- port decoupled SCA refresh handling for return code `3956`.
+- port the full decoupled SCA refresh loop for return code `3956`; the
+  `process=S` status-request helper exists per ADR 0242.
 
 ## Links
 

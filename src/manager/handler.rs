@@ -206,6 +206,10 @@ where
         new_tan2step_process2_job(&self.registry, &self.passport)
     }
 
+    pub fn new_tan2step_decoupled_status_job(&self) -> HbciResult<HbciJob> {
+        new_tan2step_decoupled_status_job(&self.registry, &self.passport)
+    }
+
     pub async fn request_tan_for_sca(&self) -> HbciResult<Option<String>> {
         let callback = super::callback();
         request_tan_for_sca(&self.passport, callback.as_deref()).await
@@ -1096,7 +1100,9 @@ async fn sign_pintan_user_sig(
     signed_range: Option<&str>,
 ) -> HbciResult<Vec<u8>> {
     let pin = request_pin(passport, callback).await?;
-    let tan = if passport
+    let tan = if signed_range_contains_decoupled_status_request(signed_range) {
+        None
+    } else if passport
         .current_tan_method()
         .unwrap_or(ONESTEP_TAN_METHOD_ID)
         == ONESTEP_TAN_METHOD_ID
@@ -1106,6 +1112,16 @@ async fn sign_pintan_user_sig(
         request_tan_for_sca(passport, callback).await?
     };
     UserSig::encode(Some(&pin), tan.as_deref())
+}
+
+fn signed_range_contains_decoupled_status_request(signed_range: Option<&str>) -> bool {
+    signed_range.is_some_and(|signed_range| {
+        signed_range.split('\'').any(|segment| {
+            let mut fields = segment.split('+');
+            fields.next().is_some_and(|head| head.starts_with("HKTAN:"))
+                && fields.next() == Some("S")
+        })
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1301,6 +1317,30 @@ fn new_tan2step_process2_job(
 
     let mut hktan = registry.new_job("TAN2Step")?;
     hktan.try_set_param("process", "2")?;
+    hktan.try_set_param("orderref", order_ref)?;
+    hktan.try_set_param("notlasttan", "N")?;
+
+    Ok(hktan)
+}
+
+fn new_tan2step_decoupled_status_job(
+    registry: &JobRegistry,
+    passport: &PinTanPassport,
+) -> HbciResult<HbciJob> {
+    let order_ref = passport
+        .sca_state()
+        .order_ref
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "PinTAN SCA state does not contain an order reference for decoupled HKTAN status polling",
+            )
+        })?;
+
+    let mut hktan = registry.new_job("TAN2Step")?;
+    hktan.try_set_param("process", "S")?;
     hktan.try_set_param("orderref", order_ref)?;
     hktan.try_set_param("notlasttan", "N")?;
 
