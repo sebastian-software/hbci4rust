@@ -11,13 +11,19 @@ use crate::gv_result::{
     HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
     Value,
 };
-use crate::passport::{PinTanPassport, TanMethodOption, TanMethodSelection, UserSig};
+use crate::passport::{
+    ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
+};
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
 use crate::sepa::CAMT_052_001_01_URN;
 use crate::swift::decode_umlauts;
 use crate::tools::Properties;
 
-use super::{ChallengeInfo, OrderHashMode, PinTanSignatureContext, apply_pintan_signature_shell};
+use super::{
+    ChallengeInfo, OrderHashMode, PinTanSignatureContext, apply_pintan_sig_head,
+    apply_pintan_sig_tail_from_head, apply_pintan_user_sig_to_sig_tail,
+    collect_pintan_segment_codes, collect_pintan_signature_range,
+};
 
 #[derive(Clone)]
 pub struct HbciHandler<C = DefaultCommClient> {
@@ -376,16 +382,14 @@ where
             render_job_into_custom_message(&mut message, job, index, &self.passport)?;
         }
 
-        let signature_context = PinTanSignatureContext::generate()?;
-        let sig_head = signature_context.sig_head_from_passport(&self.passport)?;
-        let signature = sign_pintan_user_sig_for_sca(&mut self.passport, callback).await?;
-        apply_pintan_signature_shell(
+        apply_pintan_signature(
             &mut message,
             "CustomMsg.SigHead",
             "CustomMsg.SigTail",
-            &sig_head,
-            &signature,
-        )?;
+            &mut self.passport,
+            callback,
+        )
+        .await?;
 
         message.prepare_outgoing()?;
         message.to_fints_bytes()
@@ -404,16 +408,14 @@ where
         message.set_value("DialogEnd.DialogEndS.dialogid", &request_ref.dialog_id)?;
         message.set_value("DialogEnd.MsgTail.msgnum", &request_ref.msgnum)?;
 
-        let signature_context = PinTanSignatureContext::generate()?;
-        let sig_head = signature_context.sig_head_from_passport(&self.passport)?;
-        let signature = sign_pintan_user_sig_for_sca(&mut self.passport, callback).await?;
-        apply_pintan_signature_shell(
+        apply_pintan_signature(
             &mut message,
             "DialogEnd.SigHead",
             "DialogEnd.SigTail",
-            &sig_head,
-            &signature,
-        )?;
+            &mut self.passport,
+            callback,
+        )
+        .await?;
 
         message.prepare_outgoing()?;
         message.to_fints_bytes()
@@ -462,16 +464,14 @@ where
             product_version_for_proc_prep(),
         )?;
 
-        let signature_context = PinTanSignatureContext::generate()?;
-        let sig_head = signature_context.sig_head_from_passport(&self.passport)?;
-        let signature = sign_pintan_user_sig_without_tan(&mut self.passport, callback).await?;
-        apply_pintan_signature_shell(
+        apply_pintan_signature(
             &mut message,
             "DialogInit.SigHead",
             "DialogInit.SigTail",
-            &sig_head,
-            &signature,
-        )?;
+            &mut self.passport,
+            callback,
+        )
+        .await?;
 
         message.prepare_outgoing()?;
         message.to_fints_bytes()
@@ -581,6 +581,43 @@ async fn request_tan_for_sca(
     if sca.sca_exempted {
         return Ok(None);
     }
+
+    let secmech = passport.current_secmech_info();
+    let tan = request_tan_value(
+        callback,
+        format_sca_challenge_message(&secmech, challenge),
+        sca.hhd_uc.clone(),
+    )
+    .await?;
+
+    Ok(Some(tan))
+}
+
+async fn request_tan_for_one_step(
+    passport: &PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+    signed_range: Option<&str>,
+) -> HbciResult<Option<String>> {
+    let Some(signed_range) = signed_range else {
+        return Ok(None);
+    };
+
+    for code in collect_pintan_segment_codes(signed_range)? {
+        if passport.pin_tan_info_for_segment_code(&code).as_deref() == Some("J") {
+            let tan =
+                request_tan_value(callback, "Please enter a TAN now".to_owned(), None).await?;
+            return Ok(Some(tan));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn request_tan_value(
+    callback: Option<&dyn HbciCallback>,
+    message: String,
+    current_value: Option<String>,
+) -> HbciResult<String> {
     let Some(callback) = callback else {
         return Err(HbciError::new(
             HbciErrorKind::Callback,
@@ -588,13 +625,12 @@ async fn request_tan_for_sca(
         ));
     };
 
-    let secmech = passport.current_secmech_info();
     let response = callback
         .handle(CallbackEvent {
             reason: CallbackReason::NeedPtTan,
-            message: format_sca_challenge_message(&secmech, challenge),
+            message,
             data_type: CallbackDataType::Text,
-            current_value: sca.hhd_uc.clone(),
+            current_value,
         })
         .await?;
     let Some(tan) = response.value.filter(|value| !value.trim().is_empty()) else {
@@ -604,7 +640,7 @@ async fn request_tan_for_sca(
         ));
     };
 
-    Ok(Some(tan))
+    Ok(tan)
 }
 
 fn format_sca_challenge_message(secmech: &Properties, challenge: &str) -> String {
@@ -650,20 +686,45 @@ async fn request_pin(
     Ok(pin)
 }
 
-async fn sign_pintan_user_sig_without_tan(
+async fn apply_pintan_signature(
+    message: &mut HbciMessage,
+    sig_head_path: &str,
+    sig_tail_path: &str,
     passport: &mut PinTanPassport,
     callback: Option<&dyn HbciCallback>,
-) -> HbciResult<Vec<u8>> {
-    let pin = request_pin(passport, callback).await?;
-    UserSig::encode(Some(&pin), None)
+) -> HbciResult<()> {
+    let signature_context = PinTanSignatureContext::generate()?;
+    let sig_head = signature_context.sig_head_from_passport(passport)?;
+    apply_pintan_sig_head(message, sig_head_path, &sig_head)?;
+    apply_pintan_sig_tail_from_head(message, sig_head_path, sig_tail_path)?;
+    message.prepare_outgoing()?;
+    let signed_range = collect_pintan_signature_range(message, sig_head_path, sig_tail_path)?;
+    let signature = sign_pintan_user_sig(passport, callback, Some(&signed_range)).await?;
+    apply_pintan_user_sig_to_sig_tail(message, sig_tail_path, &signature)
 }
 
 async fn sign_pintan_user_sig_for_sca(
     passport: &mut PinTanPassport,
     callback: Option<&dyn HbciCallback>,
 ) -> HbciResult<Vec<u8>> {
+    sign_pintan_user_sig(passport, callback, None).await
+}
+
+async fn sign_pintan_user_sig(
+    passport: &mut PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+    signed_range: Option<&str>,
+) -> HbciResult<Vec<u8>> {
     let pin = request_pin(passport, callback).await?;
-    let tan = request_tan_for_sca(passport, callback).await?;
+    let tan = if passport
+        .current_tan_method()
+        .unwrap_or(ONESTEP_TAN_METHOD_ID)
+        == ONESTEP_TAN_METHOD_ID
+    {
+        request_tan_for_one_step(passport, callback, signed_range).await?
+    } else {
+        request_tan_for_sca(passport, callback).await?
+    };
     UserSig::encode(Some(&pin), tan.as_deref())
 }
 

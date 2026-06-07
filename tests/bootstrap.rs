@@ -4013,6 +4013,69 @@ async fn handler_uses_passport_account_for_saldo_request() {
 }
 
 #[tokio::test]
+async fn handler_requests_onestep_tan_for_required_signed_segment() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(ScriptedCallback {
+            events: events.clone(),
+            responses: Arc::new(Mutex::new(VecDeque::from([CallbackResponse::value(
+                "987654",
+            )]))),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        accounts: vec![giro_account()],
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let job = handler.new_job("SaldoReq").expect("job is in registry");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    let sig_tail = fints_segment(&body, "HNSHA");
+    let sig_tail_parts = sig_tail.split('+').collect::<Vec<_>>();
+    assert_eq!(sig_tail_parts.get(2).copied(), Some(""));
+    assert_eq!(sig_tail_parts.get(3).copied(), Some("12345:987654"));
+
+    let events = events.lock().expect("callback event lock");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].reason, CallbackReason::NeedPtTan);
+    assert_eq!(events[0].data_type, CallbackDataType::Text);
+    assert_eq!(events[0].message, "Please enter a TAN now");
+    assert_eq!(events[0].current_value, None);
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
 async fn handler_renders_repeated_saldo_requests() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
