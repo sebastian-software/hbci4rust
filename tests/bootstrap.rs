@@ -3267,6 +3267,163 @@ fn handler_dispatches_initial_hktan_to_process1_from_bpd_process() {
     assert_eq!(hktan.param("notlasttan"), Some("N"));
 }
 
+#[tokio::test]
+async fn handler_executes_process1_flow_automatically_and_merges_status() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media: Some("photo-app".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "1".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.needorderaccount".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.name".to_owned(),
+                "photoTAN".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.inputinfo".to_owned(),
+                "Bitte bestaetigen".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HITAN:3:5+1++ORDER-REF-P1+Bitte geben Sie die TAN ein+@5@HHDUC",
+        ])),
+        Ok(custom_msg_response_for_request(
+            "0",
+            2,
+            &[
+                "HIRMG:2:2+0010::OK",
+                "HISAL:3:7+DE02123456780000000000:MARKDEF1100+Girokonto+EUR+C:123,45:EUR:20260605",
+            ],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    let status = handler
+        .execute_with_tan2step_process1(saldo)
+        .await
+        .expect("automatic process-1 flow executes");
+
+    assert!(status.success);
+    assert_eq!(
+        status
+            .job_results
+            .iter()
+            .map(|result| result.job_name.as_str())
+            .collect::<Vec<_>>(),
+        ["TAN2Step", "SaldoReq"]
+    );
+    assert_eq!(
+        status.messages,
+        vec!["0010:OK".to_owned(), "0010:OK".to_owned()]
+    );
+    let Some(HbciJobResultData::SaldoReq(result)) = status.job_results[1].result.as_ref() else {
+        panic!("expected SaldoReq result data");
+    };
+    assert_eq!(result.entries[0].ready.value.value, "123.45");
+    assert_eq!(handler.passport().sca_state().challenge, None);
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 2);
+    let hktan_body = &requests[0].body;
+    let hktan_text = String::from_utf8_lossy(hktan_body);
+    assert_signed_custom_msg_request_bytes(hktan_body, "0", "1", 5);
+    assert!(hktan_text.contains("HKTAN:3:5+1+HKSAL+DE02123456780000000000"));
+    assert!(hktan_text.contains("photo-app'"), "{hktan_text}");
+    assert!(!hktan_text.contains("HKSAL:3:7+"), "{hktan_text}");
+    assert!(find_bytes(hktan_body, b"+@20@").is_some(), "{hktan_text}");
+
+    let order_body = String::from_utf8(requests[1].body.clone()).expect("order body is text");
+    assert!(order_body.contains("+300+0+2'"), "{order_body}");
+    assert!(
+        order_body
+            .contains("HKSAL:3:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N'")
+    );
+    assert!(!order_body.contains("HKTAN:"), "{order_body}");
+    let sig_tail = fints_segment(&order_body, "HNSHA");
+    let sig_tail_parts = sig_tail.split('+').collect::<Vec<_>>();
+    assert_eq!(sig_tail_parts.get(3).copied(), Some("12345:987654"));
+
+    let events = events.lock().expect("callback event lock");
+    assert!(events.iter().any(|event| {
+        event.reason == CallbackReason::NeedPtTan && event.current_value.as_deref() == Some("HHDUC")
+    }));
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_rejects_process1_auto_execution_when_queue_is_not_empty() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([(
+            "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+            "1".to_owned(),
+        )]),
+        ..signed_pintan_data()
+    });
+    let mut handler = HbciHandler::new("300", passport);
+    let mut queued = handler.new_job("SaldoReq").expect("job is in registry");
+    queued.set_param_account("my", &giro_account());
+    handler
+        .try_add_to_queue(queued)
+        .expect("business task queues");
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    let err = handler
+        .execute_with_tan2step_process1(saldo)
+        .await
+        .expect_err("non-empty queue is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(err.message(), "process-1 execution requires an empty queue");
+    assert_eq!(handler.queued_jobs().len(), 1);
+}
+
 #[test]
 fn handler_dispatches_initial_hktan_to_process2_step1_from_bpd_process() {
     let passport = passport_with_cached_pin(PinTanPassportData {

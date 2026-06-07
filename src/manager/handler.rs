@@ -450,6 +450,51 @@ where
                 .is_some_and(|value| !value.trim().is_empty())
     }
 
+    pub async fn execute_with_tan2step_process1(
+        &mut self,
+        mut job: HbciJob,
+    ) -> HbciResult<HbciExecStatus> {
+        if !self.queue.is_empty() {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "process-1 execution requires an empty queue",
+            ));
+        }
+        if self
+            .passport
+            .current_tan_method()
+            .unwrap_or(ONESTEP_TAN_METHOD_ID)
+            == ONESTEP_TAN_METHOD_ID
+        {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "process-1 execution requires a two-step TAN method",
+            ));
+        }
+        if self.passport.tan2step_parameter("process").as_deref() != Some("1") {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "process-1 execution requires BPD process=1",
+            ));
+        }
+
+        job.verify_constraints()?;
+        let mut hktan = self.new_tan2step_process1_job(&job, None)?;
+        hktan.verify_constraints()?;
+        self.queue.push(hktan);
+
+        let mut status = self.execute().await?;
+        if status.success {
+            self.queue.push(job);
+            let order_status = self.execute().await?;
+            if order_status.success {
+                self.passport.clear_sca_state();
+            }
+            merge_exec_status(&mut status, order_status);
+        }
+        Ok(status)
+    }
+
     pub async fn close(&mut self) -> HbciResult<()> {
         if !self.dialog.is_open() {
             return Ok(());
