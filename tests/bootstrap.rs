@@ -3595,6 +3595,85 @@ async fn handler_renders_and_collects_dauer_sepa_new_like_original() {
 }
 
 #[tokio::test]
+async fn handler_generates_pain_for_dauer_sepa_new_from_original_params() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HICDE:3:1+ORDERGEN",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("DauerSEPANew").expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param("src.name", "Sender Name")
+        .expect("source name is accepted");
+    job.try_set_param("dst.name", "Receiver Name")
+        .expect("destination name is accepted");
+    job.try_set_param("dst.iban", "DE99123456780000000000")
+        .expect("destination iban is accepted");
+    job.try_set_param("dst.bic", "DEUTDEDB277")
+        .expect("destination bic is accepted");
+    job.try_set_param("btg.value", "12.30")
+        .expect("amount value is accepted");
+    job.try_set_param("usage", "Standing & generated")
+        .expect("usage is accepted");
+    job.try_set_param("sepaid", "SEPA-GEN")
+        .expect("sepa id is accepted");
+    job.try_set_param_date("firstdate", "2025-11-01")
+        .expect("firstdate is accepted");
+    job.try_set_param("timeunit", "M")
+        .expect("timeunit is accepted");
+    job.try_set_param_int("turnus", 1)
+        .expect("turnus is accepted");
+    job.try_set_param_int("execday", 1)
+        .expect("execday is accepted");
+    job.try_set_param_date("lastdate", "2026-12-31")
+        .expect("lastdate is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "DauerSEPANew");
+    let Some(HbciJobResultData::DauerNew(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected DauerNew result data");
+    };
+    assert_eq!(result.order_id.as_deref(), Some("ORDERGEN"));
+
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("dauer_ORDERGEN")
+        .expect("dauer new persistent data");
+    let generated_pain = snapshot
+        .get("sepapain")
+        .expect("generated pain is persisted");
+    assert!(generated_pain.starts_with("B<?xml"), "{generated_pain}");
+    assert!(generated_pain.contains("<MsgId>SEPA-GEN</MsgId>"));
+    assert!(generated_pain.contains("<PmtInfId>SEPA-GEN</PmtInfId>"));
+    assert!(generated_pain.contains("<ReqdExctnDt>1999-01-01</ReqdExctnDt>"));
+    assert!(generated_pain.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
+    assert!(generated_pain.contains("<Ustrd>Standing &amp; generated</Ustrd>"));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKCDE:3:1+DE02123456780000000000:MARKDEF1100+"));
+    assert!(body.contains("<MsgId>SEPA-GEN</MsgId>"), "{body}");
+    assert!(
+        body.contains("<DbtrAcct><Id><IBAN>DE02123456780000000000</IBAN></Id></DbtrAcct>"),
+        "{body}"
+    );
+    assert!(
+        body.contains("<CdtrAcct><Id><IBAN>DE99123456780000000000</IBAN></Id></CdtrAcct>"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
 async fn handler_renders_and_collects_dauer_sepa_edit_like_original() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[

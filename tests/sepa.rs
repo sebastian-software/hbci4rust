@@ -1,9 +1,9 @@
-use hbci4rust::HbciErrorKind;
 use hbci4rust::sepa::{
     CAMT_052_001_01_URN, CAMT_052_001_02_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN,
-    CAMT_052_001_08_URN, PAIN_001_001_02_URN, SepaKind, SepaVersion, parse_camt_report_shell,
-    parse_pain_001_transfers,
+    CAMT_052_001_08_URN, ENDTOEND_ID_NOTPROVIDED, PAIN_001_001_02_URN, SepaKind, SepaVersion,
+    generate_pain_001_001_02_transfer, parse_camt_report_shell, parse_pain_001_transfers,
 };
+use hbci4rust::{HbciErrorKind, Properties};
 
 fn camt_document(urn: &str) -> String {
     format!(
@@ -195,6 +195,60 @@ fn pain_001_parser_reads_new_transfer_fields_like_original() {
     assert_eq!(transfer.end_to_end_id.as_deref(), Some("E2E-NEW"));
     assert_eq!(transfer.purpose_code.as_deref(), Some("GDDS"));
     assert_eq!(transfer.batch_book.as_deref(), Some("true"));
+}
+
+#[test]
+fn pain_001_generator_writes_single_transfer_defaults_like_original() {
+    let params = Properties::from([
+        ("sepaid".to_owned(), "SEPA-GEN".to_owned()),
+        ("src.name".to_owned(), "Sender Name".to_owned()),
+        ("src.iban".to_owned(), "DE11111111111111111111".to_owned()),
+        ("src.bic".to_owned(), "SRCBICOLD".to_owned()),
+        ("dst.name".to_owned(), "Receiver Old".to_owned()),
+        ("dst.iban".to_owned(), "DE22222222222222222222".to_owned()),
+        ("btg.value".to_owned(), "12.30".to_owned()),
+        ("usage".to_owned(), "Invoice reference".to_owned()),
+    ]);
+
+    let xml = generate_pain_001_001_02_transfer(&params).expect("PAIN.001 XML generates");
+
+    assert!(xml.starts_with(r#"<?xml version="1.0" encoding="UTF-8"?>"#));
+    assert!(xml.contains(&format!(r#"xmlns="{PAIN_001_001_02_URN}""#)));
+    assert!(xml.contains("<MsgId>SEPA-GEN</MsgId>"));
+    assert!(xml.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
+
+    let transfers = parse_pain_001_transfers(&xml).expect("generated PAIN.001 parses");
+    assert_eq!(transfers.len(), 1);
+    let transfer = &transfers[0];
+    assert_eq!(transfer.payment_info_id.as_deref(), Some("SEPA-GEN"));
+    assert_eq!(transfer.source.name.as_deref(), Some("Sender Name"));
+    assert_eq!(
+        transfer.source.iban.as_deref(),
+        Some("DE11111111111111111111")
+    );
+    assert_eq!(transfer.source.bic.as_deref(), Some("SRCBICOLD"));
+    assert_eq!(transfer.destination.name.as_deref(), Some("Receiver Old"));
+    assert_eq!(
+        transfer.destination.iban.as_deref(),
+        Some("DE22222222222222222222")
+    );
+    assert_eq!(
+        transfer.value.as_ref().map(|value| value.value.as_str()),
+        Some("12.30")
+    );
+    assert_eq!(
+        transfer
+            .value
+            .as_ref()
+            .and_then(|value| value.curr.as_deref()),
+        Some("EUR")
+    );
+    assert_eq!(transfer.usage, ["Invoice reference".to_owned()]);
+    assert_eq!(transfer.execution_date.as_deref(), Some("1999-01-01"));
+    assert_eq!(
+        transfer.end_to_end_id.as_deref(),
+        Some(ENDTOEND_ID_NOTPROVIDED)
+    );
 }
 
 #[test]

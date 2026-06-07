@@ -6,7 +6,8 @@ use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallb
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::{Konto, Value};
 use crate::protocol::normalize_iso_date;
-use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN};
+use crate::sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, generate_pain_001_001_02_transfer};
+use crate::tools::Properties;
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
@@ -323,6 +324,8 @@ impl HbciJob {
     }
 
     pub fn verify_constraints(&mut self) -> HbciResult<BTreeMap<String, String>> {
+        self.generate_sepa_pain_if_needed()?;
+
         let mut lowlevel_params = BTreeMap::new();
 
         for constraint in self.constraints.clone() {
@@ -340,6 +343,67 @@ impl HbciJob {
         }
 
         Ok(lowlevel_params)
+    }
+
+    fn generate_sepa_pain_if_needed(&mut self) -> HbciResult<()> {
+        let Some(lowlevel_segment) = self.sepa_pain_generation_lowlevel_segment() else {
+            return Ok(());
+        };
+        if self.has_sepapain_value(lowlevel_segment) {
+            return Ok(());
+        }
+
+        let params = self.sepa_generation_params(lowlevel_segment);
+        let xml = generate_pain_001_001_02_transfer(&params)?;
+        self.set_frontend_and_lowlevel_param("_sepapain", xml);
+        Ok(())
+    }
+
+    fn sepa_pain_generation_lowlevel_segment(&self) -> Option<&'static str> {
+        match self.name.as_str() {
+            "DauerSEPADel" => Some("DauerSEPADel1"),
+            "DauerSEPAEdit" => Some("DauerSEPAEdit1"),
+            "DauerSEPANew" => Some("DauerSEPANew1"),
+            _ => None,
+        }
+    }
+
+    fn has_sepapain_value(&self, lowlevel_segment: &str) -> bool {
+        self.param("_sepapain")
+            .filter(|value| !value.is_empty())
+            .is_some()
+            || self
+                .lowlevel_param(&format!("{lowlevel_segment}.sepapain"))
+                .filter(|value| !value.is_empty())
+                .is_some()
+    }
+
+    fn sepa_generation_params(&self, lowlevel_segment: &str) -> Properties {
+        let mut params = Properties::new();
+
+        for (name, value) in &self.params {
+            if !value.is_empty() && !name.starts_with('_') {
+                params.insert(name.clone(), value.clone());
+            }
+        }
+
+        let sepa_prefix = format!("{lowlevel_segment}.sepa.");
+        let date_name = format!("{lowlevel_segment}.date");
+        for (name, value) in &self.lowlevel_params {
+            if value.is_empty() {
+                continue;
+            }
+
+            if let Some(sepa_name) = name.strip_prefix(&sepa_prefix) {
+                params.insert(sepa_name.to_owned(), value.clone());
+            } else if name == &date_name {
+                params
+                    .entry("date".to_owned())
+                    .or_insert_with(|| value.clone());
+            }
+        }
+
+        params
     }
 
     pub(crate) async fn verify_account_checks(

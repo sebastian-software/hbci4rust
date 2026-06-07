@@ -1,12 +1,20 @@
-use quick_xml::events::Event;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use quick_xml::Writer;
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::{GvrKUmsBTag, GvrKUmsLine, Konto, Saldo, Value};
+use crate::tools::Properties;
 
 pub const DATE_FORMAT: &str = "%Y-%m-%d";
 pub const DATE_UNDEFINED: &str = "1999-01-01";
+pub const DATETIME_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
+pub const ENDTOEND_ID_NOTPROVIDED: &str = "NOTPROVIDED";
 pub const PAIN_001_001_02_URN: &str = "urn:sepade:xsd:pain.001.001.02";
+pub const PAIN_001_001_02_SCHEMA_LOCATION: &str =
+    "urn:sepade:xsd:pain.001.001.02 pain.001.001.02.xsd";
 pub const CAMT_052_001_01_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.01";
 pub const CAMT_052_001_02_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.02";
 pub const CAMT_052_001_03_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.03";
@@ -166,6 +174,216 @@ pub fn parse_camt_report_shell(xml: &str, version: SepaVersion) -> HbciResult<Ve
 
 pub fn parse_pain_001_transfers(xml: &str) -> HbciResult<Vec<Pain001Transfer>> {
     parse_pain_001_transfer_shell(xml)
+}
+
+pub fn generate_pain_001_001_02_transfer(sepa_params: &Properties) -> HbciResult<String> {
+    let sepa_id = text_or_generated_message_id(sepa_params.get("sepaid").map(String::as_str));
+    let pmt_inf_id = text_or_default(
+        sepa_params.get("pmtinfid").map(String::as_str),
+        sepa_id.as_str(),
+    );
+    let execution_date =
+        text_or_default(sepa_params.get("date").map(String::as_str), DATE_UNDEFINED);
+    let end_to_end_id = text_or_default(
+        sepa_params.get("endtoendid").map(String::as_str),
+        ENDTOEND_ID_NOTPROVIDED,
+    );
+    let currency = text_or_default(sepa_params.get("btg.curr").map(String::as_str), "EUR");
+    let source_name = required_text(sepa_params, "src.name")?;
+    let source_iban = required_text(sepa_params, "src.iban")?;
+    let source_bic = required_text(sepa_params, "src.bic")?;
+    let destination_name = required_text(sepa_params, "dst.name")?;
+    let destination_iban = required_text(sepa_params, "dst.iban")?;
+    let destination_bic = sepa_params
+        .get("dst.bic")
+        .map(String::as_str)
+        .unwrap_or_default();
+    let amount = required_text(sepa_params, "btg.value")?;
+    let usage = sepa_params
+        .get("usage")
+        .map(String::as_str)
+        .unwrap_or_default();
+    let creation_datetime = current_xml_datetime();
+
+    let mut writer = Writer::new(Vec::new());
+    write_xml_event(
+        &mut writer,
+        Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)),
+    )?;
+
+    let mut document = BytesStart::new("Document");
+    document.push_attribute(("xmlns", PAIN_001_001_02_URN));
+    document.push_attribute(("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"));
+    document.push_attribute(("xsi:schemaLocation", PAIN_001_001_02_SCHEMA_LOCATION));
+    write_xml_event(&mut writer, Event::Start(document))?;
+    write_start(&mut writer, "pain.001.001.02")?;
+
+    write_start(&mut writer, "GrpHdr")?;
+    write_text_element(&mut writer, "MsgId", &sepa_id)?;
+    write_text_element(&mut writer, "CreDtTm", &creation_datetime)?;
+    write_text_element(&mut writer, "NbOfTxs", "1")?;
+    write_text_element(&mut writer, "CtrlSum", amount)?;
+    write_text_element(&mut writer, "Grpg", "GRPD")?;
+    write_start(&mut writer, "InitgPty")?;
+    write_text_element(&mut writer, "Nm", source_name)?;
+    write_end(&mut writer, "InitgPty")?;
+    write_end(&mut writer, "GrpHdr")?;
+
+    write_start(&mut writer, "PmtInf")?;
+    write_text_element(&mut writer, "PmtInfId", &pmt_inf_id)?;
+    write_text_element(&mut writer, "PmtMtd", "TRF")?;
+    write_start(&mut writer, "PmtTpInf")?;
+    write_start(&mut writer, "SvcLvl")?;
+    write_text_element(&mut writer, "Cd", "SEPA")?;
+    write_end(&mut writer, "SvcLvl")?;
+    write_end(&mut writer, "PmtTpInf")?;
+    write_text_element(&mut writer, "ReqdExctnDt", &execution_date)?;
+    write_start(&mut writer, "Dbtr")?;
+    write_text_element(&mut writer, "Nm", source_name)?;
+    write_end(&mut writer, "Dbtr")?;
+    write_start(&mut writer, "DbtrAcct")?;
+    write_start(&mut writer, "Id")?;
+    write_text_element(&mut writer, "IBAN", source_iban)?;
+    write_end(&mut writer, "Id")?;
+    write_end(&mut writer, "DbtrAcct")?;
+    write_start(&mut writer, "DbtrAgt")?;
+    write_start(&mut writer, "FinInstnId")?;
+    write_text_element(&mut writer, "BIC", source_bic)?;
+    write_end(&mut writer, "FinInstnId")?;
+    write_end(&mut writer, "DbtrAgt")?;
+    write_text_element(&mut writer, "ChrgBr", "SLEV")?;
+
+    write_start(&mut writer, "CdtTrfTxInf")?;
+    write_start(&mut writer, "PmtId")?;
+    write_text_element(&mut writer, "EndToEndId", &end_to_end_id)?;
+    write_end(&mut writer, "PmtId")?;
+    write_start(&mut writer, "Amt")?;
+    let mut instructed_amount = BytesStart::new("InstdAmt");
+    instructed_amount.push_attribute(("Ccy", currency.as_str()));
+    write_xml_event(&mut writer, Event::Start(instructed_amount))?;
+    write_xml_event(&mut writer, Event::Text(BytesText::new(amount)))?;
+    write_end(&mut writer, "InstdAmt")?;
+    write_end(&mut writer, "Amt")?;
+    write_start(&mut writer, "CdtrAgt")?;
+    write_start(&mut writer, "FinInstnId")?;
+    write_text_element(&mut writer, "BIC", destination_bic)?;
+    write_end(&mut writer, "FinInstnId")?;
+    write_end(&mut writer, "CdtrAgt")?;
+    write_start(&mut writer, "Cdtr")?;
+    write_text_element(&mut writer, "Nm", destination_name)?;
+    write_end(&mut writer, "Cdtr")?;
+    write_start(&mut writer, "CdtrAcct")?;
+    write_start(&mut writer, "Id")?;
+    write_text_element(&mut writer, "IBAN", destination_iban)?;
+    write_end(&mut writer, "Id")?;
+    write_end(&mut writer, "CdtrAcct")?;
+    if !usage.is_empty() {
+        write_start(&mut writer, "RmtInf")?;
+        write_text_element(&mut writer, "Ustrd", usage)?;
+        write_end(&mut writer, "RmtInf")?;
+    }
+    write_end(&mut writer, "CdtTrfTxInf")?;
+    write_end(&mut writer, "PmtInf")?;
+
+    write_end(&mut writer, "pain.001.001.02")?;
+    write_end(&mut writer, "Document")?;
+
+    String::from_utf8(writer.into_inner()).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            "failed to encode PAIN.001.001.02 document as UTF-8",
+            err,
+        )
+    })
+}
+
+fn required_text<'a>(properties: &'a Properties, name: &str) -> HbciResult<&'a str> {
+    properties
+        .get(name)
+        .map(String::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                format!("missing required SEPA parameter: {name}"),
+            )
+        })
+}
+
+fn text_or_default(value: Option<&str>, default_value: &str) -> String {
+    value
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_value)
+        .to_owned()
+}
+
+fn text_or_generated_message_id(value: Option<&str>) -> String {
+    value
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(generated_sepa_message_id)
+}
+
+fn generated_sepa_message_id() -> String {
+    format!("{}:0000", current_xml_datetime())
+}
+
+fn current_xml_datetime() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    unix_seconds_to_utc_datetime(seconds)
+}
+
+fn unix_seconds_to_utc_datetime(seconds: u64) -> String {
+    let days = (seconds / 86_400) as i64;
+    let seconds_of_day = seconds % 86_400;
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+    let (year, month, day) = utc_civil_from_unix_days(days);
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}")
+}
+
+fn utc_civil_from_unix_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
+    let z = days_since_unix_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if month <= 2 { 1 } else { 0 };
+
+    (year as i32, month as u32, day as u32)
+}
+
+fn write_start(writer: &mut Writer<Vec<u8>>, name: &str) -> HbciResult<()> {
+    write_xml_event(writer, Event::Start(BytesStart::new(name)))
+}
+
+fn write_end(writer: &mut Writer<Vec<u8>>, name: &str) -> HbciResult<()> {
+    write_xml_event(writer, Event::End(BytesEnd::new(name)))
+}
+
+fn write_text_element(writer: &mut Writer<Vec<u8>>, name: &str, value: &str) -> HbciResult<()> {
+    write_start(writer, name)?;
+    write_xml_event(writer, Event::Text(BytesText::new(value)))?;
+    write_end(writer, name)
+}
+
+fn write_xml_event(writer: &mut Writer<Vec<u8>>, event: Event<'_>) -> HbciResult<()> {
+    writer.write_event(event).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::Protocol,
+            "failed to write PAIN.001.001.02 document",
+            err,
+        )
+    })
 }
 
 #[derive(Debug, Clone, Default)]
