@@ -1,4 +1,7 @@
-use hbci4rust::protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec};
+use hbci4rust::{
+    UserSig, apply_pintan_user_sig_to_sig_tail,
+    protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec},
+};
 
 #[test]
 fn builds_message_tree_with_original_paths_and_defaults() {
@@ -124,37 +127,7 @@ fn sets_data_element_values_and_exports_java_style_data() {
 
 #[test]
 fn renders_dialog_end_with_original_delimiters() {
-    let syntax = load_protocol_spec("300")
-        .expect("known protocol version loads")
-        .parse_syntax()
-        .expect("syntax parses");
-
-    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
-
-    set_all(
-        &mut message,
-        [
-            ("DialogEnd.MsgHead.dialogid", "DIALOG1"),
-            ("DialogEnd.MsgHead.msgnum", "1"),
-            ("DialogEnd.SigHead.SecProfile.method", "PIN"),
-            ("DialogEnd.SigHead.SecProfile.version", "1"),
-            ("DialogEnd.SigHead.secfunc", "999"),
-            ("DialogEnd.SigHead.seccheckref", "REF1"),
-            ("DialogEnd.SigHead.role", "1"),
-            ("DialogEnd.SigHead.SecIdnDetails.func", "1"),
-            ("DialogEnd.SigHead.secref", "1"),
-            ("DialogEnd.SigHead.HashAlg.alg", "999"),
-            ("DialogEnd.SigHead.SigAlg.alg", "10"),
-            ("DialogEnd.SigHead.SigAlg.mode", "16"),
-            ("DialogEnd.SigHead.KeyName.KIK.country", "DE"),
-            ("DialogEnd.SigHead.KeyName.userid", "user"),
-            ("DialogEnd.SigHead.KeyName.keynum", "1"),
-            ("DialogEnd.SigHead.KeyName.keyversion", "1"),
-            ("DialogEnd.DialogEndS.dialogid", "DIALOG1"),
-            ("DialogEnd.SigTail.seccheckref", "REF1"),
-            ("DialogEnd.MsgTail.msgnum", "1"),
-        ],
-    );
+    let mut message = dialog_end_message_with_pintan_signature_shell();
 
     message
         .prepare_outgoing()
@@ -178,6 +151,55 @@ fn renders_dialog_end_with_original_delimiters() {
             msg_size,
         )
     );
+}
+
+#[test]
+fn applies_pintan_usersig_to_signature_tail_like_hbci4java_sig() {
+    let mut message = dialog_end_message_with_pintan_signature_shell();
+    let signature = UserSig::encode(Some("12345"), Some("987654")).expect("usersig encodes");
+
+    apply_pintan_user_sig_to_sig_tail(&mut message, "DialogEnd.SigTail", &signature)
+        .expect("usersig applies to sigtail");
+
+    assert_eq!(
+        message.value("DialogEnd.SigTail.UserSig.pin"),
+        Some("12345")
+    );
+    assert_eq!(
+        message.value("DialogEnd.SigTail.UserSig.tan"),
+        Some("987654")
+    );
+    assert_eq!(message.value("DialogEnd.SigTail.sig"), None);
+
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+    let rendered = message.to_fints_string().expect("message renders");
+    assert!(
+        rendered.contains("HNSHA:4:2+REF1++12345:987654'"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn applies_pintan_usersig_to_signature_tail_without_empty_tan() {
+    let mut message = dialog_end_message_with_pintan_signature_shell();
+    let signature = UserSig::encode(Some("12345"), None).expect("usersig encodes");
+
+    apply_pintan_user_sig_to_sig_tail(&mut message, "DialogEnd.SigTail", &signature)
+        .expect("usersig applies to sigtail");
+
+    assert_eq!(
+        message.value("DialogEnd.SigTail.UserSig.pin"),
+        Some("12345")
+    );
+    assert_eq!(message.value("DialogEnd.SigTail.UserSig.tan"), None);
+
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+    let rendered = message.to_fints_string().expect("message renders");
+    assert!(rendered.contains("HNSHA:4:2+REF1++12345'"), "{rendered}");
 }
 
 #[test]
@@ -534,4 +556,40 @@ fn set_all<'a>(message: &mut HbciMessage, values: impl IntoIterator<Item = (&'a 
     for (path, value) in values {
         message.set_value(path, value).expect("message path exists");
     }
+}
+
+fn dialog_end_message_with_pintan_signature_shell() -> HbciMessage {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "DialogEnd").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("DialogEnd.MsgHead.dialogid", "DIALOG1"),
+            ("DialogEnd.MsgHead.msgnum", "1"),
+            ("DialogEnd.SigHead.SecProfile.method", "PIN"),
+            ("DialogEnd.SigHead.SecProfile.version", "1"),
+            ("DialogEnd.SigHead.secfunc", "999"),
+            ("DialogEnd.SigHead.seccheckref", "REF1"),
+            ("DialogEnd.SigHead.role", "1"),
+            ("DialogEnd.SigHead.SecIdnDetails.func", "1"),
+            ("DialogEnd.SigHead.secref", "1"),
+            ("DialogEnd.SigHead.HashAlg.alg", "999"),
+            ("DialogEnd.SigHead.SigAlg.alg", "10"),
+            ("DialogEnd.SigHead.SigAlg.mode", "16"),
+            ("DialogEnd.SigHead.KeyName.KIK.country", "DE"),
+            ("DialogEnd.SigHead.KeyName.userid", "user"),
+            ("DialogEnd.SigHead.KeyName.keynum", "1"),
+            ("DialogEnd.SigHead.KeyName.keyversion", "1"),
+            ("DialogEnd.DialogEndS.dialogid", "DIALOG1"),
+            ("DialogEnd.SigTail.seccheckref", "REF1"),
+            ("DialogEnd.MsgTail.msgnum", "1"),
+        ],
+    );
+
+    message
 }
