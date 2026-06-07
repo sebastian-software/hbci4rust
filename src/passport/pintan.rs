@@ -36,6 +36,7 @@ pub struct PinTanScaState {
     pub hhd_uc: Option<String>,
     pub order_ref: Option<String>,
     pub sca_exempted: bool,
+    pub decoupled_refreshes: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -70,6 +71,48 @@ impl PinTanPassport {
 
     pub fn clear_sca_state(&mut self) {
         self.sca = PinTanScaState::default();
+    }
+
+    pub fn decoupled_refreshes(&self) -> u32 {
+        self.sca.decoupled_refreshes
+    }
+
+    pub fn increment_decoupled_refreshes(&mut self) {
+        self.sca.decoupled_refreshes = self.sca.decoupled_refreshes.saturating_add(1);
+    }
+
+    pub fn minimum_time_before_decoupled_refresh(&self) -> Option<u64> {
+        if self.sca.decoupled_refreshes == 0 {
+            self.minimum_time_before_first_decoupled_refresh()
+        } else {
+            self.minimum_time_before_next_decoupled_refresh()
+        }
+    }
+
+    pub fn minimum_time_before_first_decoupled_refresh(&self) -> Option<u64> {
+        integer_property(
+            self.bpd_parameters(),
+            &ParameterQuery::BPD_DECOUPLED_TIME_BEFORE_FIRST_STATUS_REQUEST,
+            false,
+        )
+        .map(u64::from)
+    }
+
+    pub fn minimum_time_before_next_decoupled_refresh(&self) -> Option<u64> {
+        integer_property(
+            self.bpd_parameters(),
+            &ParameterQuery::BPD_DECOUPLED_TIME_BEFORE_NEXT_STATUS_REQUEST,
+            false,
+        )
+        .map(u64::from)
+    }
+
+    pub fn decoupled_max_refreshes(&self) -> Option<u32> {
+        integer_property(
+            self.bpd_parameters(),
+            &ParameterQuery::BPD_DECOUPLED_MAX_STATUS_REQUESTS,
+            true,
+        )
     }
 
     pub fn pin(&self) -> Option<&str> {
@@ -329,6 +372,9 @@ impl PinTanPassport {
             self.sca.hhd_uc = Some(hhd_uc);
         }
         if let Some(order_ref) = optional_value(values, &format!("{root}.orderref")) {
+            if self.sca.order_ref.as_deref() != Some(order_ref.as_str()) {
+                self.sca.decoupled_refreshes = 0;
+            }
             self.sca.order_ref = Some(order_ref);
         }
 
@@ -685,6 +731,20 @@ impl PinTanPassport {
             .filter(|(id, _)| self.data.allowed_twostep_mechanisms.contains(id))
             .map(|(id, mechanism)| TanMethodOption::from_mechanism(id, mechanism))
             .collect()
+    }
+}
+
+fn integer_property(props: &Properties, query: &ParameterQuery, use_minimum: bool) -> Option<u32> {
+    let values = ParameterFinder::find_all_query(props, query)
+        .ok()?
+        .values()
+        .filter_map(|value| value.parse::<u32>().ok())
+        .collect::<Vec<_>>();
+
+    if use_minimum {
+        values.into_iter().min()
+    } else {
+        values.into_iter().max()
     }
 }
 

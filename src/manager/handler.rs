@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::str;
+use std::time::{Duration, Instant};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
@@ -30,10 +31,11 @@ use crate::sepa::{
 };
 use crate::swift::decode_umlauts;
 use crate::tools::Properties;
+use tokio::time::sleep;
 
 use super::{
-    ChallengeInfo, OrderHashMode, PinTanSignatureContext, apply_pintan_sig_head,
-    apply_pintan_sig_tail_from_head, apply_pintan_user_sig_to_sig_tail,
+    ChallengeInfo, HhdVersion, HhdVersionType, OrderHashMode, PinTanSignatureContext,
+    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_user_sig_to_sig_tail,
     collect_pintan_segment_codes, collect_pintan_signature_range,
 };
 
@@ -492,7 +494,27 @@ where
         let hktan = self.new_tan2step_process2_job()?;
         self.try_add_to_queue(hktan)?;
         let status = self.execute().await?;
-        if status.success {
+        if status.success && !exec_status_contains_decoupled_pending(&status) {
+            self.passport.clear_sca_state();
+        }
+        Ok(status)
+    }
+
+    pub async fn execute_tan2step_decoupled_status_poll(&mut self) -> HbciResult<HbciExecStatus> {
+        if !self.queue.is_empty() {
+            return Err(HbciError::new(
+                HbciErrorKind::InvalidArgument,
+                "decoupled status polling requires an empty queue",
+            ));
+        }
+
+        let hktan = self.new_tan2step_decoupled_status_job()?;
+        let callback = super::callback();
+        wait_before_decoupled_status_poll(&self.passport, callback.as_deref()).await?;
+        self.try_add_to_queue(hktan)?;
+        self.passport.increment_decoupled_refreshes();
+        let status = self.execute().await?;
+        if status.success && !exec_status_contains_decoupled_pending(&status) {
             self.passport.clear_sca_state();
         }
         Ok(status)
@@ -502,7 +524,20 @@ where
         let mut status = self.execute().await?;
         if self.should_execute_tan2step_process2_submission(&status) {
             let submission_status = self.execute_tan2step_process2_submission().await?;
+            let mut latest_contains_decoupled_pending =
+                exec_status_contains_decoupled_pending(&submission_status);
             merge_exec_status(&mut status, submission_status);
+            while latest_contains_decoupled_pending {
+                let poll_status = self.execute_tan2step_decoupled_status_poll().await?;
+                latest_contains_decoupled_pending =
+                    exec_status_contains_decoupled_pending(&poll_status);
+                merge_exec_status(&mut status, poll_status);
+                if latest_contains_decoupled_pending
+                    && self.passport.decoupled_max_refreshes().is_none()
+                {
+                    break;
+                }
+            }
         }
         Ok(status)
     }
@@ -815,6 +850,13 @@ where
     Ok(response)
 }
 
+fn exec_status_contains_decoupled_pending(status: &HbciExecStatus) -> bool {
+    status
+        .return_values_for_code(crate::dialog::KnownReturncode::W3956)
+        .into_iter()
+        .any(|value| value.is_warning())
+}
+
 fn merge_exec_status(target: &mut HbciExecStatus, mut source: HbciExecStatus) {
     target.success = target.success && source.success;
     target.job_results.append(&mut source.job_results);
@@ -967,6 +1009,16 @@ async fn request_tan_for_sca(
     }
 
     let secmech = passport.current_secmech_info();
+    if HhdVersion::find(Some(&secmech)).hhd_type() == HhdVersionType::Decoupled {
+        notify_decoupled_sca_required(
+            callback,
+            format_sca_challenge_message(&secmech, challenge),
+            sca.hhd_uc.clone(),
+        )
+        .await?;
+        return Ok(None);
+    }
+
     let tan = request_tan_value(
         callback,
         format_sca_challenge_message(&secmech, challenge),
@@ -975,6 +1027,71 @@ async fn request_tan_for_sca(
     .await?;
 
     Ok(Some(tan))
+}
+
+async fn notify_decoupled_sca_required(
+    callback: Option<&dyn HbciCallback>,
+    message: String,
+    current_value: Option<String>,
+) -> HbciResult<()> {
+    let Some(callback) = callback else {
+        return Err(HbciError::new(
+            HbciErrorKind::Callback,
+            "callback required for decoupled SCA challenge",
+        ));
+    };
+
+    callback
+        .handle(CallbackEvent {
+            reason: CallbackReason::NeedPtDecoupled,
+            message,
+            data_type: CallbackDataType::Text,
+            current_value,
+        })
+        .await?;
+    Ok(())
+}
+
+async fn wait_before_decoupled_status_poll(
+    passport: &PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<()> {
+    let Some(callback) = callback else {
+        return Err(HbciError::new(
+            HbciErrorKind::Callback,
+            "callback required for decoupled status polling",
+        ));
+    };
+
+    if let Some(max_refreshes) = passport.decoupled_max_refreshes()
+        && passport.decoupled_refreshes() >= max_refreshes
+    {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "maximum number of decoupled status refreshes has been reached",
+        ));
+    }
+
+    let wait_seconds = passport
+        .minimum_time_before_decoupled_refresh()
+        .unwrap_or(0);
+    let started = Instant::now();
+    callback
+        .handle(CallbackEvent {
+            reason: CallbackReason::NeedPtDecoupledRetry,
+            message: "*** decoupled SCA still required".to_owned(),
+            data_type: CallbackDataType::Text,
+            current_value: Some(wait_seconds.to_string()),
+        })
+        .await?;
+
+    let required_delay = Duration::from_secs(wait_seconds);
+    let callback_duration = started.elapsed();
+    if callback_duration < required_delay {
+        sleep(required_delay - callback_duration).await;
+    }
+
+    Ok(())
 }
 
 async fn request_tan_for_one_step(

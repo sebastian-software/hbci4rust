@@ -37,8 +37,9 @@ those methods is a separate UI/runtime decision.
 ## Consequences
 
 The public callback surface can now represent decoupled approval and retry
-events without falling back to `Unknown(i32)`. This prepares the full `3956`
-refresh loop while keeping the change small and original-near.
+events without falling back to `Unknown(i32)`. ADR 0244 uses these reasons for
+the `3956` refresh loop while keeping this mapping change small and
+original-near.
 
 Tests must pin the numeric mappings so later callback work does not drift from
 hbci4java constants.

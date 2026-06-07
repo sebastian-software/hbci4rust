@@ -48,6 +48,59 @@ fn signed_pintan_data() -> PinTanPassportData {
     }
 }
 
+fn decoupled_pintan_data() -> PinTanPassportData {
+    PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.name".to_owned(),
+                "pushTAN".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.inputinfo".to_owned(),
+                "Bitte bestaetigen".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.zkamethod_name".to_owned(),
+                "DecoupledPush".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_time_before_first_status_request".to_owned(),
+                "0".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_time_before_next_status_request".to_owned(),
+                "0".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_max_status_requests".to_owned(),
+                "3".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    }
+}
+
 #[derive(Debug)]
 struct RecordingCallback {
     events: Arc<Mutex<Vec<CallbackEvent>>>,
@@ -5288,6 +5341,53 @@ fn passport_resolves_orderhash_mode_from_bpd_like_hbci4java_query() {
     let secmech = passport.current_secmech_info();
     assert_eq!(secmech.get("segversion").map(String::as_str), Some("5"));
     assert_eq!(secmech.get("orderhashmode").map(String::as_str), Some("2"));
+}
+
+#[test]
+fn passport_resolves_decoupled_refresh_hints_like_hbci4java_integer_property() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params_1.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_time_before_first_status_request".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params_2.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_time_before_first_status_request".to_owned(),
+                "5".to_owned(),
+            ),
+            (
+                "Params_3.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_time_before_first_status_request".to_owned(),
+                "invalid".to_owned(),
+            ),
+            (
+                "Params_1.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_time_before_next_status_request".to_owned(),
+                "7".to_owned(),
+            ),
+            (
+                "Params_1.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_max_status_requests".to_owned(),
+                "4".to_owned(),
+            ),
+            (
+                "Params_2.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_max_status_requests".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+
+    assert_eq!(
+        passport.minimum_time_before_first_decoupled_refresh(),
+        Some(5)
+    );
+    assert_eq!(
+        passport.minimum_time_before_next_decoupled_refresh(),
+        Some(7)
+    );
+    assert_eq!(passport.minimum_time_before_decoupled_refresh(), Some(5));
+    assert_eq!(passport.decoupled_max_refreshes(), Some(2));
+
+    passport.increment_decoupled_refreshes();
+    assert_eq!(passport.minimum_time_before_decoupled_refresh(), Some(7));
 }
 
 #[test]
@@ -11508,6 +11608,248 @@ async fn handler_renders_decoupled_status_request_without_tan_callback() {
             .expect("callback event lock")
             .iter()
             .all(|event| event.reason != CallbackReason::NeedPtTan)
+    );
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_requests_decoupled_callback_and_signs_process2_without_tan() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(decoupled_pintan_data());
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HITAN:3:5+1++ORDER-REF-DECOUPLED+Bitte bestaetigen Sie in der App+@5@HHDUC",
+        ])),
+        Ok(custom_msg_response_for_request(
+            "0",
+            2,
+            &["HIRMG:2:2+0010::OK"],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    handler
+        .try_add_to_queue_with_initial_tan_job(saldo)
+        .expect("task and first HKTAN queue");
+    handler.execute().await.expect("initial HITAN parses");
+    let status = handler
+        .execute_tan2step_process2_submission()
+        .await
+        .expect("decoupled process-2 submission executes");
+
+    assert!(status.success);
+    assert_eq!(handler.passport().sca_state().order_ref, None);
+    assert_eq!(handler.passport().sca_state().challenge, None);
+    assert_eq!(handler.passport().sca_state().hhd_uc, None);
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 2);
+    let second_body = String::from_utf8(requests[1].body.clone()).expect("body is text");
+    assert!(fints_segment(&second_body, "HKTAN").starts_with("HKTAN:3:5+2"));
+    assert!(
+        fints_segment(&second_body, "HKTAN").contains("ORDER-REF-DECOUPLED"),
+        "{second_body}"
+    );
+    let sig_tail = fints_segment(&second_body, "HNSHA");
+    let sig_tail_parts = sig_tail.split('+').collect::<Vec<_>>();
+    assert_eq!(sig_tail_parts.get(3).copied(), Some("12345"));
+
+    let events = events.lock().expect("callback event lock");
+    let decoupled_event = events
+        .iter()
+        .find(|event| event.reason == CallbackReason::NeedPtDecoupled)
+        .expect("decoupled callback event");
+    assert_eq!(
+        decoupled_event.message,
+        "pushTAN\nBitte bestaetigen\n\nBitte bestaetigen Sie in der App"
+    );
+    assert_eq!(decoupled_event.data_type, CallbackDataType::Text);
+    assert_eq!(decoupled_event.current_value.as_deref(), Some("HHDUC"));
+    assert!(
+        events
+            .iter()
+            .all(|event| event.reason != CallbackReason::NeedPtTan)
+    );
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_polls_decoupled_status_after_pending_3956() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = passport_with_cached_pin(decoupled_pintan_data());
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HITAN:3:5+1++ORDER-REF-DECOUPLED+Bitte bestaetigen Sie in der App+@5@HHDUC",
+        ])),
+        Ok(custom_msg_response_for_request(
+            "0",
+            2,
+            &["HIRMG:2:2+0010::OK", "HIRMS:3:2+3956::SCA noch ausstehend"],
+        )),
+        Ok(custom_msg_response_for_request(
+            "0",
+            3,
+            &["HIRMG:2:2+0010::OK"],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+    handler
+        .try_add_to_queue(saldo)
+        .expect("saldo queues before dispatcher");
+
+    let status = handler
+        .execute_with_tan2step()
+        .await
+        .expect("decoupled process-2 flow executes");
+
+    assert!(status.success);
+    assert_eq!(
+        status
+            .job_results
+            .iter()
+            .map(|result| result.job_name.as_str())
+            .collect::<Vec<_>>(),
+        ["SaldoReq", "TAN2Step", "TAN2Step", "TAN2Step"]
+    );
+    assert_eq!(handler.passport().sca_state().order_ref, None);
+    assert_eq!(handler.passport().sca_state().decoupled_refreshes, 0);
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 3);
+    let second_body = String::from_utf8(requests[1].body.clone()).expect("body is text");
+    assert!(fints_segment(&second_body, "HKTAN").starts_with("HKTAN:3:5+2"));
+    assert_eq!(
+        fints_segment(&second_body, "HNSHA")
+            .split('+')
+            .collect::<Vec<_>>()
+            .get(3)
+            .copied(),
+        Some("12345")
+    );
+    let third_body = String::from_utf8(requests[2].body.clone()).expect("body is text");
+    assert!(
+        fints_segment(&third_body, "HKTAN").starts_with("HKTAN:3:5+S"),
+        "{third_body}"
+    );
+    assert!(
+        fints_segment(&third_body, "HKTAN").contains("ORDER-REF-DECOUPLED"),
+        "{third_body}"
+    );
+
+    let events = events.lock().expect("callback event lock");
+    let retry_event = events
+        .iter()
+        .find(|event| event.reason == CallbackReason::NeedPtDecoupledRetry)
+        .expect("decoupled retry callback event");
+    assert_eq!(retry_event.message, "*** decoupled SCA still required");
+    assert_eq!(retry_event.data_type, CallbackDataType::Text);
+    assert_eq!(retry_event.current_value.as_deref(), Some("0"));
+    assert!(
+        events
+            .iter()
+            .all(|event| event.reason != CallbackReason::NeedPtTan)
+    );
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_rejects_decoupled_status_poll_after_bpd_max_refreshes() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(FixedTanCallback {
+            events: events.clone(),
+            tan: "987654".to_owned(),
+        }),
+    )
+    .expect("runtime init");
+
+    let mut data = decoupled_pintan_data();
+    data.bpd_parameters.insert(
+        "Params.TAN2StepPar5.ParTAN2Step.TAN2StepParams.decoupled_max_status_requests".to_owned(),
+        "1".to_owned(),
+    );
+    let passport = passport_with_cached_pin(data);
+    let replay = ReplayCommClient::new([
+        Ok(custom_msg_response(&[
+            "HIRMG:2:2+0010::OK",
+            "HITAN:3:5+4++ORDER-REF-DECOUPLED+Bitte bestaetigen Sie in der App+@5@HHDUC",
+        ])),
+        Ok(custom_msg_response_for_request(
+            "0",
+            2,
+            &["HIRMG:2:2+0010::OK", "HIRMS:3:2+3956::SCA noch ausstehend"],
+        )),
+    ]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut first = handler.new_job("TAN2Step").expect("job is in registry");
+    first
+        .try_set_param("process", "4")
+        .expect("process is accepted");
+    handler.add_to_queue(first);
+    handler.execute().await.expect("hitan response parses");
+
+    let pending_status = handler
+        .execute_tan2step_decoupled_status_poll()
+        .await
+        .expect("first status poll executes");
+    assert!(
+        pending_status
+            .return_value_for_code(hbci4rust::KnownReturncode::W3956)
+            .is_some()
+    );
+    assert_eq!(handler.passport().sca_state().decoupled_refreshes, 1);
+
+    let err = handler
+        .execute_tan2step_decoupled_status_poll()
+        .await
+        .expect_err("max refreshes are enforced");
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "maximum number of decoupled status refreshes has been reached"
+    );
+    assert_eq!(replay.requests().expect("requests").len(), 2);
+    assert_eq!(
+        events
+            .lock()
+            .expect("callback event lock")
+            .iter()
+            .filter(|event| event.reason == CallbackReason::NeedPtDecoupledRetry)
+            .count(),
+        1
     );
     done().expect("runtime reset");
 }

@@ -194,8 +194,8 @@ Important v1 PinTAN reasons:
 | `NeedPtTan` | Return the TAN for the current SCA challenge. |
 | `NeedPtSecMech` | Return the selected TAN mechanism id. |
 | `NeedPtTanMedia` | Return the selected TAN medium name. |
-| `NeedPtDecoupled` | Inform the user to approve the decoupled order externally. |
-| `NeedPtDecoupledRetry` | Inform the user that decoupled approval is still pending before another status poll. |
+| `NeedPtDecoupled` | Inform the user to approve the decoupled order externally; return value is ignored. |
+| `NeedPtDecoupledRetry` | Inform the user that approval is still pending; `current_value` contains the BPD wait hint in seconds. |
 | `NeedConnection` / `CloseConnection` | Observe transport lifecycle; usually return an empty accepted response. |
 | `HaveInstMsg` | Display or log institute messages. |
 

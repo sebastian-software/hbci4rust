@@ -32,7 +32,7 @@ Add the first decoupled building block:
 
 Do not yet port the full hbci4java decoupled refresh loop, retry counters,
 minimum waiting times, or dedicated decoupled callback reasons. Those remain
-separate runtime slices.
+separate runtime slices and are addressed later by ADRs 0243 and 0244.
 
 ## Consequences
 
@@ -40,9 +40,9 @@ The Rust port can now render and replay-test the core FinTS message shape needed
 for decoupled status polling. This reduces the remaining decoupled gap without
 changing the public `execute()` or `execute_with_tan2step()` control flow.
 
-The next decoupled slices can build on this helper to detect `3956`, emit
-decoupled callback events, respect BPD wait/max-refresh hints, and merge status
-poll results like hbci4java.
+ADR 0244 builds on this helper to detect `3956`, emit decoupled callback events,
+respect BPD wait/max-refresh hints, and merge status poll results like
+hbci4java.
 
 ## Links
 
