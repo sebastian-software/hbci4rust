@@ -34,3 +34,8 @@ Out:
 3. Port offline SEPA/CAMT/SWIFT/BPD/message behavior with Java goldens.
 4. Port async PinTAN handler/dialog runtime and all PinTAN-compatible jobs.
 5. Harden docs, optional live tests, and rustification candidates.
+
+## Tracking
+
+- `docs/architecture/job-coverage.md` records the current upstream `GV*.java`
+  to Rust registry coverage and the intentional `GVTemplate` boundary.
