@@ -53,6 +53,7 @@ Direct upstream attribution is present in:
 
 - `NOTICE`;
 - `docs/adr/0002-license-and-attribution.md`;
+- `docs/reference/upstream-header-review.md`;
 - `resources/protocol/README.md`;
 - `tests/fixtures/hbci4java/README.md`.
 
@@ -65,5 +66,6 @@ Before publishing any crate release:
 
 - rerun `cargo package --list` on the final release-candidate commit;
 - run `cargo publish --dry-run` or an equivalent local package verification;
-- recheck upstream hbci4java file headers for distribution questions;
+- rerun the upstream header review if the baseline or copied artifacts changed
+  since `docs/reference/upstream-header-review.md`;
 - update `docs/architecture/release-checklist.md` with final command evidence.

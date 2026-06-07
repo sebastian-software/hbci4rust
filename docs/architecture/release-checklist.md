@@ -144,7 +144,7 @@ Evidence:
 
 - [x] Repo-level LGPL-2.1-or-later assumption is recorded.
 - [x] `LICENSE` and `NOTICE` exist.
-- [ ] Upstream header inconsistencies are rechecked before publishing.
+- [x] Upstream header inconsistencies are rechecked before publishing.
 - [x] `Cargo.toml` package metadata is reviewed for crate publication.
 - [x] Current `cargo package --list` output is reviewed and documented.
 - [x] Generated or copied upstream artifacts are documented with attribution.
@@ -157,10 +157,12 @@ Evidence:
 - `NOTICE`
 - `Cargo.toml`
 - `docs/reference/packaging.md`
+- `docs/reference/upstream-header-review.md`
 - `resources/protocol/README.md`
 - `tests/fixtures/hbci4java/README.md`
 - ADR 0002
 - ADR 0249
+- ADR 0253
 
 ## Optional Live Smoke
 

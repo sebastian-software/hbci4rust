@@ -61,5 +61,7 @@ Out:
   attribution review for release hardening.
 - `docs/reference/passport-storage-security.md` records the KDF, AEAD, envelope,
   and validation review for Rust-native PinTAN passport storage.
+- `docs/reference/upstream-header-review.md` records the current upstream
+  license/header inconsistency recheck for the pinned baseline.
 - `docs/architecture/release-checklist.md` records the operational v1 release
   acceptance checks.

@@ -45,6 +45,7 @@ readiness estimate and the Java migration map live in:
 - `docs/reference/live-bank-tests.md`
 - `docs/reference/packaging.md`
 - `docs/reference/passport-storage-security.md`
+- `docs/reference/upstream-header-review.md`
 
 ## Development
 
