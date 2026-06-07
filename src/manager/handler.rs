@@ -105,6 +105,11 @@ where
         )
     }
 
+    pub async fn request_tan_for_sca(&self) -> HbciResult<Option<String>> {
+        let callback = super::callback();
+        request_tan_for_sca(&self.passport, callback.as_deref()).await
+    }
+
     pub fn add_to_queue(&mut self, job: HbciJob) {
         self.queue.push(job);
     }
@@ -492,6 +497,53 @@ async fn choose_tan_media_if_needed(
     }
 
     Ok(Some("noref".to_owned()))
+}
+
+async fn request_tan_for_sca(
+    passport: &PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<Option<String>> {
+    let sca = passport.sca_state();
+    let Some(challenge) = sca.challenge.as_deref().filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if sca.sca_exempted {
+        return Ok(None);
+    }
+    let Some(callback) = callback else {
+        return Err(HbciError::new(
+            HbciErrorKind::Callback,
+            "callback required for TAN challenge",
+        ));
+    };
+
+    let secmech = passport.current_secmech_info();
+    let response = callback
+        .handle(CallbackEvent {
+            reason: CallbackReason::NeedPtTan,
+            message: format_sca_challenge_message(&secmech, challenge),
+            data_type: CallbackDataType::Text,
+            current_value: sca.hhd_uc.clone(),
+        })
+        .await?;
+    let Some(tan) = response.value.filter(|value| !value.trim().is_empty()) else {
+        return Err(HbciError::new(
+            HbciErrorKind::Callback,
+            "callback did not provide a TAN",
+        ));
+    };
+
+    Ok(Some(tan))
+}
+
+fn format_sca_challenge_message(secmech: &Properties, challenge: &str) -> String {
+    let name = secmech.get("name").map(String::as_str).unwrap_or("null");
+    let inputinfo = secmech
+        .get("inputinfo")
+        .map(String::as_str)
+        .unwrap_or("null");
+
+    format!("{name}\n{inputinfo}\n\n{challenge}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
