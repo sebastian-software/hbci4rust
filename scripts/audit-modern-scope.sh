@@ -57,17 +57,11 @@ legacy_jobs=(
   DauerEdit
   DauerList
   DauerNew
-  Donation
   TermUeb
   TermUebDel
   TermUebEdit
   TermUebList
-  Ueb
-  UebBZU
-  UebEil
   UebForeign
-  UebGar
-  Umb
 )
 
 tmpdir="$(mktemp -d)"

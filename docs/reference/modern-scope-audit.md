@@ -76,7 +76,6 @@ A detailed per-job current-relevance audit lives in
 
 | Category | Current job names | Reason for lower relevance |
 | --- | --- | --- |
-| Classic domestic credit and account transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation` | They use national account data, classic FinTS segments, and DTAUS-style usage fields instead of SEPA payment rails. |
 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments are current, but this HKAOM/UebForeign2 job is an old FinTS shape rather than a modern ISO 20022-oriented cross-border payment surface. |
 | Classic scheduled transfers | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList` | They are the non-SEPA counterparts to the SEPA scheduled-transfer jobs. |
 | Classic standing orders | `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | They are the non-SEPA counterparts to the SEPA standing-order jobs. |
@@ -92,6 +91,7 @@ These surfaces remain out of scope, not merely deferred:
 - `LastCOR1SEPA` and `MultiLastCOR1SEPA`;
 - `MultiUeb` and `MultiLast`;
 - `Last` and `StornoLast`;
+- `Donation`, `Ueb`, `UebBZU`, `UebEil`, `UebGar`, and `Umb`;
 - arbitrary dynamic lowlevel jobs through public `newLowlevelJob(...)`;
 - `GVTemplate`;
 - `WPStammData` / lowlevel `WPStammList`.
@@ -120,9 +120,9 @@ scripts/audit-modern-scope.sh
 Current output:
 
 ```text
-registry=61
+registry=55
 modern=46
-legacy=15
+legacy=9
 duplicates=<none>
 unclassified=<none>
 stale=<none>

@@ -63,7 +63,13 @@ public registry:
 - `MultiLast`;
 - `MultiUeb`;
 - `Last`;
-- `StornoLast`.
+- `StornoLast`;
+- `Donation`;
+- `Ueb`;
+- `UebBZU`;
+- `UebEil`;
+- `UebGar`;
+- `Umb`.
 
 `LastCOR1SEPA` and `MultiLastCOR1SEPA` were compatibility-carried SEPA `COR1`
 direct-debit variants. EPC guidance states that `COR1` is no longer relevant
@@ -81,6 +87,14 @@ direct-debit jobs. Use `LastSEPA`, `LastB2BSEPA`, `MultiLastSEPA`, or
 direct-debit dispute or return workflow needs a new scoped decision rather than
 the old `LastObjection2` job.
 
+`Donation`, `Ueb`, `UebBZU`, `UebEil`, `UebGar`, and `Umb` were
+compatibility-carried classic national domestic transfer/account-transfer jobs.
+Use `UebSEPA`, `InstUebSEPA`, `MultiUebSEPA`, `TermUebSEPA`,
+`TermMultiUebSEPA`, or `UmbSEPA` for current domestic transfer and
+account-transfer workflows. Donation remittance can be represented through
+caller-chosen SEPA purpose or remittance data rather than the old `Donation`
+alias.
+
 ## Dynamic Lowlevel Boundary
 
 The public v1 job surface is a static PinTAN-compatible registry. It does not
@@ -97,9 +111,10 @@ class. It is not treated as permission to construct arbitrary lowlevel jobs.
 available for original-near rendering, result inspection, and tests. They do
 not widen v1 into a dynamic lowlevel API.
 
-The current job coverage audit therefore allows exactly seven missing upstream
-`GV*.java` classes: `Last`, `LastCOR1SEPA`, `MultiLast`,
-`MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, and `Template`.
+The current job coverage audit therefore allows exactly thirteen missing
+upstream `GV*.java` classes: `Donation`, `Last`, `LastCOR1SEPA`, `MultiLast`,
+`MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, `Template`, `Ueb`, `UebBZU`,
+`UebEil`, `UebGar`, and `Umb`.
 
 ## Typed Result Boundary
 
@@ -190,3 +205,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0265: Remove COR1 Public Jobs
 - ADR 0266: Remove DTAUS Bulk Public Jobs
 - ADR 0267: Remove Classic Direct Debit Public Jobs
+- ADR 0268: Remove Classic Domestic Transfer Jobs From Public Registry

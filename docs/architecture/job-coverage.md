@@ -22,8 +22,8 @@ Last checked: 2026-06-07.
 
 ```text
 upstream=68
-rust=61
-missing=Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template
+rust=55
+missing=Donation,Last,LastCOR1SEPA,MultiLast,MultiLastCOR1SEPA,MultiUeb,StornoLast,Template,Ueb,UebBZU,UebEil,UebGar,Umb
 extra=<none>
 ```
 
@@ -45,6 +45,12 @@ rails. The modern SEPA bulk jobs remain in scope.
 ADR 0267 because they are classic national direct-debit jobs over the old
 payment rail. The modern SEPA Core and B2B direct-debit jobs remain in scope.
 
+`Donation`, `Ueb`, `UebBZU`, `UebEil`, `UebGar`, and `Umb` were intentionally
+removed from the public registry in ADR 0268 because they are classic national
+domestic credit-transfer or account-transfer jobs. The modern SEPA transfer,
+instant-transfer, bulk-transfer, scheduled-transfer, and SEPA account-transfer
+jobs remain in scope.
+
 ## How To Recheck
 
 ```sh
@@ -54,8 +60,9 @@ scripts/audit-job-coverage.sh
 
 The audit exits successfully only when:
 
-- the only missing upstream `GV*.java` names are `Last`, `LastCOR1SEPA`,
-  `MultiLast`, `MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`, and `Template`;
+- the only missing upstream `GV*.java` names are `Donation`, `Last`,
+  `LastCOR1SEPA`, `MultiLast`, `MultiLastCOR1SEPA`, `MultiUeb`, `StornoLast`,
+  `Template`, `Ueb`, `UebBZU`, `UebEil`, `UebGar`, and `Umb`;
 - the Rust registry has no job names without a matching upstream `GV*.java`
   class.
 
@@ -70,5 +77,6 @@ not vendored and CI remains offline-only.
 - `docs/adr/0265-remove-cor1-public-jobs.md`
 - `docs/adr/0266-remove-dtaus-bulk-public-jobs.md`
 - `docs/adr/0267-remove-classic-direct-debit-public-jobs.md`
+- `docs/adr/0268-remove-classic-domestic-transfer-public-jobs.md`
 - `docs/reference/unsupported-surfaces.md`
 - `scripts/audit-job-coverage.sh`

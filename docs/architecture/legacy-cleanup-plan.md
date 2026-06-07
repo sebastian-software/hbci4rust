@@ -56,9 +56,9 @@ The machine-checkable source of truth is `scripts/audit-modern-scope.sh`.
 Current snapshot:
 
 ```text
-registry=61
+registry=55
 modern=46
-legacy=15
+legacy=9
 unclassified=<none>
 stale=<none>
 duplicates=<none>
@@ -78,14 +78,14 @@ Completed cleanup:
 | COR1 variants | `LastCOR1SEPA`, `MultiLastCOR1SEPA` | Removed from the public registry in ADR 0265; shared implementation code remains temporarily. |
 | DTAUS bulk jobs | `MultiUeb`, `MultiLast` | Removed from the public registry in ADR 0266; shared lowlevel DTAUS helpers remain temporarily. |
 | Classic direct debit and objection | `Last`, `StornoLast` | Removed from the public registry in ADR 0267; shared lowlevel helpers remain temporarily. |
+| Classic domestic credit and account transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation` | Removed from the public registry in ADR 0268; shared lowlevel helpers remain temporarily. |
 
 Remaining recommended cleanup order:
 
 | Order | Category | Job names | Why this order |
 | --- | --- | --- | --- |
-| 1 | Classic domestic credit and account transfers | `Ueb`, `UebEil`, `UebGar`, `UebBZU`, `Umb`, `Donation` | Larger helper-sharing surface; remove only after SEPA transfer tests prove no regression. |
-| 2 | Classic scheduled and standing orders | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | Highest persistence/test coupling because order snapshots and result shapes overlap with modern standing-order behavior. |
-| 3 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments remain current, so this old HKAOM/UebForeign2 job needs a separate product-boundary ADR before removal. |
+| 1 | Classic scheduled and standing orders | `TermUeb`, `TermUebEdit`, `TermUebDel`, `TermUebList`, `DauerNew`, `DauerEdit`, `DauerDel`, `DauerList` | Highest persistence/test coupling because order snapshots and result shapes overlap with modern standing-order behavior. |
+| 2 | Classic foreign transfer | `UebForeign` | Foreign and foreign-currency payments remain current, so this old HKAOM/UebForeign2 job needs a separate product-boundary ADR before removal. |
 
 ## Slice Template
 

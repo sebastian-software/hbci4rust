@@ -14,7 +14,6 @@ use hbci4rust::{
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const CHALLENGE_DATA: &str = include_str!("fixtures/hbci4java/secmech/challengedata.xml");
-const VALID_BZU_DATA: &str = "0000000000004";
 
 fn pintan_bpd(can1step: &str, mechanisms: &[(&str, &str)]) -> BTreeMap<String, String> {
     let mut props = BTreeMap::from([(
@@ -2581,180 +2580,36 @@ fn dauer_last_sepa_new_exposes_original_near_v1_constraints() {
 }
 
 #[test]
-fn ueb_exposes_original_near_v5_constraints() {
+fn ueb_is_out_of_scope_in_public_registry() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
-    let mut job = handler.new_job("Ueb").expect("job is in registry");
 
-    assert_eq!(job.constraints().len(), 27);
-    assert_eq!(
-        job.constraint("src.number")
-            .expect("source account number constraint")
-            .destination_name,
-        "Ueb5.My.number"
-    );
-    assert_eq!(
-        job.constraint("src.country")
-            .expect("source country constraint")
-            .default_value
-            .as_deref(),
-        Some("DE")
-    );
-    assert_eq!(
-        job.constraint("dst.number")
-            .expect("destination account number constraint")
-            .destination_name,
-        "Ueb5.Other.number"
-    );
-    assert_eq!(
-        job.constraint("btg.value")
-            .expect("amount value constraint")
-            .destination_name,
-        "Ueb5.BTG.value"
-    );
-    assert_eq!(
-        job.constraint("key")
-            .expect("transaction key constraint")
-            .default_value
-            .as_deref(),
-        Some("51")
-    );
-    assert_eq!(
-        job.constraint("usage")
-            .expect("usage constraint")
-            .destination_name,
-        "Ueb5.usage.usage"
-    );
-    assert_eq!(
-        job.constraint("usage_14")
-            .expect("usage_14 constraint")
-            .destination_name,
-        "Ueb5.usage.usage_14"
-    );
-    assert!(job.constraint("date").is_none());
-    assert!(job.constraint("id").is_none());
-
-    job.try_set_param("usage_2", "Second usage")
-        .expect("second usage line is accepted");
-    assert_eq!(
-        job.lowlevel_param("Ueb5.usage.usage_2"),
-        Some("Second usage")
-    );
+    let err = handler
+        .new_job("Ueb")
+        .expect_err("classic domestic transfer is outside v1 public registry");
+    assert_eq!(err.message(), "unsupported or out-of-scope job: Ueb");
 }
 
 #[test]
-fn donation_exposes_original_near_constraints() {
+fn donation_is_out_of_scope_in_public_registry() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
-    let mut job = handler.new_job("Donation").expect("job is in registry");
 
-    assert_eq!(job.constraints().len(), 16);
-    assert_eq!(
-        job.constraint("src.number")
-            .expect("source account number constraint")
-            .destination_name,
-        "Ueb5.My.number"
-    );
-    assert_eq!(
-        job.constraint("spenderid")
-            .expect("spender id constraint")
-            .destination_name,
-        "Ueb5.usage.usage"
-    );
-    assert_eq!(
-        job.constraint("plz_street")
-            .expect("postal and street constraint")
-            .destination_name,
-        "Ueb5.usage.usage_2"
-    );
-    assert_eq!(
-        job.constraint("name_ort")
-            .expect("name and city constraint")
-            .destination_name,
-        "Ueb5.usage.usage_3"
-    );
-    assert_eq!(
-        job.constraint("key")
-            .expect("transaction key constraint")
-            .default_value
-            .as_deref(),
-        Some("69")
-    );
-    assert!(job.constraint("usage").is_none());
-    assert!(job.constraint("usage_4").is_none());
-    assert!(job.constraint("date").is_none());
-
-    job.try_set_param("spenderid", "SPENDER-1")
-        .expect("spender id is accepted");
-    job.try_set_param("plz_street", "12345 Musterstrasse")
-        .expect("postal and street line is accepted");
-    job.try_set_param("name_ort", "Max Berlin")
-        .expect("name and city line is accepted");
-    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), Some("SPENDER-1"));
-    assert_eq!(
-        job.lowlevel_param("Ueb5.usage.usage_2"),
-        Some("12345 Musterstrasse")
-    );
-    assert_eq!(job.lowlevel_param("Ueb5.usage.usage_3"), Some("Max Berlin"));
+    let err = handler
+        .new_job("Donation")
+        .expect_err("classic donation transfer is outside v1 public registry");
+    assert_eq!(err.message(), "unsupported or out-of-scope job: Donation");
 }
 
 #[test]
-fn ueb_gar_exposes_original_near_v1_constraints() {
+fn ueb_gar_is_out_of_scope_in_public_registry() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
-    let mut job = handler.new_job("UebGar").expect("job is in registry");
 
-    assert_eq!(job.constraints().len(), 28);
-    assert_eq!(
-        job.constraint("src.number")
-            .expect("source account number constraint")
-            .destination_name,
-        "UebGar1.My.number"
-    );
-    assert_eq!(
-        job.constraint("dst.number")
-            .expect("destination account number constraint")
-            .destination_name,
-        "UebGar1.Other.number"
-    );
-    assert_eq!(
-        job.constraint("key")
-            .expect("transaction key constraint")
-            .default_value
-            .as_deref(),
-        Some("51")
-    );
-    assert_eq!(
-        job.constraint("addkey")
-            .expect("additional transaction key constraint")
-            .destination_name,
-        "UebGar1.addkey"
-    );
-    assert_eq!(
-        job.constraint("addkey")
-            .expect("additional transaction key constraint")
-            .default_value
-            .as_deref(),
-        Some("100")
-    );
-    assert_eq!(
-        job.constraint("usage_14")
-            .expect("usage_14 constraint")
-            .destination_name,
-        "UebGar1.usage.usage_14"
-    );
-    assert!(job.constraint("date").is_none());
-    assert!(job.constraint("id").is_none());
-
-    job.try_set_param("addkey", "101")
-        .expect("additional key is accepted");
-    job.try_set_param("usage_2", "Second usage")
-        .expect("second usage line is accepted");
-    assert_eq!(job.lowlevel_param("UebGar1.addkey"), Some("101"));
-    assert_eq!(
-        job.lowlevel_param("UebGar1.usage.usage_2"),
-        Some("Second usage")
-    );
+    let err = handler
+        .new_job("UebGar")
+        .expect_err("classic guaranteed transfer is outside v1 public registry");
+    assert_eq!(err.message(), "unsupported or out-of-scope job: UebGar");
 }
 
 #[test]
@@ -2842,206 +2697,36 @@ fn ueb_foreign_exposes_original_near_v2_constraints() {
 }
 
 #[test]
-fn ueb_bzu_exposes_original_near_v5_constraints() {
+fn ueb_bzu_is_out_of_scope_in_public_registry() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
-    let mut job = handler.new_job("UebBZU").expect("job is in registry");
 
-    assert_eq!(job.constraints().len(), 27);
-    assert_eq!(
-        job.constraint("src.number")
-            .expect("source account number constraint")
-            .destination_name,
-        "Ueb5.My.number"
-    );
-    assert_eq!(
-        job.constraint("src.country")
-            .expect("source country constraint")
-            .default_value
-            .as_deref(),
-        Some("DE")
-    );
-    assert_eq!(
-        job.constraint("dst.number")
-            .expect("destination account number constraint")
-            .destination_name,
-        "Ueb5.Other.number"
-    );
-    assert_eq!(
-        job.constraint("bzudata")
-            .expect("bzu data constraint")
-            .destination_name,
-        "Ueb5.usage.usage"
-    );
-    assert!(job.constraint("usage").is_none());
-    assert_eq!(
-        job.constraint("usage_2")
-            .expect("usage_2 constraint")
-            .destination_name,
-        "Ueb5.usage.usage_2"
-    );
-    assert_eq!(
-        job.constraint("usage_14")
-            .expect("usage_14 constraint")
-            .destination_name,
-        "Ueb5.usage.usage_14"
-    );
-    assert_eq!(
-        job.constraint("key")
-            .expect("transaction key constraint")
-            .default_value
-            .as_deref(),
-        Some("67")
-    );
-
-    let len_err = job
-        .try_set_param("bzudata", "123")
-        .expect_err("short bzu data is rejected");
-    assert_eq!(len_err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
-    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), None);
-
-    let check_digit_err = job
-        .try_set_param("bzudata", "0000000000000")
-        .expect_err("wrong bzu check digit is rejected");
-    assert_eq!(
-        check_digit_err.kind(),
-        hbci4rust::HbciErrorKind::InvalidArgument
-    );
-    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), None);
-
-    job.try_set_param("bzudata", VALID_BZU_DATA)
-        .expect("valid bzu data is accepted");
-    assert_eq!(job.lowlevel_param("Ueb5.usage.usage"), Some(VALID_BZU_DATA));
-    job.try_set_param("usage_2", "Second BZU usage")
-        .expect("second usage line is accepted");
-    assert_eq!(
-        job.lowlevel_param("Ueb5.usage.usage_2"),
-        Some("Second BZU usage")
-    );
+    let err = handler
+        .new_job("UebBZU")
+        .expect_err("classic BZU transfer is outside v1 public registry");
+    assert_eq!(err.message(), "unsupported or out-of-scope job: UebBZU");
 }
 
 #[test]
-fn ueb_eil_exposes_original_near_v1_constraints() {
+fn ueb_eil_is_out_of_scope_in_public_registry() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
-    let mut job = handler.new_job("UebEil").expect("job is in registry");
 
-    assert_eq!(job.constraints().len(), 27);
-    assert_eq!(
-        job.constraint("src.number")
-            .expect("source account number constraint")
-            .destination_name,
-        "UebEil1.My.number"
-    );
-    assert_eq!(
-        job.constraint("src.country")
-            .expect("source country constraint")
-            .default_value
-            .as_deref(),
-        Some("DE")
-    );
-    assert_eq!(
-        job.constraint("dst.number")
-            .expect("destination account number constraint")
-            .destination_name,
-        "UebEil1.Other.number"
-    );
-    assert_eq!(
-        job.constraint("btg.value")
-            .expect("amount value constraint")
-            .destination_name,
-        "UebEil1.BTG.value"
-    );
-    assert_eq!(
-        job.constraint("key")
-            .expect("transaction key constraint")
-            .default_value
-            .as_deref(),
-        Some("51")
-    );
-    assert_eq!(
-        job.constraint("usage")
-            .expect("usage constraint")
-            .destination_name,
-        "UebEil1.usage.usage"
-    );
-    assert_eq!(
-        job.constraint("usage_14")
-            .expect("usage_14 constraint")
-            .destination_name,
-        "UebEil1.usage.usage_14"
-    );
-    assert!(job.constraint("date").is_none());
-    assert!(job.constraint("id").is_none());
-
-    job.try_set_param("usage_2", "Second urgent usage")
-        .expect("second usage line is accepted");
-    assert_eq!(
-        job.lowlevel_param("UebEil1.usage.usage_2"),
-        Some("Second urgent usage")
-    );
+    let err = handler
+        .new_job("UebEil")
+        .expect_err("classic urgent transfer is outside v1 public registry");
+    assert_eq!(err.message(), "unsupported or out-of-scope job: UebEil");
 }
 
 #[test]
-fn umb_exposes_original_near_v2_constraints() {
+fn umb_is_out_of_scope_in_public_registry() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
-    let mut job = handler.new_job("Umb").expect("job is in registry");
 
-    assert_eq!(job.constraints().len(), 27);
-    assert_eq!(
-        job.constraint("src.number")
-            .expect("source account number constraint")
-            .destination_name,
-        "Umb2.My.number"
-    );
-    assert_eq!(
-        job.constraint("src.country")
-            .expect("source country constraint")
-            .default_value
-            .as_deref(),
-        Some("DE")
-    );
-    assert_eq!(
-        job.constraint("dst.number")
-            .expect("destination account number constraint")
-            .destination_name,
-        "Umb2.Other.number"
-    );
-    assert_eq!(
-        job.constraint("btg.value")
-            .expect("amount value constraint")
-            .destination_name,
-        "Umb2.BTG.value"
-    );
-    assert_eq!(
-        job.constraint("key")
-            .expect("transaction key constraint")
-            .default_value
-            .as_deref(),
-        Some("51")
-    );
-    assert_eq!(
-        job.constraint("usage")
-            .expect("usage constraint")
-            .destination_name,
-        "Umb2.usage.usage"
-    );
-    assert_eq!(
-        job.constraint("usage_14")
-            .expect("usage_14 constraint")
-            .destination_name,
-        "Umb2.usage.usage_14"
-    );
-    assert!(job.constraint("date").is_none());
-    assert!(job.constraint("id").is_none());
-
-    job.try_set_param("usage_2", "Second account transfer usage")
-        .expect("second usage line is accepted");
-    assert_eq!(
-        job.lowlevel_param("Umb2.usage.usage_2"),
-        Some("Second account transfer usage")
-    );
+    let err = handler
+        .new_job("Umb")
+        .expect_err("classic account transfer is outside v1 public registry");
+    assert_eq!(err.message(), "unsupported or out-of-scope job: Umb");
 }
 
 #[test]
@@ -8245,127 +7930,6 @@ async fn handler_renders_and_collects_last_b2b_sepa_like_original() {
 }
 
 #[tokio::test]
-async fn handler_renders_ueb_like_original() {
-    let passport = passport_with_cached_pin(signed_pintan_data());
-    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
-    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
-    let mut job = handler.new_job("Ueb").expect("job is in registry");
-    job.try_set_param("src.number", "1234567890")
-        .expect("source account number is accepted");
-    job.try_set_param("src.blz", "10020030")
-        .expect("source bank code is accepted");
-    job.try_set_param("dst.number", "99887766")
-        .expect("destination account number is accepted");
-    job.try_set_param("dst.blz", "20030040")
-        .expect("destination bank code is accepted");
-    job.try_set_param("name", "Receiver Name")
-        .expect("recipient name is accepted");
-    job.try_set_param("btg.value", "42.00")
-        .expect("amount value is accepted");
-    job.try_set_param("btg.curr", "EUR")
-        .expect("amount currency is accepted");
-    job.try_set_param("usage", "Transfer usage one")
-        .expect("first usage line is accepted");
-    job.try_set_param("usage_2", "Transfer usage two")
-        .expect("second usage line is accepted");
-
-    handler.try_add_to_queue(job).expect("constraints resolve");
-    let status = handler.execute().await.expect("replay response");
-
-    assert!(status.success);
-    assert_eq!(status.job_results[0].job_name, "Ueb");
-    assert!(status.job_results[0].success);
-    assert!(status.job_results[0].result.is_none());
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.dialogid")
-            .map(String::as_str),
-        Some("0")
-    );
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.segnum")
-            .map(String::as_str),
-        Some("3")
-    );
-    assert!(
-        !handler
-            .passport()
-            .persistent_data()
-            .keys()
-            .any(|key| key.starts_with("ueb_"))
-    );
-
-    let requests = replay.requests().expect("requests");
-    assert_eq!(requests.len(), 1);
-
-    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert_signed_custom_msg_request(&body, "0", "1", 5);
-    assert!(
-        body.contains(
-            "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Transfer usage one:Transfer usage two'"
-        ),
-        "{body}"
-    );
-}
-
-#[tokio::test]
-async fn handler_renders_donation_like_original() {
-    let passport = passport_with_cached_pin(signed_pintan_data());
-    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
-    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
-    let mut job = handler.new_job("Donation").expect("job is in registry");
-    job.try_set_param("src.number", "1234567890")
-        .expect("source account number is accepted");
-    job.try_set_param("src.blz", "10020030")
-        .expect("source bank code is accepted");
-    job.try_set_param("dst.number", "99887766")
-        .expect("destination account number is accepted");
-    job.try_set_param("dst.blz", "20030040")
-        .expect("destination bank code is accepted");
-    job.try_set_param("name", "Donation Receiver")
-        .expect("recipient name is accepted");
-    job.try_set_param("btg.value", "15.00")
-        .expect("amount value is accepted");
-    job.try_set_param("btg.curr", "EUR")
-        .expect("amount currency is accepted");
-    job.try_set_param("spenderid", "SPENDER-1")
-        .expect("spender id is accepted");
-    job.try_set_param("plz_street", "12345 Street")
-        .expect("postal and street line is accepted");
-    job.try_set_param("name_ort", "Max Berlin")
-        .expect("name and city line is accepted");
-
-    handler.try_add_to_queue(job).expect("constraints resolve");
-    let status = handler.execute().await.expect("replay response");
-
-    assert!(status.success);
-    assert_eq!(status.job_results[0].job_name, "Donation");
-    assert!(status.job_results[0].success);
-    assert!(status.job_results[0].result.is_none());
-    assert!(
-        !status.job_results[0]
-            .result_data
-            .keys()
-            .any(|key| key.starts_with("content."))
-    );
-
-    let requests = replay.requests().expect("requests");
-    assert_eq!(requests.len(), 1);
-
-    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert_signed_custom_msg_request(&body, "0", "1", 5);
-    assert!(
-        body.contains(
-            "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Donation Receiver++15,:EUR+69++SPENDER-1:12345 Street:Max Berlin'"
-        ),
-        "{body}"
-    );
-}
-
-#[tokio::test]
 async fn handler_renders_ueb_foreign_like_original() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
@@ -8420,284 +7984,6 @@ async fn handler_renders_ueb_foreign_like_original() {
     assert!(
         body.contains(
             "HKAOM:3:2+1234567890::280:10020030+Sender Name+99887766::840:87654321+US00FOREIGNIBAN+Foreign Bank+Foreign Receiver+42,:USD+2+Foreign transfer usage'"
-        ),
-        "{body}"
-    );
-}
-
-#[tokio::test]
-async fn handler_renders_ueb_bzu_like_original() {
-    let passport = passport_with_cached_pin(signed_pintan_data());
-    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
-    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
-    let mut job = handler.new_job("UebBZU").expect("job is in registry");
-    job.try_set_param("src.number", "1234567890")
-        .expect("source account number is accepted");
-    job.try_set_param("src.blz", "10020030")
-        .expect("source bank code is accepted");
-    job.try_set_param("dst.number", "99887766")
-        .expect("destination account number is accepted");
-    job.try_set_param("dst.blz", "20030040")
-        .expect("destination bank code is accepted");
-    job.try_set_param("name", "Receiver Name")
-        .expect("recipient name is accepted");
-    job.try_set_param("btg.value", "42.00")
-        .expect("amount value is accepted");
-    job.try_set_param("btg.curr", "EUR")
-        .expect("amount currency is accepted");
-    job.try_set_param("bzudata", VALID_BZU_DATA)
-        .expect("bzu data is accepted");
-    job.try_set_param("usage_2", "BZU usage two")
-        .expect("second usage line is accepted");
-
-    handler.try_add_to_queue(job).expect("constraints resolve");
-    let status = handler.execute().await.expect("replay response");
-
-    assert!(status.success);
-    assert_eq!(status.job_results[0].job_name, "UebBZU");
-    assert!(status.job_results[0].success);
-    assert!(status.job_results[0].result.is_none());
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.dialogid")
-            .map(String::as_str),
-        Some("0")
-    );
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.segnum")
-            .map(String::as_str),
-        Some("3")
-    );
-    assert!(
-        !handler
-            .passport()
-            .persistent_data()
-            .keys()
-            .any(|key| key.starts_with("uebbzu_"))
-    );
-
-    let requests = replay.requests().expect("requests");
-    assert_eq!(requests.len(), 1);
-
-    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert_signed_custom_msg_request(&body, "0", "1", 5);
-    assert!(
-        body.contains(&format!(
-            "HKUEB:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+67++{VALID_BZU_DATA}:BZU usage two'"
-        )),
-        "{body}"
-    );
-}
-
-#[tokio::test]
-async fn handler_renders_ueb_eil_like_original() {
-    let passport = passport_with_cached_pin(signed_pintan_data());
-    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
-    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
-    let mut job = handler.new_job("UebEil").expect("job is in registry");
-    job.try_set_param("src.number", "1234567890")
-        .expect("source account number is accepted");
-    job.try_set_param("src.blz", "10020030")
-        .expect("source bank code is accepted");
-    job.try_set_param("dst.number", "99887766")
-        .expect("destination account number is accepted");
-    job.try_set_param("dst.blz", "20030040")
-        .expect("destination bank code is accepted");
-    job.try_set_param("name", "Receiver Name")
-        .expect("recipient name is accepted");
-    job.try_set_param("btg.value", "42.00")
-        .expect("amount value is accepted");
-    job.try_set_param("btg.curr", "EUR")
-        .expect("amount currency is accepted");
-    job.try_set_param("usage", "Urgent usage one")
-        .expect("first usage line is accepted");
-    job.try_set_param("usage_2", "Urgent usage two")
-        .expect("second usage line is accepted");
-
-    handler.try_add_to_queue(job).expect("constraints resolve");
-    let status = handler.execute().await.expect("replay response");
-
-    assert!(status.success);
-    assert_eq!(status.job_results[0].job_name, "UebEil");
-    assert!(status.job_results[0].success);
-    assert!(status.job_results[0].result.is_none());
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.dialogid")
-            .map(String::as_str),
-        Some("0")
-    );
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.segnum")
-            .map(String::as_str),
-        Some("3")
-    );
-    assert!(
-        !handler
-            .passport()
-            .persistent_data()
-            .keys()
-            .any(|key| key.starts_with("uebeil_"))
-    );
-
-    let requests = replay.requests().expect("requests");
-    assert_eq!(requests.len(), 1);
-
-    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert_signed_custom_msg_request(&body, "0", "1", 5);
-    assert!(
-        body.contains(
-            "HKEIL:3:1+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Urgent usage one:Urgent usage two'"
-        ),
-        "{body}"
-    );
-}
-
-#[tokio::test]
-async fn handler_renders_and_collects_ueb_gar_like_original() {
-    let passport = passport_with_cached_pin(signed_pintan_data());
-    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
-        "HIRMG:2:2+0010::OK",
-        "HIGUB:3:1+1234567890::280:10020030+Sender Name++99887766::280:20030040+Guaranteed Receiver++42,:EUR+51+100+Guarantee usage one:Guarantee usage two+20240607:102030",
-    ]))]);
-    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
-    let mut job = handler.new_job("UebGar").expect("job is in registry");
-    job.try_set_param("src.number", "1234567890")
-        .expect("source account number is accepted");
-    job.try_set_param("src.blz", "10020030")
-        .expect("source bank code is accepted");
-    job.try_set_param("dst.number", "99887766")
-        .expect("destination account number is accepted");
-    job.try_set_param("dst.blz", "20030040")
-        .expect("destination bank code is accepted");
-    job.try_set_param("name", "Guaranteed Receiver")
-        .expect("recipient name is accepted");
-    job.try_set_param("btg.value", "42.00")
-        .expect("amount value is accepted");
-    job.try_set_param("btg.curr", "EUR")
-        .expect("amount currency is accepted");
-    job.try_set_param("usage", "Guarantee usage one")
-        .expect("first usage line is accepted");
-    job.try_set_param("usage_2", "Guarantee usage two")
-        .expect("second usage line is accepted");
-
-    handler.try_add_to_queue(job).expect("constraints resolve");
-    let status = handler.execute().await.expect("replay response");
-
-    assert!(status.success);
-    assert_eq!(status.job_results[0].job_name, "UebGar");
-    assert!(status.job_results[0].success);
-    assert!(status.job_results[0].result.is_none());
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("content.SegHead.code")
-            .map(String::as_str),
-        Some("HIGUB")
-    );
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("content.addkey")
-            .map(String::as_str),
-        Some("100")
-    );
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("content.name")
-            .map(String::as_str),
-        Some("Guaranteed Receiver")
-    );
-    assert!(
-        !handler
-            .passport()
-            .persistent_data()
-            .keys()
-            .any(|key| key.starts_with("uebgar_"))
-    );
-
-    let requests = replay.requests().expect("requests");
-    assert_eq!(requests.len(), 1);
-
-    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert_signed_custom_msg_request(&body, "0", "1", 5);
-    assert!(
-        body.contains(
-            "HKGUB:3:1+1234567890::280:10020030+99887766::280:20030040+Guaranteed Receiver++42,:EUR+51+100+Guarantee usage one:Guarantee usage two'"
-        ),
-        "{body}"
-    );
-}
-
-#[tokio::test]
-async fn handler_renders_umb_like_original() {
-    let passport = passport_with_cached_pin(signed_pintan_data());
-    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
-    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
-    let mut job = handler.new_job("Umb").expect("job is in registry");
-    job.try_set_param("src.number", "1234567890")
-        .expect("source account number is accepted");
-    job.try_set_param("src.blz", "10020030")
-        .expect("source bank code is accepted");
-    job.try_set_param("dst.number", "99887766")
-        .expect("destination account number is accepted");
-    job.try_set_param("dst.blz", "20030040")
-        .expect("destination bank code is accepted");
-    job.try_set_param("name", "Receiver Name")
-        .expect("recipient name is accepted");
-    job.try_set_param("btg.value", "42.00")
-        .expect("amount value is accepted");
-    job.try_set_param("btg.curr", "EUR")
-        .expect("amount currency is accepted");
-    job.try_set_param("usage", "Account transfer usage one")
-        .expect("first usage line is accepted");
-    job.try_set_param("usage_2", "Account transfer usage two")
-        .expect("second usage line is accepted");
-
-    handler.try_add_to_queue(job).expect("constraints resolve");
-    let status = handler.execute().await.expect("replay response");
-
-    assert!(status.success);
-    assert_eq!(status.job_results[0].job_name, "Umb");
-    assert!(status.job_results[0].success);
-    assert!(status.job_results[0].result.is_none());
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.dialogid")
-            .map(String::as_str),
-        Some("0")
-    );
-    assert_eq!(
-        status.job_results[0]
-            .result_data
-            .get("basic.segnum")
-            .map(String::as_str),
-        Some("3")
-    );
-    assert!(
-        !handler
-            .passport()
-            .persistent_data()
-            .keys()
-            .any(|key| key.starts_with("umb_"))
-    );
-
-    let requests = replay.requests().expect("requests");
-    assert_eq!(requests.len(), 1);
-
-    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
-    assert_signed_custom_msg_request(&body, "0", "1", 5);
-    assert!(
-        body.contains(
-            "HKUMB:3:2+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Account transfer usage one:Account transfer usage two'"
         ),
         "{body}"
     );

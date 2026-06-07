@@ -49,7 +49,7 @@ show:
 
 | Audit | Upstream surface | Rust v1 coverage | Intentional gap |
 | --- | --- | --- | --- |
-| Jobs | 68 `GV*.java` classes | 61 registered jobs | `GVTemplate`, `GVLast`, `GVLastCOR1SEPA`, `GVMultiLast`, `GVMultiLastCOR1SEPA`, `GVMultiUeb`, `GVStornoLast` |
+| Jobs | 68 `GV*.java` classes | 55 registered jobs | `GVTemplate`, `GVDonation`, `GVLast`, `GVLastCOR1SEPA`, `GVMultiLast`, `GVMultiLastCOR1SEPA`, `GVMultiUeb`, `GVStornoLast`, `GVUeb`, `GVUebBZU`, `GVUebEil`, `GVUebGar`, `GVUmb` |
 | Results | 24 normalized `GVR*.java` shapes | 23 typed result shapes | `WPStammData` |
 
 The audit gaps are explicit v1 boundaries. `GVTemplate` is Java's dynamic
@@ -57,16 +57,19 @@ The audit gaps are explicit v1 boundaries. `GVTemplate` is Java's dynamic
 `WPStammList` path, the two `COR1` direct-debit jobs were removed because
 `COR1` is no longer relevant for new SDD Core collections, the two DTAUS bulk
 jobs were removed because German national transfer/direct-debit schemes were
-replaced by SEPA, and the classic national direct-debit jobs were removed for
-the same reason. They are not hidden PinTAN implementation holes.
+replaced by SEPA, the classic national direct-debit jobs were removed for the
+same reason, and the classic domestic transfer/account-transfer jobs were
+removed because current domestic transfer workflows use SEPA, instant SEPA, and
+SEPA account-transfer jobs. They are not hidden PinTAN implementation holes.
 
 Some classic hbci4java payment jobs are currently still present for
 original-near compatibility, but they are not the product direction. See
 `docs/reference/modern-scope-audit.md` for the current split between modern v1
 surface, compatibility-carried legacy surface, and unsupported legacy surface.
 The original audit found 21 legacy candidates; after removing `COR1`, DTAUS
-bulk, and classic direct-debit public jobs, 15 compatibility-carried legacy jobs
-remain. Their guarded cleanup path is documented in
+bulk, classic direct-debit, and classic domestic transfer/account-transfer public
+jobs, 9 compatibility-carried legacy jobs remain. Their guarded cleanup path is
+documented in
 `docs/architecture/legacy-cleanup-plan.md`.
 
 ## What V1 Includes
@@ -129,8 +132,9 @@ The detailed evidence and source links live in
 `docs/reference/security-media-scope.md` and
 `docs/reference/modern-scope-audit.md`. The original 21 legacy cleanup
 candidates are checked one by one in
-`docs/reference/legacy-job-relevance-audit.md`; after the first COR1 cleanup,
-19 remain in the public registry.
+`docs/reference/legacy-job-relevance-audit.md`; after the COR1, DTAUS bulk,
+classic direct-debit, and classic domestic transfer/account-transfer cleanups, 9
+legacy candidates remain in the public registry.
 
 ## Documentation Map
 
