@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::str;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+
 use crate::callback::{CallbackDataType, CallbackEvent, CallbackReason, HbciCallback};
 use crate::comm::{CommClient, CommRequest, CommResponse, DefaultCommClient};
 use crate::dialog::DialogContext;
@@ -10,11 +12,12 @@ use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
     GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond, GvrFestCondList,
     GvrFestList, GvrFestListEntry, GvrFestListProlong, GvrInfoList, GvrInfoListInfo, GvrInfoOrder,
-    GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus,
-    GvrStatusEntry, GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList,
-    GvrTermUeb, GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus,
-    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
-    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrKontoauszug, GvrKontoauszugEntry, GvrSaldoReq,
+    GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo, GvrTanList, GvrTanListEntry,
+    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
+    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
+    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, KontoauszugFormat, Saldo,
+    Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1059,6 +1062,7 @@ fn render_job_into_custom_message(
         "InfoList" => render_info_list(message, job, index),
         "InfoOrder" => render_info_order(message, job, index),
         "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
+        "KontoauszugPdf" => render_kontoauszug_pdf(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
@@ -1213,7 +1217,11 @@ fn render_task_segment_for_orderhash(
 
 fn task_order_account(task: &HbciJob, passport: &PinTanPassport) -> Option<Konto> {
     let task_info = orderhash_source_job_info(task.name()).ok()?;
-    let account = effective_job_account(task, passport, task_info.lowlevel_segment, "my");
+    let account = if task.name() == "KontoauszugPdf" {
+        effective_job_my_account(task, passport, task_info.lowlevel_segment, "my")
+    } else {
+        effective_job_account(task, passport, task_info.lowlevel_segment, "my")
+    };
     has_account_identity(&account).then_some(account)
 }
 
@@ -1372,6 +1380,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "FestList4",
             path: "CustomMsg.GV.FestList4",
         }),
+        "KontoauszugPdf" => Ok(OrderhashSourceJobInfo {
+            code: "HKEKP",
+            lowlevel_segment: "KontoauszugPdf2",
+            path: "CustomMsg.GV.KontoauszugPdf2",
+        }),
         "VoPAuth" => Ok(OrderhashSourceJobInfo {
             code: "HKVPA",
             lowlevel_segment: "VoPAuth1",
@@ -1461,6 +1474,14 @@ fn fest_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.FestListRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.FestListRes4", index + 1)
+    }
+}
+
+fn kontoauszug_pdf_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.KontoauszugPdfRes2".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.KontoauszugPdfRes2", index + 1)
     }
 }
 
@@ -1726,6 +1747,51 @@ fn render_fest_list(
     message.set_value(
         &format!("{segment}.allaccounts"),
         job_param(job, "FestList4.allaccounts", "dummy").unwrap_or("N"),
+    )?;
+
+    Ok(())
+}
+
+fn render_kontoauszug_pdf(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.KontoauszugPdf2");
+    let account = effective_job_my_account(job, passport, "KontoauszugPdf2", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "KontoauszugPdf requires my.iban, my.number, or a passport account for the current KontoauszugPdf2 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.idx"),
+        job_param(job, "KontoauszugPdf2.idx", "idx"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.year"),
+        job_param(job, "KontoauszugPdf2.year", "year"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "KontoauszugPdf2.maxentries", "maxentries"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.offset"),
+        job_param(job, "KontoauszugPdf2.offset", "offset"),
     )?;
 
     Ok(())
@@ -2651,6 +2717,66 @@ fn effective_job_account(
     account
 }
 
+fn effective_job_my_account(
+    job: &HbciJob,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+    frontend_base: &str,
+) -> Konto {
+    let mut account = passport.first_account().cloned().unwrap_or_default();
+
+    overlay_account_param(
+        &mut account.iban,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.iban"),
+            &format!("{frontend_base}.iban"),
+        ),
+    );
+    overlay_account_param(
+        &mut account.bic,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.bic"),
+            &format!("{frontend_base}.bic"),
+        ),
+    );
+    overlay_account_param(
+        &mut account.country,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.KIK.country"),
+            &format!("{frontend_base}.country"),
+        ),
+    );
+    overlay_account_param(
+        &mut account.blz,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.KIK.blz"),
+            &format!("{frontend_base}.blz"),
+        ),
+    );
+    overlay_account_param(
+        &mut account.number,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.number"),
+            &format!("{frontend_base}.number"),
+        ),
+    );
+    overlay_account_param(
+        &mut account.subnumber,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.subnumber"),
+            &format!("{frontend_base}.subnumber"),
+        ),
+    );
+
+    account
+}
+
 fn dauer_sepa_list_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
     let mut account = passport.first_account().cloned().unwrap_or_default();
 
@@ -3104,6 +3230,9 @@ impl ParsedResponseStatus {
             "InstUebSEPA" => self
                 .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::InstUebSepa),
+            "KontoauszugPdf" => self
+                .kontoauszug_pdf_result_for_root(kontoauszug_pdf_response_root(index))
+                .map(HbciJobResultData::Kontoauszug),
             "Status" => self.status_result().map(HbciJobResultData::Status),
             "TermUebSEPA" => self
                 .term_ueb_result_for_root(term_ueb_sepa_response_root(index))
@@ -3149,6 +3278,7 @@ impl ParsedResponseStatus {
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
+            "KontoauszugPdf" => self.content_result_data([kontoauszug_pdf_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermUebSEPAEdit" => {
                 self.content_result_data([term_ueb_sepa_edit_response_root(index)])
@@ -3278,6 +3408,13 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         Some(GvrFestList {
             entries: vec![fest_list_entry_from_values(&self.values, &root)],
+        })
+    }
+
+    fn kontoauszug_pdf_result_for_root(&self, root: String) -> Option<GvrKontoauszug> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrKontoauszug {
+            entries: vec![kontoauszug_pdf_entry_from_values(&self.values, &root)],
         })
     }
 
@@ -3521,6 +3658,39 @@ fn fest_list_prolong_from_values(
         verlaengern: optional_value(values, &format!("{prefix}.wiederanlage"))
             .is_some_and(|value| value == "2"),
     })
+}
+
+fn kontoauszug_pdf_entry_from_values(
+    values: &BTreeMap<String, String>,
+    root: &str,
+) -> GvrKontoauszugEntry {
+    GvrKontoauszugEntry {
+        format: Some(KontoauszugFormat::Pdf),
+        data: optional_value(values, &format!("{root}.booked"))
+            .and_then(|value| kontoauszug_pdf_data_bytes(&value)),
+        date: optional_value(values, &format!("{root}.date")),
+        start_date: optional_value(values, &format!("{root}.TimeRange.startdate")),
+        end_date: optional_value(values, &format!("{root}.TimeRange.enddate")),
+        year: optional_i32(values, &format!("{root}.year")),
+        number: optional_i32(values, &format!("{root}.number")),
+        iban: optional_value(values, &format!("{root}.iban")),
+        bic: optional_value(values, &format!("{root}.bic")),
+        name: optional_value(values, &format!("{root}.name")),
+        name2: optional_value(values, &format!("{root}.name2")),
+        name3: optional_value(values, &format!("{root}.name3")),
+        filename: optional_value(values, &format!("{root}.filename")),
+        receipt: optional_value(values, &format!("{root}.receipt"))
+            .map(|value| value.as_bytes().to_vec()),
+        ..GvrKontoauszugEntry::default()
+    }
+}
+
+fn kontoauszug_pdf_data_bytes(value: &str) -> Option<Vec<u8>> {
+    if value.starts_with("%PDF-") {
+        Some(value.as_bytes().to_vec())
+    } else {
+        STANDARD.decode(value.as_bytes()).ok()
+    }
 }
 
 fn fest_cond_method(value: &str) -> Option<i32> {

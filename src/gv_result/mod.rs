@@ -658,6 +658,7 @@ pub enum HbciJobResultData {
     InfoList(GvrInfoList),
     InfoOrder(GvrInfoOrder),
     InstUebSepa(GvrInstUebSepa),
+    Kontoauszug(GvrKontoauszug),
     Status(GvrStatus),
     TermUeb(GvrTermUeb),
     TermUebEdit(GvrTermUebEdit),
@@ -775,6 +776,66 @@ pub struct GvrFestListProlong {
     pub laufzeit: i32,
     pub betrag: Option<Value>,
     pub verlaengern: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KontoauszugFormat {
+    Mt940,
+    Iso8583,
+    Pdf,
+}
+
+impl KontoauszugFormat {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Mt940 => "1",
+            Self::Iso8583 => "2",
+            Self::Pdf => "3",
+        }
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Mt940 => "sta",
+            Self::Iso8583 => "iso",
+            Self::Pdf => "pdf",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "1" => Some(Self::Mt940),
+            "2" => Some(Self::Iso8583),
+            "3" => Some(Self::Pdf),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrKontoauszug {
+    pub entries: Vec<GvrKontoauszugEntry>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrKontoauszugEntry {
+    pub format: Option<KontoauszugFormat>,
+    pub data: Option<Vec<u8>>,
+    pub date: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub year: Option<i32>,
+    pub number: Option<i32>,
+    pub abschluss_info: Option<String>,
+    pub kunden_info: Option<String>,
+    pub werbetext: Option<String>,
+    pub iban: Option<String>,
+    pub bic: Option<String>,
+    pub name: Option<String>,
+    pub name2: Option<String>,
+    pub name3: Option<String>,
+    pub receipt: Option<Vec<u8>>,
+    pub filename: Option<String>,
 }
 
 impl GvrFestCond {
