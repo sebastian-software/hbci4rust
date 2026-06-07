@@ -1062,6 +1062,7 @@ fn render_job_into_custom_message(
         "InfoList" => render_info_list(message, job, index),
         "InfoOrder" => render_info_order(message, job, index),
         "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
+        "Kontoauszug" => render_kontoauszug(message, job, index, passport),
         "KontoauszugPdf" => render_kontoauszug_pdf(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
@@ -1217,7 +1218,7 @@ fn render_task_segment_for_orderhash(
 
 fn task_order_account(task: &HbciJob, passport: &PinTanPassport) -> Option<Konto> {
     let task_info = orderhash_source_job_info(task.name()).ok()?;
-    let account = if task.name() == "KontoauszugPdf" {
+    let account = if matches!(task.name(), "Kontoauszug" | "KontoauszugPdf") {
         effective_job_my_account(task, passport, task_info.lowlevel_segment, "my")
     } else {
         effective_job_account(task, passport, task_info.lowlevel_segment, "my")
@@ -1380,6 +1381,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "FestList4",
             path: "CustomMsg.GV.FestList4",
         }),
+        "Kontoauszug" => Ok(OrderhashSourceJobInfo {
+            code: "HKEKA",
+            lowlevel_segment: "Kontoauszug5",
+            path: "CustomMsg.GV.Kontoauszug5",
+        }),
         "KontoauszugPdf" => Ok(OrderhashSourceJobInfo {
             code: "HKEKP",
             lowlevel_segment: "KontoauszugPdf2",
@@ -1474,6 +1480,14 @@ fn fest_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.FestListRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.FestListRes4", index + 1)
+    }
+}
+
+fn kontoauszug_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.KontoauszugRes5".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.KontoauszugRes5", index + 1)
     }
 }
 
@@ -1747,6 +1761,56 @@ fn render_fest_list(
     message.set_value(
         &format!("{segment}.allaccounts"),
         job_param(job, "FestList4.allaccounts", "dummy").unwrap_or("N"),
+    )?;
+
+    Ok(())
+}
+
+fn render_kontoauszug(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.Kontoauszug5");
+    let account = effective_job_my_account(job, passport, "Kontoauszug5", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "Kontoauszug requires my.iban, my.number, or a passport account for the current Kontoauszug5 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.format"),
+        job_param(job, "Kontoauszug5.format", "format"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.idx"),
+        job_param(job, "Kontoauszug5.idx", "idx"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.year"),
+        job_param(job, "Kontoauszug5.year", "year"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "Kontoauszug5.maxentries", "maxentries"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.offset"),
+        job_param(job, "Kontoauszug5.offset", "offset"),
     )?;
 
     Ok(())
@@ -3230,6 +3294,9 @@ impl ParsedResponseStatus {
             "InstUebSEPA" => self
                 .inst_ueb_sepa_result_for_root(inst_ueb_sepa_response_root(index))
                 .map(HbciJobResultData::InstUebSepa),
+            "Kontoauszug" => self
+                .kontoauszug_result_for_root(kontoauszug_response_root(index))
+                .map(HbciJobResultData::Kontoauszug),
             "KontoauszugPdf" => self
                 .kontoauszug_pdf_result_for_root(kontoauszug_pdf_response_root(index))
                 .map(HbciJobResultData::Kontoauszug),
@@ -3278,6 +3345,7 @@ impl ParsedResponseStatus {
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
+            "Kontoauszug" => self.content_result_data([kontoauszug_response_root(index)]),
             "KontoauszugPdf" => self.content_result_data([kontoauszug_pdf_response_root(index)]),
             "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "TermUebSEPAEdit" => {
@@ -3408,6 +3476,13 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         Some(GvrFestList {
             entries: vec![fest_list_entry_from_values(&self.values, &root)],
+        })
+    }
+
+    fn kontoauszug_result_for_root(&self, root: String) -> Option<GvrKontoauszug> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrKontoauszug {
+            entries: vec![kontoauszug_entry_from_values(&self.values, &root)],
         })
     }
 
@@ -3680,17 +3755,63 @@ fn kontoauszug_pdf_entry_from_values(
         name3: optional_value(values, &format!("{root}.name3")),
         filename: optional_value(values, &format!("{root}.filename")),
         receipt: optional_value(values, &format!("{root}.receipt"))
-            .map(|value| value.as_bytes().to_vec()),
+            .map(|value| latin1_lossy_bytes(&value)),
+        ..GvrKontoauszugEntry::default()
+    }
+}
+
+fn kontoauszug_entry_from_values(
+    values: &BTreeMap<String, String>,
+    root: &str,
+) -> GvrKontoauszugEntry {
+    let format = optional_value(values, &format!("{root}.format"))
+        .and_then(|value| KontoauszugFormat::from_code(&value));
+
+    GvrKontoauszugEntry {
+        format,
+        data: optional_value(values, &format!("{root}.booked")).map(|value| {
+            let decoded = if format == Some(KontoauszugFormat::Mt940) {
+                decode_umlauts(&value)
+            } else {
+                value
+            };
+            latin1_lossy_bytes(&decoded)
+        }),
+        date: optional_value(values, &format!("{root}.date")),
+        start_date: optional_value(values, &format!("{root}.TimeRange.startdate")),
+        end_date: optional_value(values, &format!("{root}.TimeRange.enddate")),
+        year: optional_i32(values, &format!("{root}.year")),
+        number: optional_i32(values, &format!("{root}.number")),
+        abschluss_info: optional_value(values, &format!("{root}.abschlussinfo")),
+        kunden_info: optional_value(values, &format!("{root}.kondinfo")),
+        werbetext: optional_value(values, &format!("{root}.ads")),
+        iban: optional_value(values, &format!("{root}.iban")),
+        bic: optional_value(values, &format!("{root}.bic")),
+        name: optional_value(values, &format!("{root}.name")),
+        name2: optional_value(values, &format!("{root}.name2")),
+        name3: optional_value(values, &format!("{root}.name3")),
+        receipt: optional_value(values, &format!("{root}.receipt"))
+            .map(|value| latin1_lossy_bytes(&value)),
         ..GvrKontoauszugEntry::default()
     }
 }
 
 fn kontoauszug_pdf_data_bytes(value: &str) -> Option<Vec<u8>> {
     if value.starts_with("%PDF-") {
-        Some(value.as_bytes().to_vec())
+        Some(latin1_lossy_bytes(value))
     } else {
         STANDARD.decode(value.as_bytes()).ok()
     }
+}
+
+fn latin1_lossy_bytes(value: &str) -> Vec<u8> {
+    value
+        .chars()
+        .map(|character| {
+            let code = character as u32;
+            if code <= 0xff { code as u8 } else { b'?' }
+        })
+        .collect()
 }
 
 fn fest_cond_method(value: &str) -> Option<i32> {

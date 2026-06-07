@@ -811,6 +811,46 @@ fn kontoauszug_pdf_exposes_original_near_constraints() {
 }
 
 #[test]
+fn kontoauszug_exposes_original_near_v5_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("Kontoauszug").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 11);
+    assert_eq!(
+        job.constraint("my.iban")
+            .expect("iban constraint")
+            .destination_name,
+        "Kontoauszug5.My.iban"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("format")
+            .expect("format constraint")
+            .destination_name,
+        "Kontoauszug5.format"
+    );
+    assert_eq!(
+        job.constraint("offset")
+            .expect("offset constraint")
+            .destination_name,
+        "Kontoauszug5.offset"
+    );
+
+    job.try_set_param("format", KontoauszugFormat::Mt940.code())
+        .expect("format is accepted");
+    job.try_set_param("idx", "3").expect("idx is accepted");
+    assert_eq!(job.lowlevel_param("Kontoauszug5.format"), Some("1"));
+    assert_eq!(job.lowlevel_param("Kontoauszug5.idx"), Some("3"));
+}
+
+#[test]
 fn dauer_sepa_list_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -7447,6 +7487,97 @@ async fn handler_collects_kontoauszug_pdf_result_like_original() {
     assert_eq!(entry.name2.as_deref(), Some("Name Two"));
     assert_eq!(entry.name3.as_deref(), Some("Name Three"));
     assert_eq!(entry.filename.as_deref(), Some("statement.pdf"));
+    assert_eq!(entry.receipt.as_deref(), Some(&b"RECEIPT"[..]));
+}
+
+#[tokio::test]
+async fn handler_renders_kontoauszug_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("Kontoauszug").expect("job is in registry");
+    job.try_set_param("my.iban", "DE02123456780000000000")
+        .expect("iban is accepted");
+    job.try_set_param("my.bic", "MARKDEF1100")
+        .expect("bic is accepted");
+    job.try_set_param("format", KontoauszugFormat::Mt940.code())
+        .expect("format is accepted");
+    job.try_set_param("idx", "3").expect("idx is accepted");
+    job.try_set_param_int("year", 2024)
+        .expect("year is accepted");
+    job.try_set_param_int("maxentries", 2)
+        .expect("maxentries is accepted");
+    job.try_set_param("offset", "NEXT")
+        .expect("offset is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "Kontoauszug");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains("HKEKA:3:5+DE02123456780000000000:MARKDEF1100:::280+1+3+2024+2+NEXT'"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_collects_kontoauszug_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIEKA:3:5+1+20240101:20241231+20250102+2024+7+@6@M[LLER+Abschluss+Kondinfo+Werbung+DE02123456780000000000+MARKDEF1100+Name One+Name Two+Name Three+@7@RECEIPT",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut job = handler.new_job("Kontoauszug").expect("job is in registry");
+    job.try_set_param("my.iban", "DE02123456780000000000")
+        .expect("iban is accepted");
+    job.try_set_param("my.bic", "MARKDEF1100")
+        .expect("bic is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "Kontoauszug");
+    assert_eq!(
+        result.result_data.get("content.booked").map(String::as_str),
+        Some("M[LLER")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.abschlussinfo")
+            .map(String::as_str),
+        Some("Abschluss")
+    );
+
+    let Some(HbciJobResultData::Kontoauszug(kontoauszug)) = result.result.as_ref() else {
+        panic!("expected Kontoauszug result data");
+    };
+    assert_eq!(kontoauszug.entries.len(), 1);
+    let entry = &kontoauszug.entries[0];
+    assert_eq!(entry.format, Some(KontoauszugFormat::Mt940));
+    assert_eq!(entry.data.as_deref(), Some(&b"M\xc4LLER"[..]));
+    assert_eq!(entry.start_date.as_deref(), Some("2024-01-01"));
+    assert_eq!(entry.end_date.as_deref(), Some("2024-12-31"));
+    assert_eq!(entry.date.as_deref(), Some("2025-01-02"));
+    assert_eq!(entry.year, Some(2024));
+    assert_eq!(entry.number, Some(7));
+    assert_eq!(entry.abschluss_info.as_deref(), Some("Abschluss"));
+    assert_eq!(entry.kunden_info.as_deref(), Some("Kondinfo"));
+    assert_eq!(entry.werbetext.as_deref(), Some("Werbung"));
+    assert_eq!(entry.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(entry.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(entry.name.as_deref(), Some("Name One"));
+    assert_eq!(entry.name2.as_deref(), Some("Name Two"));
+    assert_eq!(entry.name3.as_deref(), Some("Name Three"));
     assert_eq!(entry.receipt.as_deref(), Some(&b"RECEIPT"[..]));
 }
 

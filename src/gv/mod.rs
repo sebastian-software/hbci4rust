@@ -433,8 +433,8 @@ impl HbciJob {
         callback: Option<&dyn HbciCallback>,
     ) -> HbciResult<()> {
         match self.name.as_str() {
-            "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew" | "SaldoReq"
-            | "SaldoReqAll" => self.check_account_crc("my", callback).await,
+            "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
+            | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
             _ => Ok(()),
         }
@@ -755,6 +755,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "FestList" => fest_list_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
+        "Kontoauszug" => kontoauszug_constraints(),
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
@@ -1336,6 +1337,22 @@ fn kontoauszug_pdf_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("year", "KontoauszugPdf2.year", Some("")),
         HbciJobConstraint::new("maxentries", "KontoauszugPdf2.maxentries", Some("")),
         HbciJobConstraint::new("offset", "KontoauszugPdf2.offset", Some("")),
+    ]
+}
+
+fn kontoauszug_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.bic", "Kontoauszug5.My.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "Kontoauszug5.My.iban", None::<String>),
+        HbciJobConstraint::new("my.country", "Kontoauszug5.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "Kontoauszug5.My.KIK.blz", Some("")),
+        HbciJobConstraint::new("my.number", "Kontoauszug5.My.number", Some("")),
+        HbciJobConstraint::new("my.subnumber", "Kontoauszug5.My.subnumber", Some("")),
+        HbciJobConstraint::new("format", "Kontoauszug5.format", Some("")),
+        HbciJobConstraint::new("idx", "Kontoauszug5.idx", Some("")),
+        HbciJobConstraint::new("year", "Kontoauszug5.year", Some("")),
+        HbciJobConstraint::new("maxentries", "Kontoauszug5.maxentries", Some("")),
+        HbciJobConstraint::new("offset", "Kontoauszug5.offset", Some("")),
     ]
 }
 
