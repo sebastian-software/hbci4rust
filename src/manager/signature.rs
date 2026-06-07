@@ -1,6 +1,56 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use rand_core::{OsRng, RngCore};
+
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::passport::{ONESTEP_TAN_METHOD_ID, PinTanPassport, UserSig};
 use crate::protocol::{HbciMessage, SyntaxElement};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinTanSignatureContext {
+    pub seccheckref: String,
+    pub secref: String,
+    pub timestamp_date: String,
+    pub timestamp_time: String,
+}
+
+impl PinTanSignatureContext {
+    pub fn new(
+        seccheckref: impl Into<String>,
+        secref: impl Into<String>,
+        timestamp_date: impl Into<String>,
+        timestamp_time: impl Into<String>,
+    ) -> Self {
+        Self {
+            seccheckref: seccheckref.into(),
+            secref: secref.into(),
+            timestamp_date: timestamp_date.into(),
+            timestamp_time: timestamp_time.into(),
+        }
+    }
+
+    pub fn generate() -> HbciResult<Self> {
+        Self::from_system_time(random_seccheckref(), SystemTime::now())
+    }
+
+    pub fn from_system_time(
+        seccheckref: impl Into<String>,
+        system_time: SystemTime,
+    ) -> HbciResult<Self> {
+        let (timestamp_date, timestamp_time) = fints_timestamp_from_system_time(system_time)?;
+        Ok(Self::new(seccheckref, "1", timestamp_date, timestamp_time))
+    }
+
+    pub fn sig_head_from_passport(&self, passport: &PinTanPassport) -> HbciResult<PinTanSigHead> {
+        PinTanSigHead::from_passport(
+            passport,
+            &self.seccheckref,
+            &self.secref,
+            &self.timestamp_date,
+            &self.timestamp_time,
+        )
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinTanSigHead {
@@ -227,6 +277,48 @@ fn top_level_child_index(children: &[SyntaxElement], path: &str) -> HbciResult<u
                 format!("message has no top-level signature element {path}"),
             )
         })
+}
+
+fn random_seccheckref() -> String {
+    let mut rng = OsRng;
+    (rng.next_u32() & 0x7fff_ffff).to_string()
+}
+
+fn fints_timestamp_from_system_time(system_time: SystemTime) -> HbciResult<(String, String)> {
+    let duration = system_time.duration_since(UNIX_EPOCH).map_err(|err| {
+        HbciError::with_source(
+            HbciErrorKind::InvalidArgument,
+            "PinTAN signature timestamp is before the Unix epoch",
+            err,
+        )
+    })?;
+    let total_seconds = duration.as_secs();
+    let days = (total_seconds / 86_400) as i64;
+    let seconds_of_day = total_seconds % 86_400;
+    let (year, month, day) = civil_date_from_unix_days(days);
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+
+    Ok((
+        format!("{year:04}{month:02}{day:02}"),
+        format!("{hour:02}{minute:02}{second:02}"),
+    ))
+}
+
+fn civil_date_from_unix_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+
+    (year, month, day)
 }
 
 fn required_passport_value<'a>(value: &'a str, message: &str) -> HbciResult<&'a str> {

@@ -1,6 +1,8 @@
+use std::time::{Duration, UNIX_EPOCH};
+
 use hbci4rust::{
-    HbciErrorKind, PinTanPassport, PinTanPassportData, PinTanSigHead, UserSig,
-    apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_signature_shell,
+    HbciErrorKind, PinTanPassport, PinTanPassportData, PinTanSigHead, PinTanSignatureContext,
+    UserSig, apply_pintan_sig_head, apply_pintan_sig_tail_from_head, apply_pintan_signature_shell,
     apply_pintan_user_sig_to_sig_tail, collect_pintan_signature_range,
     protocol::{HbciMessage, SyntaxElementKind, load_protocol_spec},
 };
@@ -301,6 +303,39 @@ fn derives_pintan_sighead_profile_version_two_for_twostep_method() {
     assert_eq!(message.value("DialogEnd.SigHead.secfunc"), Some("921"));
     assert_eq!(message.value("DialogEnd.SigHead.seccheckref"), Some("REF2"));
     assert_eq!(message.value("DialogEnd.SigHead.secref"), Some("7"));
+}
+
+#[test]
+fn creates_pintan_signature_context_from_system_time() {
+    let context = PinTanSignatureContext::from_system_time(
+        "REF8",
+        UNIX_EPOCH + Duration::from_secs(86_400 + 3_661),
+    )
+    .expect("timestamp converts");
+
+    assert_eq!(
+        context,
+        PinTanSignatureContext::new("REF8", "1", "19700102", "010101")
+    );
+}
+
+#[test]
+fn derives_pintan_sighead_from_signature_context_and_passport() {
+    let passport = pintan_passport_with_tan_method("921");
+    let context = PinTanSignatureContext::new("REF9", "1", "20240229", "070809");
+
+    let sig_head = context
+        .sig_head_from_passport(&passport)
+        .expect("sighead derives");
+
+    assert_eq!(sig_head.secfunc, "921");
+    assert_eq!(sig_head.profile_version, "2");
+    assert_eq!(sig_head.seccheckref, "REF9");
+    assert_eq!(sig_head.secref, "1");
+    assert_eq!(sig_head.timestamp_date, "20240229");
+    assert_eq!(sig_head.timestamp_time, "070809");
+    assert_eq!(sig_head.key_blz, "12345678");
+    assert_eq!(sig_head.key_user_id, "user");
 }
 
 #[test]
