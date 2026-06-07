@@ -1102,6 +1102,118 @@ fn dauer_new_exposes_original_near_v5_constraints() {
 }
 
 #[test]
+fn dauer_edit_exposes_original_near_v5_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("DauerEdit").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 34);
+    assert_eq!(
+        job.constraint("src.number")
+            .expect("source account number constraint")
+            .destination_name,
+        "DauerEdit5.My.number"
+    );
+    assert_eq!(
+        job.constraint("src.country")
+            .expect("source country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("dst.blz")
+            .expect("destination bank code constraint")
+            .destination_name,
+        "DauerEdit5.Other.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("firstdate")
+            .expect("firstdate constraint")
+            .destination_name,
+        "DauerEdit5.DauerDetails.firstdate"
+    );
+    assert_eq!(
+        job.constraint("orderid")
+            .expect("orderid constraint")
+            .destination_name,
+        "DauerEdit5.orderid"
+    );
+    assert_eq!(
+        job.constraint("date")
+            .expect("scheduled change date constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("lastdate")
+            .expect("lastdate constraint")
+            .destination_name,
+        "DauerEdit5.DauerDetails.lastdate"
+    );
+    assert_eq!(
+        job.constraint("key")
+            .expect("transaction key constraint")
+            .default_value
+            .as_deref(),
+        Some("52")
+    );
+    assert_eq!(
+        job.constraint("usage_14")
+            .expect("usage_14 constraint")
+            .destination_name,
+        "DauerEdit5.usage.usage_14"
+    );
+
+    job.try_set_param("orderid", "ORDEROLD")
+        .expect("orderid is accepted");
+    assert_eq!(job.lowlevel_param("DauerEdit5.orderid"), Some("ORDEROLD"));
+    job.try_set_param_date("date", "2026-02-01")
+        .expect("scheduled change date is accepted");
+    assert_eq!(job.lowlevel_param("DauerEdit5.date"), Some("2026-02-01"));
+}
+
+#[test]
+fn handler_accepts_explicit_dauer_edit_without_snapshot_like_original() {
+    let passport = PinTanPassport::new(signed_pintan_data());
+    let mut handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("DauerEdit").expect("job is in registry");
+    job.try_set_param("orderid", "ORDEREXPLICIT")
+        .expect("orderid is accepted");
+    job.try_set_param("src.number", "1234567890")
+        .expect("source account number is accepted");
+    job.try_set_param("src.blz", "10020030")
+        .expect("source bank code is accepted");
+    job.try_set_param("dst.number", "99887766")
+        .expect("destination account number is accepted");
+    job.try_set_param("dst.blz", "20030040")
+        .expect("destination bank code is accepted");
+    job.try_set_param("name", "Receiver Name")
+        .expect("recipient name is accepted");
+    job.try_set_param("btg.value", "42.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "EUR")
+        .expect("amount currency is accepted");
+    job.try_set_param("usage", "Explicit usage")
+        .expect("usage is accepted");
+    job.try_set_param_date("firstdate", "2026-01-05")
+        .expect("firstdate is accepted");
+    job.try_set_param("timeunit", "M")
+        .expect("timeunit is accepted");
+    job.try_set_param_int("turnus", 1)
+        .expect("turnus is accepted");
+    job.try_set_param_int("execday", 15)
+        .expect("execday is accepted");
+
+    handler
+        .try_add_to_queue(job)
+        .expect("missing dauer snapshot is non-fatal with explicit data");
+
+    assert_eq!(handler.queued_jobs().len(), 1);
+}
+
+#[test]
 fn dauer_sepa_new_exposes_original_near_v1_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -5382,6 +5494,125 @@ async fn handler_renders_and_collects_dauer_new_like_original() {
     assert!(
         body.contains(
             "HKDAE:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+52++Dauer usage one:Dauer usage two+20260105:M:1:15:20261231'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_dauer_edit_like_original() {
+    let mut data = signed_pintan_data();
+    data.persistent_data.insert(
+        "dauer_ORDEROLD".to_owned(),
+        BTreeMap::from([
+            ("My.number".to_owned(), "1234567890".to_owned()),
+            ("My.KIK.country".to_owned(), "DE".to_owned()),
+            ("My.KIK.blz".to_owned(), "10020030".to_owned()),
+            ("Other.number".to_owned(), "99887766".to_owned()),
+            ("Other.KIK.country".to_owned(), "DE".to_owned()),
+            ("Other.KIK.blz".to_owned(), "20030040".to_owned()),
+            ("name".to_owned(), "Receiver Name".to_owned()),
+            ("BTG.value".to_owned(), "42.00".to_owned()),
+            ("BTG.curr".to_owned(), "EUR".to_owned()),
+            ("key".to_owned(), "52".to_owned()),
+            ("usage.usage".to_owned(), "Dauer usage one".to_owned()),
+            ("usage.usage_2".to_owned(), "Dauer usage two".to_owned()),
+            ("DauerDetails.firstdate".to_owned(), "2026-01-05".to_owned()),
+            ("DauerDetails.timeunit".to_owned(), "M".to_owned()),
+            ("DauerDetails.turnus".to_owned(), "1".to_owned()),
+            ("DauerDetails.execday".to_owned(), "15".to_owned()),
+            ("DauerDetails.lastdate".to_owned(), "2026-12-31".to_owned()),
+            ("date".to_owned(), "2026-01-15".to_owned()),
+            ("orderid".to_owned(), "ORDEROLD".to_owned()),
+            ("Aussetzung.number".to_owned(), "2".to_owned()),
+        ]),
+    );
+    let passport = passport_with_cached_pin(data);
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIDAN:3:5+ORDERNEW+ORDEROLD",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("DauerEdit").expect("job is in registry");
+    job.try_set_param("orderid", "ORDEROLD")
+        .expect("orderid is accepted");
+    job.try_set_param("usage", "Edited dauer usage one")
+        .expect("explicit usage overrides snapshot");
+    job.try_set_param_date("date", "2026-02-01")
+        .expect("explicit date is accepted");
+
+    handler
+        .try_add_to_queue(job)
+        .expect("snapshot resolves constraints");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "DauerEdit");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderid")
+            .map(String::as_str),
+        Some("ORDERNEW")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderidold")
+            .map(String::as_str),
+        Some("ORDEROLD")
+    );
+    let Some(HbciJobResultData::DauerEdit(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected DauerEdit result data");
+    };
+    assert_eq!(result.order_id.as_deref(), Some("ORDERNEW"));
+    assert_eq!(result.order_id_old.as_deref(), Some("ORDEROLD"));
+
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("dauer_ORDERNEW")
+        .expect("dauer edit persistent data");
+    assert_eq!(
+        snapshot.get("My.number").map(String::as_str),
+        Some("1234567890")
+    );
+    assert_eq!(
+        snapshot.get("Other.number").map(String::as_str),
+        Some("99887766")
+    );
+    assert_eq!(
+        snapshot.get("usage.usage").map(String::as_str),
+        Some("Edited dauer usage one")
+    );
+    assert_eq!(
+        snapshot.get("usage.usage_2").map(String::as_str),
+        Some("Dauer usage two")
+    );
+    assert_eq!(snapshot.get("date").map(String::as_str), Some("2026-02-01"));
+    assert_eq!(
+        snapshot.get("DauerDetails.execday").map(String::as_str),
+        Some("15")
+    );
+    assert_eq!(snapshot.get("key").map(String::as_str), Some("52"));
+    assert!(!snapshot.contains_key("orderid"));
+    assert!(!snapshot.keys().any(|key| key.ends_with(".orderid")));
+    assert!(!snapshot.keys().any(|key| key.starts_with("Aussetzung.")));
+    assert!(
+        handler
+            .passport()
+            .get_persistent_data("dauer_ORDEROLD")
+            .is_some()
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKDAN:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+52++Edited dauer usage one:Dauer usage two+20260201+ORDEROLD+20260105:M:1:15:20261231'"
         ),
         "{body}"
     );

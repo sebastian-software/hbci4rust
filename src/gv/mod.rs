@@ -455,7 +455,8 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
-            "DauerNew" | "TermUeb" | "TermUebEdit" | "Ueb" | "UebBZU" | "UebEil" | "Umb" => {
+            "DauerEdit" | "DauerNew" | "TermUeb" | "TermUebEdit" | "Ueb" | "UebBZU" | "UebEil"
+            | "Umb" => {
                 self.check_account_crc("src", callback).await?;
                 self.check_account_crc("dst", callback).await
             }
@@ -802,6 +803,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "AccInfo" => acc_info_constraints(),
         "CardList" => card_list_constraints(),
+        "DauerEdit" => dauer_edit_constraints(),
         "DauerList" => dauer_list_constraints(),
         "DauerNew" => dauer_new_constraints(),
         "DauerSEPAEdit" => dauer_sepa_edit_constraints(),
@@ -909,6 +911,47 @@ fn dauer_new_constraints() -> Vec<HbciJobConstraint> {
     for index in 0..CLASSIC_USAGE_LINE_COUNT {
         let frontend = classic_usage_name(index);
         let destination = format!("DauerNew5.usage.{frontend}");
+        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
+    }
+
+    constraints
+}
+
+fn dauer_edit_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = vec![
+        HbciJobConstraint::new("src.number", "DauerEdit5.My.number", None::<String>),
+        HbciJobConstraint::new("src.subnumber", "DauerEdit5.My.subnumber", Some("")),
+        HbciJobConstraint::new("dst.blz", "DauerEdit5.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new("dst.number", "DauerEdit5.Other.number", None::<String>),
+        HbciJobConstraint::new("dst.subnumber", "DauerEdit5.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "DauerEdit5.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "DauerEdit5.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "DauerEdit5.name", None::<String>),
+        HbciJobConstraint::new(
+            "firstdate",
+            "DauerEdit5.DauerDetails.firstdate",
+            None::<String>,
+        ),
+        HbciJobConstraint::new(
+            "timeunit",
+            "DauerEdit5.DauerDetails.timeunit",
+            None::<String>,
+        ),
+        HbciJobConstraint::new("turnus", "DauerEdit5.DauerDetails.turnus", None::<String>),
+        HbciJobConstraint::new("execday", "DauerEdit5.DauerDetails.execday", None::<String>),
+        HbciJobConstraint::new("orderid", "DauerEdit5.orderid", None::<String>),
+        HbciJobConstraint::new("src.blz", "DauerEdit5.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.country", "DauerEdit5.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dst.country", "DauerEdit5.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("name2", "DauerEdit5.name2", Some("")),
+        HbciJobConstraint::new("key", "DauerEdit5.key", Some("52")),
+        HbciJobConstraint::new("date", "DauerEdit5.date", Some("")),
+        HbciJobConstraint::new("lastdate", "DauerEdit5.DauerDetails.lastdate", Some("")),
+    ];
+
+    for index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let frontend = classic_usage_name(index);
+        let destination = format!("DauerEdit5.usage.{frontend}");
         constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
     }
 

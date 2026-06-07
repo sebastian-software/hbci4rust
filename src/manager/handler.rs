@@ -253,6 +253,7 @@ where
 
     fn prepare_job_from_passport(&self, job: &mut HbciJob) -> HbciResult<()> {
         match job.name() {
+            "DauerEdit" => apply_dauer_snapshot_to_job(job, &self.passport, "DauerEdit5"),
             "TermUebDel" => apply_term_ueb_snapshot_to_job(job, &self.passport, "TermUebDel3"),
             "TermUebEdit" => apply_term_ueb_snapshot_to_job(job, &self.passport, "TermUebEdit4"),
             _ => Ok(()),
@@ -1098,6 +1099,7 @@ fn render_job_into_custom_message(
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
         "CardList" => render_card_list(message, job, index, passport),
+        "DauerEdit" => render_dauer_edit(message, job, index, passport),
         "DauerList" => render_dauer_list(message, job, index, passport),
         "DauerNew" => render_dauer_new(message, job, index, passport),
         "DauerSEPADel" => render_dauer_sepa_del(message, job, index, passport),
@@ -1325,6 +1327,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKAZK",
             lowlevel_segment: "CardList2",
             path: "CustomMsg.GV.CardList2",
+        }),
+        "DauerEdit" => Ok(OrderhashSourceJobInfo {
+            code: "HKDAN",
+            lowlevel_segment: "DauerEdit5",
+            path: "CustomMsg.GV.DauerEdit5",
         }),
         "DauerList" => Ok(OrderhashSourceJobInfo {
             code: "HKDAB",
@@ -1630,6 +1637,14 @@ fn dauer_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.DauerListRes5".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.DauerListRes5", index + 1)
+    }
+}
+
+fn dauer_edit_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.DauerEditRes5".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.DauerEditRes5", index + 1)
     }
 }
 
@@ -2469,6 +2484,137 @@ fn render_dauer_new(
         message,
         &format!("{segment}.DauerDetails.lastdate"),
         job_param(job, "DauerNew5.DauerDetails.lastdate", "lastdate"),
+    )?;
+
+    Ok(())
+}
+
+fn render_dauer_edit(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "DauerEdit5";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let src_account = classic_national_job_account(
+        job,
+        passport.first_account().cloned(),
+        lowlevel_segment,
+        "My",
+        "src",
+    );
+    if !has_account_identity(&src_account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerEdit requires src.number or a passport account for the current DauerEdit5 renderer",
+        ));
+    }
+    let dst_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "dst");
+    if !has_account_identity(&dst_account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerEdit requires dst.number for the current DauerEdit5 renderer",
+        ));
+    }
+
+    set_classic_national_account_values(message, &format!("{segment}.My"), &src_account)?;
+    set_classic_national_account_values(message, &format!("{segment}.Other"), &dst_account)?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.name"),
+        job,
+        "DauerEdit5.name",
+        "name",
+        "DauerEdit requires name",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.name2"),
+        job_param(job, "DauerEdit5.name2", "name2"),
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.value"),
+        job,
+        "DauerEdit5.BTG.value",
+        "btg.value",
+        "DauerEdit requires btg.value",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.BTG.curr"),
+        job,
+        "DauerEdit5.BTG.curr",
+        "btg.curr",
+        "DauerEdit requires btg.curr",
+    )?;
+    message.set_value(
+        &format!("{segment}.key"),
+        job_param(job, "DauerEdit5.key", "key").unwrap_or("52"),
+    )?;
+    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let usage_name = classic_usage_frontend_name(usage_index);
+        set_optional_message_value(
+            message,
+            &format!("{segment}.usage.{usage_name}"),
+            job_param(job, &format!("DauerEdit5.usage.{usage_name}"), &usage_name),
+        )?;
+    }
+    set_optional_message_value(
+        message,
+        &format!("{segment}.date"),
+        job_param(job, "DauerEdit5.date", "date"),
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.orderid"),
+        job,
+        "DauerEdit5.orderid",
+        "orderid",
+        "DauerEdit requires orderid",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.firstdate"),
+        job,
+        "DauerEdit5.DauerDetails.firstdate",
+        "firstdate",
+        "DauerEdit requires firstdate",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.timeunit"),
+        job,
+        "DauerEdit5.DauerDetails.timeunit",
+        "timeunit",
+        "DauerEdit requires timeunit",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.turnus"),
+        job,
+        "DauerEdit5.DauerDetails.turnus",
+        "turnus",
+        "DauerEdit requires turnus",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.execday"),
+        job,
+        "DauerEdit5.DauerDetails.execday",
+        "execday",
+        "DauerEdit requires execday",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.DauerDetails.lastdate"),
+        job_param(job, "DauerEdit5.DauerDetails.lastdate", "lastdate"),
     )?;
 
     Ok(())
@@ -3834,6 +3980,34 @@ fn apply_term_ueb_snapshot_to_job(
     Ok(())
 }
 
+fn apply_dauer_snapshot_to_job(
+    job: &mut HbciJob,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+) -> HbciResult<()> {
+    let order_id = job
+        .lowlevel_param(&format!("{lowlevel_segment}.orderid"))
+        .or_else(|| job.param("orderid"))
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_owned());
+    let Some(order_id) = order_id else {
+        return Ok(());
+    };
+    let snapshot_key = format!("dauer_{order_id}");
+    let Some(snapshot) = passport.get_persistent_data(&snapshot_key) else {
+        return Ok(());
+    };
+
+    for (key, value) in snapshot {
+        if value.is_empty() || key == "date" || key.starts_with("Aussetzung.") {
+            continue;
+        }
+        job.set_lowlevel_param_if_absent(format!("{lowlevel_segment}.{key}"), value.clone());
+    }
+
+    Ok(())
+}
+
 fn set_required_message_value_from_job(
     message: &mut HbciMessage,
     path: &str,
@@ -4166,6 +4340,9 @@ impl ParsedResponseStatus {
             "CardList" => self
                 .card_list_result_for_root(card_list_response_root(index))
                 .map(HbciJobResultData::CardList),
+            "DauerEdit" => self
+                .dauer_edit_result_for_root(dauer_edit_response_root(index))
+                .map(HbciJobResultData::DauerEdit),
             "DauerList" => self
                 .dauer_list_result_for_root(dauer_list_response_root(index))
                 .map(HbciJobResultData::DauerList),
@@ -4251,6 +4428,7 @@ impl ParsedResponseStatus {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
             "CardList" => self.content_result_data([card_list_response_root(index)]),
+            "DauerEdit" => self.content_result_data([dauer_edit_response_root(index)]),
             "DauerList" => self.content_result_data([dauer_list_response_root(index)]),
             "DauerNew" => self.content_result_data([dauer_new_response_root(index)]),
             "DauerSEPADel" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
@@ -5150,6 +5328,23 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
                 }
             }
+            "DauerEdit" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot = classic_inland_request_persistent_snapshot_without_orderid(
+                    job,
+                    passport,
+                    "DauerEdit5",
+                );
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+                }
+            }
             "TermUeb" => {
                 let Some(order_id) = result
                     .result_data
@@ -5343,6 +5538,16 @@ fn classic_inland_request_persistent_snapshot_without_id(
 ) -> Properties {
     let mut snapshot = classic_inland_request_persistent_snapshot(job, passport, lowlevel_segment);
     snapshot.retain(|key, _value| key != "id" && !key.ends_with(".id"));
+    snapshot
+}
+
+fn classic_inland_request_persistent_snapshot_without_orderid(
+    job: &HbciJob,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+) -> Properties {
+    let mut snapshot = classic_inland_request_persistent_snapshot(job, passport, lowlevel_segment);
+    snapshot.retain(|key, _value| key != "orderid" && !key.ends_with(".orderid"));
     snapshot
 }
 
