@@ -3210,6 +3210,110 @@ fn handler_prepares_process1_hktan_uses_noref_for_required_tan_media_without_val
     assert_eq!(handler.passport().tan_media(), None);
 }
 
+#[test]
+fn handler_dispatches_initial_hktan_to_process1_from_bpd_process() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media: Some("photo-app".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "1".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_initial_job(&saldo, None)
+        .expect("initial HKTAN prepares");
+
+    assert_eq!(hktan.param("process"), Some("1"));
+    assert_eq!(hktan.param("ordersegcode"), Some("HKSAL"));
+    assert_eq!(hktan.param("tanmedia"), Some("photo-app"));
+    assert!(hktan.param("orderhash").is_some());
+    assert_eq!(hktan.param("notlasttan"), Some("N"));
+}
+
+#[test]
+fn handler_dispatches_initial_hktan_to_process2_step1_from_bpd_process() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media: Some("push-app".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_initial_job(&saldo, None)
+        .expect("initial HKTAN prepares");
+
+    assert_eq!(hktan.param("process"), Some("4"));
+    assert_eq!(hktan.param("ordersegcode"), Some("HKSAL"));
+    assert_eq!(hktan.param("tanmedia"), Some("push-app"));
+    assert_eq!(hktan.param("orderhash"), None);
+    assert_eq!(hktan.param("notlasttan"), None);
+}
+
+#[test]
+fn handler_dispatches_initial_hktan_unknown_process_to_process2_step1_like_original() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media: Some("push-app".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "X".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_initial_job(&saldo, None)
+        .expect("initial HKTAN prepares");
+
+    assert_eq!(hktan.param("process"), Some("4"));
+    assert_eq!(hktan.param("ordersegcode"), Some("HKSAL"));
+    assert_eq!(hktan.param("orderhash"), None);
+}
+
 #[tokio::test]
 async fn handler_prepares_process2_step1_hktan_next_to_original_task() {
     let passport = passport_with_cached_pin(PinTanPassportData {

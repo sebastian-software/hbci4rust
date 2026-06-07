@@ -78,6 +78,39 @@ where
         self.registry.new_job(name)
     }
 
+    pub fn new_tan2step_initial_job(
+        &self,
+        task: &HbciJob,
+        challenge_info: Option<&ChallengeInfo>,
+    ) -> HbciResult<HbciJob> {
+        let tan_media = self.passport.tan_media_for_hktan_without_callback();
+        new_tan2step_initial_job(
+            &self.registry,
+            &self.hbci_version,
+            &self.passport,
+            task,
+            tan_media.as_deref(),
+            challenge_info,
+        )
+    }
+
+    pub async fn new_tan2step_initial_job_with_tan_media_selection(
+        &mut self,
+        task: &HbciJob,
+        challenge_info: Option<&ChallengeInfo>,
+    ) -> HbciResult<HbciJob> {
+        let callback = super::callback();
+        let tan_media = choose_tan_media_if_needed(&mut self.passport, callback.as_deref()).await?;
+        new_tan2step_initial_job(
+            &self.registry,
+            &self.hbci_version,
+            &self.passport,
+            task,
+            tan_media.as_deref(),
+            challenge_info,
+        )
+    }
+
     pub fn new_tan2step_process1_job(
         &self,
         task: &HbciJob,
@@ -820,6 +853,28 @@ fn new_tan2step_process1_job(
     apply_challenge_params_if_needed(&mut hktan, task_info.code, task, &secmech, challenge_info)?;
 
     Ok(hktan)
+}
+
+fn new_tan2step_initial_job(
+    registry: &JobRegistry,
+    hbci_version: &str,
+    passport: &PinTanPassport,
+    task: &HbciJob,
+    tan_media: Option<&str>,
+    challenge_info: Option<&ChallengeInfo>,
+) -> HbciResult<HbciJob> {
+    if passport.tan2step_parameter("process").as_deref() == Some("1") {
+        return new_tan2step_process1_job(
+            registry,
+            hbci_version,
+            passport,
+            task,
+            tan_media,
+            challenge_info,
+        );
+    }
+
+    new_tan2step_process2_step1_job(registry, task, tan_media)
 }
 
 fn new_tan2step_process2_step1_job(
