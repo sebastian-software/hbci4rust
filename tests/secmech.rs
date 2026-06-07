@@ -269,6 +269,140 @@ fn challenge_info_conditions_match_original_tests_condition_and_condition2() {
     }
 }
 
+#[test]
+fn challenge_info_apply_params_sets_hktan_params_like_original() {
+    let info = challenge_info();
+    let task_params = properties(&[
+        ("Other.number", "9876543210"),
+        ("BTG.value", "100.50"),
+        ("BTG.curr", "EUR"),
+    ]);
+    let secmech = properties(&[("id", "HHD1.3.0"), ("needchallengevalue", "J")]);
+
+    let applied = info
+        .apply_params("HKAOM", &task_params, &secmech)
+        .expect("apply params")
+        .expect("known challenge data");
+
+    assert_eq!(applied.challenge_klass(), "20");
+    assert_eq!(applied.param(1), Some("HKAOM"));
+    assert_eq!(applied.param(2), Some("9876543210"));
+    assert_eq!(applied.param(3), Some("100,5"));
+    assert_eq!(applied.param(4), Some("EUR"));
+
+    let hktan_params = applied.to_hktan_params();
+    assert_eq!(
+        hktan_params.get("challengeklass").map(String::as_str),
+        Some("20")
+    );
+    assert_eq!(
+        hktan_params.get("ChallengeKlassParam1").map(String::as_str),
+        Some("HKAOM")
+    );
+    assert_eq!(
+        hktan_params.get("ChallengeKlassParam3").map(String::as_str),
+        Some("100,5")
+    );
+}
+
+#[test]
+fn challenge_info_apply_params_skips_uncomplied_conditions_like_original() {
+    let info = challenge_info();
+    let task_params = properties(&[
+        ("Other.number", "9876543210"),
+        ("BTG.value", "100.50"),
+        ("BTG.curr", "EUR"),
+    ]);
+    let secmech = properties(&[("id", "HHD1.2"), ("needchallengevalue", "N")]);
+
+    let applied = info
+        .apply_params("HKAOM", &task_params, &secmech)
+        .expect("apply params")
+        .expect("known challenge data");
+
+    assert_eq!(applied.challenge_klass(), "20");
+    assert_eq!(applied.param(1), Some("9876543210"));
+    assert_eq!(applied.param(2), None);
+    assert_eq!(applied.param(3), None);
+    assert_eq!(applied.params().len(), 1);
+}
+
+#[test]
+fn challenge_info_apply_params_preserves_sparse_message_positions() {
+    let info = challenge_info();
+    let task_params = properties(&[("BTG.value", "100.99"), ("Other.number", "9876543210")]);
+    let secmech = properties(&[("id", "HHD1.4")]);
+
+    let applied = info
+        .apply_params("HKAOM", &task_params, &secmech)
+        .expect("apply params")
+        .expect("known challenge data");
+
+    assert_eq!(applied.challenge_klass(), "10");
+    assert_eq!(applied.param(1), Some("100,99"));
+    assert_eq!(applied.param(2), None);
+    assert_eq!(applied.param(3), None);
+    assert_eq!(applied.param(4), Some("9876543210"));
+
+    let message_params = applied.to_message_params("CustomMsg.GV.TAN2Step5");
+    assert_eq!(
+        message_params
+            .get("CustomMsg.GV.TAN2Step5.challengeklass")
+            .map(String::as_str),
+        Some("10")
+    );
+    assert_eq!(
+        message_params
+            .get("CustomMsg.GV.TAN2Step5.ChallengeKlassParams.param1")
+            .map(String::as_str),
+        Some("100,99")
+    );
+    assert!(!message_params.contains_key("CustomMsg.GV.TAN2Step5.ChallengeKlassParams.param2"));
+    assert!(!message_params.contains_key("CustomMsg.GV.TAN2Step5.ChallengeKlassParams.param3"));
+    assert_eq!(
+        message_params
+            .get("CustomMsg.GV.TAN2Step5.ChallengeKlassParams.param4")
+            .map(String::as_str),
+        Some("9876543210")
+    );
+}
+
+#[test]
+fn challenge_info_apply_params_formats_date_and_reports_missing_data_like_original() {
+    let info = challenge_info();
+    let task_params = properties(&[
+        ("BTG.value", "250.00"),
+        ("Other.KIK.blz", "12345678"),
+        ("Other.number", "9876543210"),
+        ("date", "2011-05-20"),
+    ]);
+    let secmech = properties(&[("id", "HHD1.4")]);
+
+    let applied = info
+        .apply_params("HKTUE", &task_params, &secmech)
+        .expect("apply params")
+        .expect("known challenge data");
+
+    assert_eq!(applied.challenge_klass(), "22");
+    assert_eq!(applied.param(1), Some("250,"));
+    assert_eq!(applied.param(4), Some("20110520"));
+
+    assert!(
+        info.apply_params("UNDEF", &task_params, &secmech)
+            .expect("unknown job")
+            .is_none()
+    );
+    assert!(
+        info.apply_params(
+            "HKTUE",
+            &task_params,
+            &properties(&[("zkamethod_name", "Decoupled")])
+        )
+        .expect("unsupported hhd challenge version")
+        .is_none()
+    );
+}
+
 fn properties(values: &[(&str, &str)]) -> Properties {
     values
         .iter()

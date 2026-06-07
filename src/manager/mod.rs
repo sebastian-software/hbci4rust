@@ -13,9 +13,9 @@ pub use account_crc::AccountCrcAlgs;
 pub use bank_info::{BankInfo, BankInfoRegistry, HbciVersion};
 pub use handler::HbciHandler;
 pub use secmech::{
-    ChallengeHhdVersion, ChallengeInfo, ChallengeJob, ChallengeParam, FlickerCode,
-    FlickerCodeVersion, FlickerDataElement, FlickerEncoding, FlickerRenderer, FlickerStartCode,
-    HhdVersion, HhdVersionType, MatrixCode, QrCode,
+    AppliedChallengeParams, ChallengeHhdVersion, ChallengeInfo, ChallengeJob, ChallengeParam,
+    FlickerCode, FlickerCodeVersion, FlickerDataElement, FlickerEncoding, FlickerRenderer,
+    FlickerStartCode, HhdVersion, HhdVersionType, MatrixCode, QrCode,
 };
 
 #[derive(Default)]

@@ -269,6 +269,22 @@ impl ChallengeInfo {
         ChallengeInfoParser::default().parse(xml)
     }
 
+    pub fn apply_params(
+        &self,
+        job_code: &str,
+        task_params: &Properties,
+        secmech: &Properties,
+    ) -> HbciResult<Option<AppliedChallengeParams>> {
+        let Some(job) = self.get_data(job_code) else {
+            return Ok(None);
+        };
+        let Some(hhd) = job.hhd_version(HhdVersion::find(Some(secmech))) else {
+            return Ok(None);
+        };
+
+        hhd.apply_params(job_code, task_params, secmech).map(Some)
+    }
+
     pub fn get_data(&self, code: &str) -> Option<&ChallengeJob> {
         self.jobs.get(code)
     }
@@ -312,6 +328,79 @@ impl ChallengeHhdVersion {
 
     pub fn params(&self) -> &[ChallengeParam] {
         &self.params
+    }
+
+    pub fn apply_params(
+        &self,
+        job_code: &str,
+        task_params: &Properties,
+        secmech: &Properties,
+    ) -> HbciResult<AppliedChallengeParams> {
+        let mut applied = AppliedChallengeParams::new(self.klass.clone());
+
+        for (index, param) in self.params.iter().enumerate() {
+            if !param.is_complied(secmech) {
+                continue;
+            }
+
+            let value = challenge_param_value(job_code, param.path(), task_params);
+            if let Some(formatted) = param.format(value.as_deref())? {
+                applied.params.insert(index + 1, formatted);
+            }
+        }
+
+        Ok(applied)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AppliedChallengeParams {
+    challenge_klass: String,
+    params: BTreeMap<usize, String>,
+}
+
+impl AppliedChallengeParams {
+    pub fn new(challenge_klass: impl Into<String>) -> Self {
+        Self {
+            challenge_klass: challenge_klass.into(),
+            params: BTreeMap::new(),
+        }
+    }
+
+    pub fn challenge_klass(&self) -> &str {
+        &self.challenge_klass
+    }
+
+    pub fn param(&self, index: usize) -> Option<&str> {
+        self.params.get(&index).map(String::as_str)
+    }
+
+    pub fn params(&self) -> &BTreeMap<usize, String> {
+        &self.params
+    }
+
+    pub fn to_hktan_params(&self) -> Properties {
+        let mut params = Properties::new();
+        params.insert("challengeklass".to_owned(), self.challenge_klass.clone());
+        for (index, value) in &self.params {
+            params.insert(format!("ChallengeKlassParam{index}"), value.clone());
+        }
+        params
+    }
+
+    pub fn to_message_params(&self, segment_path: &str) -> Properties {
+        let mut params = Properties::new();
+        params.insert(
+            format!("{segment_path}.challengeklass"),
+            self.challenge_klass.clone(),
+        );
+        for (index, value) in &self.params {
+            params.insert(
+                format!("{segment_path}.ChallengeKlassParams.param{index}"),
+                value.clone(),
+            );
+        }
+        params
     }
 }
 
@@ -925,6 +1014,19 @@ fn parse_challenge_param(
         condition_name: challenge_attr(reader, event, b"condition-name")?,
         condition_value: challenge_attr(reader, event, b"condition-value")?,
     })
+}
+
+fn challenge_param_value(
+    job_code: &str,
+    path: Option<&str>,
+    task_params: &Properties,
+) -> Option<String> {
+    let path = path.filter(|path| !path.is_empty())?;
+    if path == "SegHead.code" {
+        return Some(job_code.to_owned());
+    }
+
+    property(task_params, path).map(ToOwned::to_owned)
 }
 
 fn challenge_required_attr(

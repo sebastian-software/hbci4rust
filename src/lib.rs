@@ -29,10 +29,10 @@ pub use gv_result::{
     HbciReturnValue, HbciStatus, HbciStatusCode, Konto, Limit, Saldo, Value,
 };
 pub use manager::{
-    AccountCrcAlgs, BankInfo, BankInfoRegistry, ChallengeHhdVersion, ChallengeInfo, ChallengeJob,
-    ChallengeParam, FlickerCode, FlickerCodeVersion, FlickerDataElement, FlickerEncoding,
-    FlickerRenderer, FlickerStartCode, HbciHandler, HbciVersion, HhdVersion, HhdVersionType,
-    MatrixCode, QrCode, done, get_param, init, set_param,
+    AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,
+    ChallengeInfo, ChallengeJob, ChallengeParam, FlickerCode, FlickerCodeVersion,
+    FlickerDataElement, FlickerEncoding, FlickerRenderer, FlickerStartCode, HbciHandler,
+    HbciVersion, HhdVersion, HhdVersionType, MatrixCode, QrCode, done, get_param, init, set_param,
 };
 pub use passport::{PassportStorage, PinTanPassport, PinTanPassportData};
 pub use tools::{
