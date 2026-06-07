@@ -11,7 +11,7 @@ use crate::gv_result::{
     HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
     Value,
 };
-use crate::passport::{PinTanPassport, TanMethodOption, TanMethodSelection};
+use crate::passport::{PinTanPassport, TanMethodOption, TanMethodSelection, UserSig};
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
 use crate::sepa::CAMT_052_001_01_URN;
 use crate::swift::decode_umlauts;
@@ -113,6 +113,11 @@ where
     pub async fn request_pin(&mut self) -> HbciResult<String> {
         let callback = super::callback();
         request_pin(&mut self.passport, callback.as_deref()).await
+    }
+
+    pub async fn sign_pintan_user_sig_for_sca(&mut self) -> HbciResult<Vec<u8>> {
+        let callback = super::callback();
+        sign_pintan_user_sig_for_sca(&mut self.passport, callback.as_deref()).await
     }
 
     pub fn add_to_queue(&mut self, job: HbciJob) {
@@ -582,6 +587,15 @@ async fn request_pin(
 
     passport.set_pin(pin.clone());
     Ok(pin)
+}
+
+async fn sign_pintan_user_sig_for_sca(
+    passport: &mut PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<Vec<u8>> {
+    let pin = request_pin(passport, callback).await?;
+    let tan = request_tan_for_sca(passport, callback).await?;
+    UserSig::encode(Some(&pin), tan.as_deref())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

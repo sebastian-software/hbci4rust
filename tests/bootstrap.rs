@@ -6,7 +6,7 @@ use hbci4rust::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
     HbciCallback, HbciHandler, HbciJobResultData, HbciMsgStatus, HbciResult, HbciReturnValue,
     HbciStatus, Konto, Limit, OrderHashMode, PassportStorage, PinTanPassport, PinTanPassportData,
-    ReplayCommClient, TanMethodSelection, Value, done, init,
+    ReplayCommClient, TanMethodSelection, UserSig, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
     sepa::CAMT_052_001_01_URN,
 };
@@ -3323,6 +3323,123 @@ async fn handler_errors_when_pin_callback_returns_empty_value() {
 
     assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Callback);
     assert_eq!(handler.passport().pin(), None);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_signs_pintan_usersig_for_sca_challenge() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(ScriptedCallback {
+            events: events.clone(),
+            responses: Arc::new(Mutex::new(VecDeque::from([
+                CallbackResponse::value("12345"),
+                CallbackResponse::value("987654"),
+            ]))),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.name".to_owned(),
+                "pushTAN".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.inputinfo".to_owned(),
+                "Bitte bestaetigen".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITAN:3:5+1++ORDER-REF-1+Bitte geben Sie die TAN ein+@5@HHDUC",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut hktan = handler.new_job("TAN2Step").expect("job is in registry");
+    hktan
+        .try_set_param("process", "1")
+        .expect("process is accepted");
+    handler.add_to_queue(hktan);
+    handler.execute().await.expect("hitan response parses");
+
+    let signature = handler
+        .sign_pintan_user_sig_for_sca()
+        .await
+        .expect("usersig is signed");
+    let decoded = UserSig::decode(Some(&signature)).expect("usersig decodes");
+
+    assert_eq!(decoded.pin(), "12345");
+    assert_eq!(decoded.tan(), "987654");
+    assert_eq!(handler.passport().pin(), Some("12345"));
+
+    let events = events.lock().expect("callback event lock");
+    let reasons = events.iter().map(|event| event.reason).collect::<Vec<_>>();
+    assert_eq!(
+        reasons,
+        [CallbackReason::NeedPtPin, CallbackReason::NeedPtTan]
+    );
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_signs_pintan_usersig_without_tan_for_sca_exemption() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(ScriptedCallback {
+            events: events.clone(),
+            responses: Arc::new(Mutex::new(VecDeque::from([CallbackResponse::value(
+                "12345",
+            )]))),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+3076::Keine starke Kundenauthentifizierung erforderlich",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut hktan = handler.new_job("TAN2Step").expect("job is in registry");
+    hktan
+        .try_set_param("process", "1")
+        .expect("process is accepted");
+    handler.add_to_queue(hktan);
+    handler.execute().await.expect("3076 response parses");
+
+    let signature = handler
+        .sign_pintan_user_sig_for_sca()
+        .await
+        .expect("usersig is signed without TAN");
+    let decoded = UserSig::decode(Some(&signature)).expect("usersig decodes");
+
+    assert_eq!(decoded.pin(), "12345");
+    assert_eq!(decoded.tan(), "");
+    assert!(
+        events
+            .lock()
+            .expect("callback event lock")
+            .iter()
+            .all(|event| event.reason != CallbackReason::NeedPtTan)
+    );
     done().expect("runtime reset");
 }
 
