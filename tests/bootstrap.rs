@@ -1587,6 +1587,7 @@ fn rust_native_passport_storage_roundtrips() {
             "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
             "2".to_owned(),
         )]),
+        twostep_mechanisms: BTreeMap::new(),
     };
 
     let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
@@ -1674,6 +1675,96 @@ fn passport_resolves_orderhash_mode_from_bpd_like_hbci4java_query() {
     let secmech = passport.current_secmech_info();
     assert_eq!(secmech.get("segversion").map(String::as_str), Some("5"));
     assert_eq!(secmech.get("orderhashmode").map(String::as_str), Some("2"));
+}
+
+#[test]
+fn passport_extracts_twostep_mechanisms_from_bpd_like_hbci4java_set_bpd() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let updated = passport.update_parameter_data_from_values(
+        &BTreeMap::from([
+            (
+                "DialogInitRes.BPD.Params_1.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_1.TAN2StepPar5.ParTAN2Step.name".to_owned(),
+                "photoTAN new".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_1.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_1.TAN2StepPar5.ParTAN2Step.needorderaccount".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_1.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "1".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_2.TAN2StepPar4.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_2.TAN2StepPar4.ParTAN2Step.name".to_owned(),
+                "chipTAN old".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_2.TAN2StepPar4.ParTAN2Step.orderhashmode".to_owned(),
+                "1".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_3.TAN2StepPar4.ParTAN2Step.secfunc".to_owned(),
+                "922".to_owned(),
+            ),
+            (
+                "DialogInitRes.BPD.Params_3.TAN2StepPar4.ParTAN2Step.name".to_owned(),
+                "mobileTAN".to_owned(),
+            ),
+        ]),
+        "DialogInitRes",
+    );
+
+    assert_eq!(updated, 1);
+    assert_eq!(passport.twostep_mechanisms().len(), 2);
+    let mechanism = passport
+        .twostep_mechanisms()
+        .get("921")
+        .expect("selected mechanism");
+    assert_eq!(mechanism.get("segversion").map(String::as_str), Some("5"));
+    assert_eq!(mechanism.get("secfunc").map(String::as_str), Some("921"));
+    assert_eq!(
+        mechanism.get("name").map(String::as_str),
+        Some("photoTAN new")
+    );
+    assert_eq!(
+        mechanism.get("orderhashmode").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        mechanism.get("needorderaccount").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(passport.tan_segment_version(), "5");
+    assert_eq!(passport.order_hash_mode_code().as_deref(), Some("2"));
+    assert_eq!(
+        passport.tan2step_parameter("needorderaccount").as_deref(),
+        Some("2")
+    );
+    let current = passport.current_secmech_info();
+    assert_eq!(current.get("secfunc").map(String::as_str), Some("921"));
+    assert_eq!(current.get("process").map(String::as_str), Some("1"));
+
+    let other = passport
+        .twostep_mechanisms()
+        .get("922")
+        .expect("other mechanism");
+    assert_eq!(other.get("segversion").map(String::as_str), Some("4"));
+    assert_eq!(other.get("name").map(String::as_str), Some("mobileTAN"));
 }
 
 #[test]
@@ -2405,9 +2496,13 @@ async fn handler_prepares_process1_hktan_orderhash_from_rendered_task_segment() 
 
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),
-        tan_segment_version: Some("5".to_owned()),
+        tan_method: Some("921".to_owned()),
         tan_media: Some("sms-name".to_owned()),
         bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
             (
                 "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
                 "2".to_owned(),

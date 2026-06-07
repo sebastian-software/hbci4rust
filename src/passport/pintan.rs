@@ -11,7 +11,10 @@ pub struct PinTanPassport {
 }
 
 impl PinTanPassport {
-    pub fn new(data: PinTanPassportData) -> Self {
+    pub fn new(mut data: PinTanPassportData) -> Self {
+        if data.twostep_mechanisms.is_empty() && !data.bpd_parameters.is_empty() {
+            data.twostep_mechanisms = extract_twostep_mechanisms(&data.bpd_parameters);
+        }
         Self { data }
     }
 
@@ -64,11 +67,18 @@ impl PinTanPassport {
     }
 
     pub fn tan_segment_version(&self) -> &str {
-        self.data.tan_segment_version.as_deref().unwrap_or("5")
+        self.current_twostep_mechanism()
+            .and_then(|mechanism| mechanism.get("segversion").map(String::as_str))
+            .or(self.data.tan_segment_version.as_deref())
+            .unwrap_or("5")
     }
 
     pub fn bpd_parameters(&self) -> &Properties {
         &self.data.bpd_parameters
+    }
+
+    pub fn twostep_mechanisms(&self) -> &BTreeMap<String, Properties> {
+        &self.data.twostep_mechanisms
     }
 
     pub fn only_bpd_gvs(&self) -> bool {
@@ -208,6 +218,7 @@ impl PinTanPassport {
         }
         let bpd_parameters = prefixed_values(values, &format!("{prefix}.BPD."));
         if !bpd_parameters.is_empty() {
+            self.data.twostep_mechanisms = extract_twostep_mechanisms(&bpd_parameters);
             self.data.bpd_parameters = bpd_parameters;
             updated += 1;
         }
@@ -245,6 +256,14 @@ impl PinTanPassport {
     }
 
     pub fn tan2step_parameter(&self, name: &str) -> Option<String> {
+        if let Some(value) = self
+            .current_twostep_mechanism()
+            .and_then(|mechanism| mechanism.get(name))
+            .filter(|value| !value.is_empty())
+        {
+            return Some(value.clone());
+        }
+
         let path = format!(
             "Params*.TAN2StepPar{}.ParTAN2Step*.{name}",
             self.tan_segment_version()
@@ -253,6 +272,14 @@ impl PinTanPassport {
     }
 
     pub fn order_hash_mode_code(&self) -> Option<String> {
+        if let Some(value) = self
+            .current_twostep_mechanism()
+            .and_then(|mechanism| mechanism.get("orderhashmode"))
+            .filter(|value| !value.is_empty())
+        {
+            return Some(value.clone());
+        }
+
         let query =
             ParameterQuery::BPD_PINTAN_ORDERHASHMODE.with_parameters(&[self.tan_segment_version()]);
         ParameterFinder::get_value_query(self.bpd_parameters(), &query, None)
@@ -261,6 +288,24 @@ impl PinTanPassport {
     }
 
     pub fn current_secmech_info(&self) -> Properties {
+        if let Some(mechanism) = self.current_twostep_mechanism() {
+            let mut info = mechanism.clone();
+            if !info.contains_key("segversion") {
+                info.insert(
+                    "segversion".to_owned(),
+                    self.data
+                        .tan_segment_version
+                        .as_deref()
+                        .unwrap_or("5")
+                        .to_owned(),
+                );
+            }
+            if let Some(tan_method) = self.current_tan_method() {
+                info.insert("secfunc".to_owned(), tan_method.to_owned());
+            }
+            return info;
+        }
+
         let mut info = Properties::new();
         info.insert(
             "segversion".to_owned(),
@@ -291,6 +336,18 @@ impl PinTanPassport {
         }
 
         info
+    }
+
+    fn current_tan_method(&self) -> Option<&str> {
+        self.data
+            .tan_method
+            .as_deref()
+            .filter(|value| !value.is_empty())
+    }
+
+    fn current_twostep_mechanism(&self) -> Option<&Properties> {
+        self.current_tan_method()
+            .and_then(|tan_method| self.data.twostep_mechanisms.get(tan_method))
     }
 }
 
@@ -328,6 +385,8 @@ pub struct PinTanPassportData {
     pub accounts: Vec<Konto>,
     #[serde(default)]
     pub bpd_parameters: Properties,
+    #[serde(default)]
+    pub twostep_mechanisms: BTreeMap<String, Properties>,
 }
 
 fn fill_from_account(account: &mut Konto, source: &Konto) {
@@ -509,4 +568,80 @@ fn prefixed_values(values: &BTreeMap<String, String>, prefix: &str) -> Propertie
                 .map(|key| (key.to_owned(), value.clone()))
         })
         .collect()
+}
+
+fn extract_twostep_mechanisms(bpd: &Properties) -> BTreeMap<String, Properties> {
+    let mut mechanisms = BTreeMap::new();
+
+    for (secfunc, segversion, header) in bpd
+        .iter()
+        .filter(|(_, value)| !value.is_empty())
+        .filter_map(|(key, value)| {
+            tan2step_secfunc_header(key).map(|(segversion, header)| (value, segversion, header))
+        })
+    {
+        if let Some(previous) = mechanisms.get(secfunc)
+            && mechanism_segversion(previous) > segversion
+        {
+            continue;
+        }
+
+        let entry = twostep_mechanism_entry(bpd, &header);
+        mechanisms.insert(secfunc.clone(), entry);
+    }
+
+    mechanisms
+}
+
+fn twostep_mechanism_entry(bpd: &Properties, header: &str) -> Properties {
+    let mut entry = Properties::new();
+    if let Some((segversion, _)) = tan2step_header_segment_version(header) {
+        entry.insert("segversion".to_owned(), segversion.to_string());
+    }
+
+    let prefix = format!("{header}.");
+    for (key, value) in bpd
+        .iter()
+        .filter(|(key, _)| key.starts_with(prefix.as_str()))
+    {
+        if let Some(name) = key.rsplit('.').next() {
+            entry.insert(name.to_owned(), value.clone());
+        }
+    }
+
+    entry
+}
+
+fn tan2step_secfunc_header(key: &str) -> Option<(i32, String)> {
+    if !key.starts_with("Params") || !key.ends_with(".secfunc") {
+        return None;
+    }
+
+    let header = key.rsplit_once('.')?.0.to_owned();
+    let (segversion, _) = tan2step_header_segment_version(&header)?;
+    Some((segversion, header))
+}
+
+fn tan2step_header_segment_version(header: &str) -> Option<(i32, &str)> {
+    let subkey = header.split_once('.')?.1;
+    let rest = subkey.strip_prefix("TAN2StepPar")?;
+    let digits_len = rest.bytes().take_while(u8::is_ascii_digit).count();
+    if digits_len == 0 {
+        return None;
+    }
+
+    let segversion = rest.get(..digits_len)?.parse().ok()?;
+    let after_version = rest.get(digits_len..)?;
+    if !after_version.starts_with(".ParTAN2Step") {
+        return None;
+    }
+
+    Some((segversion, after_version))
+}
+
+fn mechanism_segversion(mechanism: &Properties) -> i32 {
+    mechanism
+        .get("segversion")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
 }
