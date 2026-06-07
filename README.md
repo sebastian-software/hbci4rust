@@ -14,17 +14,30 @@ keys remain Java-compatible (`SaldoReq`, `src.iban`, and similar).
 
 ## Current State
 
-This is the bootstrap slice for the port:
+The v1 PinTAN/HBCI-Plus port is well beyond the initial bootstrap, but it is
+not release-complete yet:
 
 - ADRs record the major porting decisions.
-- The crate exposes async callback and communication traits.
-- A static job registry reserves the PinTAN-compatible Java job names.
+- The crate exposes async callback and communication traits, including a replay
+  transport for offline tests.
+- Protocol XML/DTD resources are loaded and used for FinTS wire
+  rendering/parsing.
+- Signed PinTAN dialog init, custom message execution, dialog close, one-step
+  TAN, and two-step TAN process helpers are implemented.
+- The static job registry covers the v1 PinTAN-compatible Java job names.
+- SEPA/CAMT, SWIFT/MT940, status, structures, and challenge helpers have
+  original-near offline tests.
 - Runtime configuration mirrors the original global `HBCIUtils` style.
 - Rust-native PinTAN passport storage is implemented with a versioned encrypted
   envelope.
 
-Protocol execution, full message generation/parsing, SEPA/CAMT parity, and live
-PinTAN dialogs are the next porting slices.
+The remaining v1 work is mostly runtime confidence, broader replay fixtures,
+public API hardening, release documentation, and packaging review. The current
+readiness estimate and the Java migration map live in:
+
+- `docs/architecture/v1-readiness.md`
+- `docs/reference/java-to-rust-mapping.md`
+- `docs/reference/live-bank-tests.md`
 
 ## Development
 
@@ -34,8 +47,7 @@ cargo test
 cargo clippy --all-targets
 ```
 
-CI is offline-only. Live bank access, when added, must stay ignored and
-environment-gated.
+CI is offline-only. Live bank access stays ignored and environment-gated.
 
 Fetch the pinned Java reference locally when needed:
 

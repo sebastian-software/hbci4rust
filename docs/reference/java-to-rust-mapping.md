@@ -53,19 +53,61 @@ job.addToQueue();
 HBCIExecStatus status = handler.execute();
 ```
 
-Current Rust flow:
+The Rust v1 flow is async and keeps Java job names and parameter keys:
 
 ```rust
 let mut handler = HbciHandler::new("300", passport);
 let mut job = handler.new_job("SaldoReq")?;
 job.try_set_param("my.iban", iban)?;
 handler.try_add_to_queue(job)?;
-let status = handler.execute().await?;
+let status = handler.execute_with_tan2step().await?;
 ```
 
 Use `init().await` and `close().await` for explicit dialog lifecycle control
-when a test or client needs it. `execute().await` sends queued jobs through the
-current signed PinTAN `CustomMsg` path.
+around live-bank dialogs. `execute_with_tan2step().await` is the v1 public
+entry point closest to hbci4java's hidden PinTAN choreography for a queued
+business job.
+
+`execute().await` remains public, but it is the lower-level single-message
+primitive. Use it for replay tests, explicit choreography helpers, and cases
+where the queue already contains the exact FinTS message shape to send.
+
+| Rust handler method | Java-near use |
+| --- | --- |
+| `init().await` | Open a FinTS dialog and import BPD/UPD metadata. |
+| `try_add_to_queue(job)` | Verify constraints and enqueue one Java-named business job. |
+| `execute_with_tan2step().await` | Execute queued work with selected one-step or two-step PinTAN handling. |
+| `execute().await` | Send the current queue as one signed `CustomMsg` without extra TAN dispatch. |
+| `close().await` | Send dialog end and reset the dialog context. |
+
+For live PinTAN clients, the usual shape is:
+
+```rust
+use hbci4rust::{HbciHandler, HbciResult, PinTanPassport};
+
+async fn load_balance(passport: PinTanPassport, iban: &str) -> HbciResult<()> {
+    let mut handler = HbciHandler::new("300", passport);
+
+    handler.init().await?;
+
+    let mut job = handler.new_job("SaldoReq")?;
+    job.try_set_param("my.iban", iban)?;
+    handler.try_add_to_queue(job)?;
+
+    let status = handler.execute_with_tan2step().await?;
+    handler.close().await?;
+
+    if !status.success {
+        // Inspect status.global_return_values, status.segment_return_values,
+        // status.messages, and per-job result data.
+    }
+
+    Ok(())
+}
+```
+
+Tests can replace network I/O with `ReplayCommClient` and then inspect the
+recorded FinTS request bodies.
 
 ## Jobs And Parameters
 
@@ -143,6 +185,20 @@ impl HbciCallback for MyCallback {
 The Java `StringBuffer` and `ThreadSyncer` callback response style is not
 ported. Callback reason and data-type codes remain close to hbci4java and are
 covered by callback code mapping tests.
+
+Important v1 PinTAN reasons:
+
+| Reason | Typical response |
+| --- | --- |
+| `NeedPtPin` | Return the dialog PIN. |
+| `NeedPtTan` | Return the TAN for the current SCA challenge. |
+| `NeedPtSecMech` | Return the selected TAN mechanism id. |
+| `NeedPtTanMedia` | Return the selected TAN medium name. |
+| `NeedConnection` / `CloseConnection` | Observe transport lifecycle; usually return an empty accepted response. |
+| `HaveInstMsg` | Display or log institute messages. |
+
+Callbacks may receive `current_value` with challenge data, HHD/QR/photoTAN
+payloads, selected defaults, or lifecycle hints depending on the reason.
 
 ## Communication And Tests
 
