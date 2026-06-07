@@ -804,6 +804,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "Kontoauszug" => kontoauszug_constraints(),
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
         "TermUeb" => term_ueb_constraints(),
+        "TermUebDel" => term_ueb_del_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
@@ -921,6 +922,14 @@ fn term_ueb_constraints() -> Vec<HbciJobConstraint> {
     }
 
     constraints
+}
+
+fn term_ueb_del_constraints() -> Vec<HbciJobConstraint> {
+    vec![HbciJobConstraint::new(
+        "orderid",
+        "TermUebDel3.id",
+        None::<String>,
+    )]
 }
 
 fn classic_usage_name(index: usize) -> String {

@@ -1736,6 +1736,25 @@ fn term_ueb_exposes_original_near_v4_constraints() {
 }
 
 #[test]
+fn term_ueb_del_exposes_original_near_v3_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("TermUebDel").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 1);
+    assert_eq!(
+        job.constraint("orderid")
+            .expect("order id constraint")
+            .destination_name,
+        "TermUebDel3.id"
+    );
+
+    job.try_set_param("orderid", "ORDERDEL")
+        .expect("order id is accepted");
+    assert_eq!(job.lowlevel_param("TermUebDel3.id"), Some("ORDERDEL"));
+}
+
+#[test]
 fn term_ueb_list_exposes_original_near_v3_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -5768,6 +5787,93 @@ async fn handler_renders_and_collects_term_ueb_like_original() {
         ),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn handler_renders_term_ueb_del_like_original() {
+    let mut data = signed_pintan_data();
+    data.persistent_data.insert(
+        "termueb_ORDERDEL".to_owned(),
+        BTreeMap::from([
+            ("My.number".to_owned(), "1234567890".to_owned()),
+            ("My.KIK.country".to_owned(), "DE".to_owned()),
+            ("My.KIK.blz".to_owned(), "10020030".to_owned()),
+            ("Other.number".to_owned(), "99887766".to_owned()),
+            ("Other.KIK.country".to_owned(), "DE".to_owned()),
+            ("Other.KIK.blz".to_owned(), "20030040".to_owned()),
+            ("name".to_owned(), "Receiver Name".to_owned()),
+            ("BTG.value".to_owned(), "42.00".to_owned()),
+            ("BTG.curr".to_owned(), "EUR".to_owned()),
+            ("key".to_owned(), "51".to_owned()),
+            ("usage.usage".to_owned(), "Term usage one".to_owned()),
+            ("usage.usage_2".to_owned(), "Term usage two".to_owned()),
+            ("date".to_owned(), "2026-03-15".to_owned()),
+            ("status".to_owned(), "1".to_owned()),
+            ("canchange".to_owned(), "J".to_owned()),
+        ]),
+    );
+    let passport = passport_with_cached_pin(data);
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("TermUebDel").expect("job is in registry");
+    job.try_set_param("orderid", "ORDERDEL")
+        .expect("order id is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "TermUebDel");
+    assert!(status.job_results[0].success);
+    assert!(status.job_results[0].result.is_none());
+    assert!(
+        !status.job_results[0]
+            .result_data
+            .keys()
+            .any(|key| key.starts_with("content."))
+    );
+    assert!(
+        handler
+            .passport()
+            .get_persistent_data("termueb_ORDERDEL")
+            .is_some()
+    );
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKTUL:3:3+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Term usage one:Term usage two+20260315+ORDERDEL'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_rejects_term_ueb_del_without_snapshot_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("TermUebDel").expect("job is in registry");
+    job.try_set_param("orderid", "UNKNOWN")
+        .expect("order id is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let err = handler
+        .execute()
+        .await
+        .expect_err("missing term ueb snapshot is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("TermUebDel requires persistent data for termueb_UNKNOWN"),
+        "{err}"
+    );
+    assert_eq!(replay.requests().expect("requests").len(), 0);
 }
 
 #[tokio::test]

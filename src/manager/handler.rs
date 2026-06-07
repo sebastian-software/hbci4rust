@@ -33,6 +33,38 @@ use super::{
     collect_pintan_segment_codes, collect_pintan_signature_range,
 };
 
+const CLASSIC_INLAND_USER4_SNAPSHOT_SUFFIXES: &[&str] = &[
+    "My.number",
+    "My.subnumber",
+    "My.KIK.country",
+    "My.KIK.blz",
+    "Other.number",
+    "Other.subnumber",
+    "Other.KIK.country",
+    "Other.KIK.blz",
+    "name",
+    "name2",
+    "BTG.value",
+    "BTG.curr",
+    "key",
+    "addkey",
+    "usage.usage",
+    "usage.usage_2",
+    "usage.usage_3",
+    "usage.usage_4",
+    "usage.usage_5",
+    "usage.usage_6",
+    "usage.usage_7",
+    "usage.usage_8",
+    "usage.usage_9",
+    "usage.usage_10",
+    "usage.usage_11",
+    "usage.usage_12",
+    "usage.usage_13",
+    "usage.usage_14",
+    "date",
+];
+
 #[derive(Clone)]
 pub struct HbciHandler<C = DefaultCommClient> {
     hbci_version: String,
@@ -1079,6 +1111,7 @@ fn render_job_into_custom_message(
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
         "TermUeb" => render_term_ueb(message, job, index, passport),
+        "TermUebDel" => render_term_ueb_del(message, job, index, passport),
         "TermUebList" => render_term_ueb_list(message, job, index, passport),
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
         "TermUebSEPADel" => render_term_ueb_sepa_del(message, job, index, passport),
@@ -1313,6 +1346,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKTUE",
             lowlevel_segment: "TermUeb4",
             path: "CustomMsg.GV.TermUeb4",
+        }),
+        "TermUebDel" => Ok(OrderhashSourceJobInfo {
+            code: "HKTUL",
+            lowlevel_segment: "TermUebDel3",
+            path: "CustomMsg.GV.TermUebDel3",
         }),
         "TermUebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCSE",
@@ -2363,6 +2401,43 @@ fn render_term_ueb(
         "date",
         "TermUeb requires date",
     )?;
+
+    Ok(())
+}
+
+fn render_term_ueb_del(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "TermUebDel3";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let order_id = job_param_required(
+        job,
+        "TermUebDel3.id",
+        "orderid",
+        "TermUebDel requires orderid",
+    )?;
+    let snapshot_key = format!("termueb_{order_id}");
+    let snapshot = passport.get_persistent_data(&snapshot_key).ok_or_else(|| {
+        HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            format!("TermUebDel requires persistent data for {snapshot_key}"),
+        )
+    })?;
+
+    for suffix in CLASSIC_INLAND_USER4_SNAPSHOT_SUFFIXES {
+        if let Some(value) = snapshot.get(*suffix).filter(|value| !value.is_empty()) {
+            message.set_value(&format!("{segment}.{suffix}"), value)?;
+        }
+    }
+    message.set_value(&format!("{segment}.id"), order_id)?;
 
     Ok(())
 }
