@@ -9,7 +9,7 @@ use hbci4rust::{
     PinTanPassport, PinTanPassportData, ReplayCommClient, TanMethodSelection, UserSig, Value, done,
     init,
     protocol::{load_protocol_spec, parse_wire_message},
-    sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN},
+    sepa::{CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, PAIN_008_001_02_URN},
 };
 
 static RUNTIME_CALLBACK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -938,6 +938,54 @@ fn dauer_sepa_list_exposes_original_near_v2_constraints() {
             .expect("maxentries constraint")
             .destination_name,
         "DauerSEPAList2.maxentries"
+    );
+}
+
+#[test]
+fn dauer_last_sepa_list_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler
+        .new_job("DauerLastSEPAList")
+        .expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 9);
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban constraint")
+            .destination_name,
+        "DauerLastSEPAList1.My.iban"
+    );
+    assert_eq!(
+        job.constraint("src.bic")
+            .expect("source bic constraint")
+            .destination_name,
+        "DauerLastSEPAList1.My.bic"
+    );
+    assert_eq!(
+        job.constraint("src.subnumber")
+            .expect("source subnumber constraint")
+            .destination_name,
+        "DauerLastSEPAList1.My.subnumber"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_008_001_02_URN)
+    );
+    assert_eq!(
+        job.constraint("orderid")
+            .expect("orderid constraint")
+            .destination_name,
+        "DauerLastSEPAList1.orderid"
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "DauerLastSEPAList1.maxentries"
     );
 }
 
@@ -5723,6 +5771,166 @@ async fn handler_renders_and_collects_dauer_sepa_list_envelope_like_original() {
     assert!(
         body.contains(
             "HKCDB:3:2+DE02123456780000000000:MARKDEF1100+urn?:sepade?:xsd?:pain.001.001.02++10'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_dauer_last_sepa_list_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let pain = concat!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "<Document xmlns=\"urn:iso:std:iso:20022:tech:xsd:pain.008.001.02\">",
+        "<CstmrDrctDbtInitn>",
+        "<GrpHdr><InitgPty><Nm>Creditor Group Name</Nm></InitgPty></GrpHdr>",
+        "<PmtInf>",
+        "<PmtInfId>PMT-DLS</PmtInfId>",
+        "<PmtTpInf>",
+        "<SvcLvl><Cd>SEPA</Cd></SvcLvl>",
+        "<LclInstrm><Cd>CORE</Cd></LclInstrm>",
+        "<SeqTp>FRST</SeqTp>",
+        "</PmtTpInf>",
+        "<ReqdColltnDt>2026-01-02</ReqdColltnDt>",
+        "<Cdtr><Nm>Creditor Name</Nm></Cdtr>",
+        "<CdtrAcct><Id><IBAN>DE02123456780000000000</IBAN></Id></CdtrAcct>",
+        "<CdtrAgt><FinInstnId><BIC>MARKDEF1100</BIC></FinInstnId></CdtrAgt>",
+        "<CdtrSchmeId><Id><PrvtId><Othr><Id>DE98ZZZ09999999999</Id></Othr></PrvtId></Id></CdtrSchmeId>",
+        "<DrctDbtTxInf>",
+        "<PmtId><EndToEndId>E2E-DLS</EndToEndId></PmtId>",
+        "<InstdAmt Ccy=\"EUR\">19.95</InstdAmt>",
+        "<DrctDbtTx><MndtRltdInf><MndtId>MND-DLS</MndtId>",
+        "<DtOfSgntr>2026-01-04</DtOfSgntr></MndtRltdInf></DrctDbtTx>",
+        "<DbtrAgt><FinInstnId><BIC>DEUTDEDB277</BIC></FinInstnId></DbtrAgt>",
+        "<Dbtr><Nm>Debtor Name</Nm></Dbtr>",
+        "<DbtrAcct><Id><IBAN>DE99123456780000000000</IBAN></Id></DbtrAcct>",
+        "<Purp><Cd>GDDS</Cd></Purp>",
+        "<RmtInf><Ustrd>Recurring debit usage</Ustrd></RmtInf>",
+        "</DrctDbtTxInf>",
+        "</PmtInf>",
+        "</CstmrDrctDbtInitn>",
+        "</Document>",
+    );
+    let hiddb = format!(
+        "HIDDB:3:1+DE02123456780000000000:MARKDEF1100+urn?:iso?:std?:iso?:20022?:tech?:xsd?:pain.008.001.02+@{}@{}+ORDERDLS+20251101:M:1:1:20261231+J:20260101:20260201:2:2,00:EUR+J+N+J",
+        pain.len(),
+        pain
+    );
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        hiddb.as_str(),
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler
+        .new_job("DauerLastSEPAList")
+        .expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param_int("maxentries", 10)
+        .expect("max entries is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "DauerLastSEPAList");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.DauerDetails.firstdate")
+            .map(String::as_str),
+        Some("2025-11-01")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.sepapain")
+            .map(String::as_str),
+        Some(pain)
+    );
+
+    let Some(HbciJobResultData::DauerList(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected DauerList result data");
+    };
+    assert_eq!(result.entries.len(), 1);
+    let entry = &result.entries[0];
+    assert_eq!(entry.my.iban.as_deref(), Some("DE02123456780000000000"));
+    assert_eq!(entry.my.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(entry.other.name.as_deref(), Some("Debtor Name"));
+    assert_eq!(entry.other.iban.as_deref(), Some("DE99123456780000000000"));
+    assert_eq!(entry.other.bic.as_deref(), Some("DEUTDEDB277"));
+    assert_eq!(
+        entry.value.as_ref().map(|value| value.value.as_str()),
+        Some("19.95")
+    );
+    assert_eq!(
+        entry.value.as_ref().and_then(|value| value.curr.as_deref()),
+        Some("EUR")
+    );
+    assert_eq!(entry.usage, ["Recurring debit usage".to_owned()]);
+    assert_eq!(entry.pmtinfid.as_deref(), Some("PMT-DLS"));
+    assert_eq!(entry.purposecode.as_deref(), Some("GDDS"));
+    assert_eq!(entry.debit_type.as_deref(), Some("CORE"));
+    assert_eq!(entry.sequence_type.as_deref(), Some("FRST"));
+    assert_eq!(entry.creditor_id.as_deref(), Some("DE98ZZZ09999999999"));
+    assert_eq!(entry.mandate_id.as_deref(), Some("MND-DLS"));
+    assert_eq!(
+        entry.mandate_date_of_signature.as_deref(),
+        Some("2026-01-04")
+    );
+    assert_eq!(entry.end_to_end_id.as_deref(), Some("E2E-DLS"));
+    assert_eq!(entry.sepadescr.as_deref(), Some(PAIN_008_001_02_URN));
+    assert_eq!(entry.sepapain_raw.as_deref(), Some(pain));
+    assert_eq!(entry.orderid.as_deref(), Some("ORDERDLS"));
+    assert_eq!(entry.firstdate.as_deref(), Some("2025-11-01"));
+    assert_eq!(entry.timeunit.as_deref(), Some("M"));
+    assert_eq!(entry.turnus, Some(1));
+    assert_eq!(entry.execday, Some(1));
+    assert_eq!(entry.lastdate.as_deref(), Some("2026-12-31"));
+    assert!(entry.can_change);
+    assert!(!entry.can_skip);
+    assert!(entry.can_delete);
+    let aussetzung = entry.aussetzung.as_ref().expect("aussetzung");
+    assert!(aussetzung.annual);
+    assert_eq!(aussetzung.startdate.as_deref(), Some("2026-01-01"));
+    assert_eq!(aussetzung.enddate.as_deref(), Some("2026-02-01"));
+    assert_eq!(aussetzung.number.as_deref(), Some("2"));
+    assert_eq!(
+        aussetzung
+            .newvalue
+            .as_ref()
+            .map(|value| value.value.as_str()),
+        Some("2.00")
+    );
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("dauer_ORDERDLS")
+        .expect("dauer persistent data");
+    assert_eq!(snapshot.get("sepapain").map(String::as_str), Some(pain));
+    assert_eq!(
+        snapshot.get("DauerDetails.firstdate").map(String::as_str),
+        Some("2025-11-01")
+    );
+    assert_eq!(
+        snapshot
+            .get("Aussetzung.newvalue.value")
+            .map(String::as_str),
+        Some("2.00")
+    );
+    assert!(!snapshot.contains_key("orderid"));
+    assert!(!snapshot.keys().any(|key| key.starts_with("SegHead.")));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKDDB:3:1+DE02123456780000000000:MARKDEF1100+urn?:iso?:std?:iso?:20022?:tech?:xsd?:pain.008.001.02++10'"
         ),
         "{body}"
     );

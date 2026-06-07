@@ -908,6 +908,12 @@ pub struct GvrDauerListEntry {
     pub can_delete: bool,
     pub pmtinfid: Option<String>,
     pub purposecode: Option<String>,
+    pub debit_type: Option<String>,
+    pub sequence_type: Option<String>,
+    pub creditor_id: Option<String>,
+    pub mandate_id: Option<String>,
+    pub mandate_date_of_signature: Option<String>,
+    pub end_to_end_id: Option<String>,
     pub sepadescr: Option<String>,
     pub sepapain_raw: Option<String>,
 }

@@ -18,6 +18,9 @@ pub const PAIN_001_001_02_SCHEMA_LOCATION: &str =
 pub const PAIN_008_001_01_URN: &str = "urn:sepade:xsd:pain.008.001.01";
 pub const PAIN_008_001_01_SCHEMA_LOCATION: &str =
     "urn:sepade:xsd:pain.008.001.01 pain.008.001.01.xsd";
+pub const PAIN_008_001_02_URN: &str = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.02";
+pub const PAIN_008_001_02_SCHEMA_LOCATION: &str =
+    "urn:iso:std:iso:20022:tech:xsd:pain.008.001.02 pain.008.001.02.xsd";
 pub const CAMT_052_001_01_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.01";
 pub const CAMT_052_001_02_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.02";
 pub const CAMT_052_001_03_URN: &str = "urn:iso:std:iso:20022:tech:xsd:camt.052.001.03";
@@ -38,6 +41,24 @@ pub struct Pain001Transfer {
     pub end_to_end_id: Option<String>,
     pub payment_info_id: Option<String>,
     pub purpose_code: Option<String>,
+    pub batch_book: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pain008DirectDebit {
+    pub creditor: Konto,
+    pub debtor: Konto,
+    pub value: Option<Value>,
+    pub usage: Vec<String>,
+    pub collection_date: Option<String>,
+    pub end_to_end_id: Option<String>,
+    pub payment_info_id: Option<String>,
+    pub purpose_code: Option<String>,
+    pub debit_type: Option<String>,
+    pub sequence_type: Option<String>,
+    pub creditor_id: Option<String>,
+    pub mandate_id: Option<String>,
+    pub mandate_date_of_signature: Option<String>,
     pub batch_book: Option<String>,
 }
 
@@ -74,6 +95,14 @@ impl SepaVersion {
         1,
         PAIN_008_001_01_URN,
         "pain.008.001.01.xsd",
+    );
+    pub const PAIN_008_001_02: Self = Self::pain(
+        SepaKind::Pain008,
+        1,
+        2,
+        5,
+        PAIN_008_001_02_URN,
+        "pain.008.001.02.xsd",
     );
     pub const CAMT_052_001_01: Self = Self::camt(1, CAMT_052_001_01_URN, "camt.052.001.01.xsd");
     pub const CAMT_052_001_02: Self = Self::camt(2, CAMT_052_001_02_URN, "camt.052.001.02.xsd");
@@ -157,6 +186,7 @@ impl SepaVersion {
         &[
             Self::PAIN_001_001_02,
             Self::PAIN_008_001_01,
+            Self::PAIN_008_001_02,
             Self::CAMT_052_001_01,
             Self::CAMT_052_001_02,
             Self::CAMT_052_001_03,
@@ -227,6 +257,10 @@ pub fn parse_camt_report_shell(xml: &str, version: SepaVersion) -> HbciResult<Ve
 
 pub fn parse_pain_001_transfers(xml: &str) -> HbciResult<Vec<Pain001Transfer>> {
     parse_pain_001_transfer_shell(xml)
+}
+
+pub fn parse_pain_008_direct_debits(xml: &str) -> HbciResult<Vec<Pain008DirectDebit>> {
+    parse_pain_008_direct_debit_shell(xml)
 }
 
 pub fn generate_pain_001_001_02_transfer(sepa_params: &Properties) -> HbciResult<String> {
@@ -819,6 +853,240 @@ fn pain_001_transfer_from_parts(
         end_to_end_id: transfer.end_to_end_id,
         payment_info_id: payment.payment_info_id.clone(),
         purpose_code: transfer.purpose_code,
+        batch_book: payment.batch_book.clone(),
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct Pain008PaymentInfo {
+    creditor: Konto,
+    payment_info_id: Option<String>,
+    collection_date: Option<String>,
+    batch_book: Option<String>,
+    debit_type: Option<String>,
+    sequence_type: Option<String>,
+    creditor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Pain008DirectDebitDraft {
+    debtor: Konto,
+    value: Option<Value>,
+    usage: Vec<String>,
+    end_to_end_id: Option<String>,
+    purpose_code: Option<String>,
+    mandate_id: Option<String>,
+    mandate_date_of_signature: Option<String>,
+}
+
+fn parse_pain_008_direct_debit_shell(xml: &str) -> HbciResult<Vec<Pain008DirectDebit>> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+
+    let mut stack = Vec::new();
+    let mut direct_debits = Vec::new();
+    let mut group_initiator_name = None::<String>;
+    let mut payment = None::<Pain008PaymentInfo>;
+    let mut direct_debit = None::<Pain008DirectDebitDraft>;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(event)) => {
+                let name = local_name(event.name().as_ref());
+                if name == "PmtInf" {
+                    payment = Some(Pain008PaymentInfo::default());
+                } else if payment.is_some() && name == "DrctDbtTxInf" {
+                    direct_debit = Some(Pain008DirectDebitDraft::default());
+                } else if direct_debit.is_some()
+                    && name == "InstdAmt"
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(direct_debit) = &mut direct_debit
+                {
+                    direct_debit.value = Some(Value {
+                        value: String::new(),
+                        curr: Some(currency),
+                    });
+                }
+                stack.push(name);
+            }
+            Ok(Event::Empty(event)) => {
+                let name = local_name(event.name().as_ref());
+                if direct_debit.is_some()
+                    && name == "InstdAmt"
+                    && let Some(currency) = attr_value(&reader, &event, b"Ccy")?
+                    && let Some(direct_debit) = &mut direct_debit
+                {
+                    direct_debit.value = Some(Value {
+                        value: String::new(),
+                        curr: Some(currency),
+                    });
+                }
+            }
+            Ok(Event::Text(event)) => {
+                let text = event.decode().map_err(|err| {
+                    HbciError::with_source(
+                        HbciErrorKind::Protocol,
+                        "failed to decode XML text",
+                        err,
+                    )
+                })?;
+                let text = text.trim();
+                if !text.is_empty() {
+                    collect_pain_008_text(
+                        &stack,
+                        text,
+                        &mut group_initiator_name,
+                        &mut payment,
+                        &mut direct_debit,
+                    );
+                }
+            }
+            Ok(Event::End(event)) => {
+                let name = local_name(event.name().as_ref());
+                if name == "DrctDbtTxInf" {
+                    if let (Some(payment), Some(direct_debit)) = (&payment, direct_debit.take()) {
+                        direct_debits.push(pain_008_direct_debit_from_parts(
+                            payment,
+                            direct_debit,
+                            group_initiator_name.as_deref(),
+                        ));
+                    }
+                } else if name == "PmtInf" {
+                    payment = None;
+                }
+
+                stack.pop();
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(err) => {
+                return Err(HbciError::with_source(
+                    HbciErrorKind::Protocol,
+                    "failed to parse PAIN.008 document",
+                    err,
+                ));
+            }
+        }
+    }
+
+    Ok(direct_debits)
+}
+
+fn collect_pain_008_text(
+    stack: &[String],
+    text: &str,
+    group_initiator_name: &mut Option<String>,
+    payment: &mut Option<Pain008PaymentInfo>,
+    direct_debit: &mut Option<Pain008DirectDebitDraft>,
+) {
+    if let Some(direct_debit) = direct_debit {
+        collect_pain_008_direct_debit_text(stack, text, direct_debit);
+    } else if let Some(payment) = payment {
+        collect_pain_008_payment_text(stack, text, payment);
+    } else if path_ends_with(stack, &["GrpHdr", "InitgPty", "Nm"]) {
+        *group_initiator_name = Some(text.to_owned());
+    }
+}
+
+fn collect_pain_008_payment_text(stack: &[String], text: &str, payment: &mut Pain008PaymentInfo) {
+    if path_ends_with(stack, &["PmtInf", "PmtInfId"]) {
+        payment.payment_info_id = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "Cdtr", "Nm"]) {
+        payment.creditor.name = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "CdtrAcct", "Id", "IBAN"]) {
+        payment.creditor.iban = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "CdtrAgt", "FinInstnId", "BIC"])
+        || path_ends_with(stack, &["PmtInf", "CdtrAgt", "FinInstnId", "BICFI"])
+    {
+        payment.creditor.bic = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "ReqdColltnDt"])
+        || path_ends_with(stack, &["PmtInf", "ReqdColltnDt", "Dt"])
+    {
+        payment.collection_date = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "ReqdColltnDt", "DtTm"]) {
+        payment.collection_date = Some(text.chars().take(10).collect());
+    } else if path_ends_with(stack, &["PmtInf", "BtchBookg"]) {
+        payment.batch_book = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "PmtTpInf", "LclInstrm", "Cd"]) {
+        payment.debit_type = Some(text.to_owned());
+    } else if path_ends_with(stack, &["PmtInf", "PmtTpInf", "SeqTp"]) {
+        payment.sequence_type = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &["PmtInf", "CdtrSchmeId", "Id", "PrvtId", "Othr", "Id"],
+    ) || path_ends_with(
+        stack,
+        &["PmtInf", "CdtrSchmeId", "Id", "PrvtId", "OthrId", "Id"],
+    ) {
+        payment.creditor_id = Some(text.to_owned());
+    }
+}
+
+fn collect_pain_008_direct_debit_text(
+    stack: &[String],
+    text: &str,
+    direct_debit: &mut Pain008DirectDebitDraft,
+) {
+    if path_ends_with(stack, &["DrctDbtTxInf", "PmtId", "EndToEndId"]) {
+        direct_debit.end_to_end_id = Some(text.to_owned());
+    } else if path_ends_with(stack, &["DrctDbtTxInf", "Dbtr", "Nm"]) {
+        direct_debit.debtor.name = Some(text.to_owned());
+    } else if path_ends_with(stack, &["DrctDbtTxInf", "DbtrAcct", "Id", "IBAN"]) {
+        direct_debit.debtor.iban = Some(text.to_owned());
+    } else if path_ends_with(stack, &["DrctDbtTxInf", "DbtrAgt", "FinInstnId", "BIC"])
+        || path_ends_with(stack, &["DrctDbtTxInf", "DbtrAgt", "FinInstnId", "BICFI"])
+    {
+        direct_debit.debtor.bic = Some(text.to_owned());
+    } else if path_ends_with(stack, &["DrctDbtTxInf", "InstdAmt"]) {
+        if let Some(value) = &mut direct_debit.value {
+            value.value = normalize_decimal_amount(text);
+        } else {
+            direct_debit.value = Some(Value {
+                value: normalize_decimal_amount(text),
+                curr: None,
+            });
+        }
+    } else if path_ends_with(stack, &["DrctDbtTxInf", "RmtInf", "Ustrd"]) {
+        direct_debit.usage.push(text.to_owned());
+    } else if path_ends_with(stack, &["DrctDbtTxInf", "Purp", "Cd"]) {
+        direct_debit.purpose_code = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &["DrctDbtTxInf", "DrctDbtTx", "MndtRltdInf", "MndtId"],
+    ) {
+        direct_debit.mandate_id = Some(text.to_owned());
+    } else if path_ends_with(
+        stack,
+        &["DrctDbtTxInf", "DrctDbtTx", "MndtRltdInf", "DtOfSgntr"],
+    ) {
+        direct_debit.mandate_date_of_signature = Some(text.to_owned());
+    }
+}
+
+fn pain_008_direct_debit_from_parts(
+    payment: &Pain008PaymentInfo,
+    direct_debit: Pain008DirectDebitDraft,
+    group_initiator_name: Option<&str>,
+) -> Pain008DirectDebit {
+    let mut creditor = payment.creditor.clone();
+    if creditor.name.is_none() {
+        creditor.name = group_initiator_name.map(str::to_owned);
+    }
+
+    Pain008DirectDebit {
+        creditor,
+        debtor: direct_debit.debtor,
+        value: direct_debit.value,
+        usage: direct_debit.usage,
+        collection_date: payment.collection_date.clone(),
+        end_to_end_id: direct_debit.end_to_end_id,
+        payment_info_id: payment.payment_info_id.clone(),
+        purpose_code: direct_debit.purpose_code,
+        debit_type: payment.debit_type.clone(),
+        sequence_type: payment.sequence_type.clone(),
+        creditor_id: payment.creditor_id.clone(),
+        mandate_id: direct_debit.mandate_id,
+        mandate_date_of_signature: direct_debit.mandate_date_of_signature,
         batch_book: payment.batch_book.clone(),
     }
 }

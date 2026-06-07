@@ -7,7 +7,7 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv_result::{Konto, Value};
 use crate::protocol::normalize_iso_date;
 use crate::sepa::{
-    CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN,
+    CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, PAIN_008_001_02_URN,
     generate_pain_001_001_02_transfer, generate_pain_008_001_01_direct_debit,
 };
 use crate::tools::Properties;
@@ -824,6 +824,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
         "DauerSEPANew" => dauer_sepa_new_constraints(),
+        "DauerLastSEPAList" => dauer_last_sepa_list_constraints(),
         "DauerLastSEPANew" => dauer_last_sepa_new_constraints(),
         "FestCondList" => fest_cond_list_constraints(),
         "FestList" => fest_list_constraints(),
@@ -883,6 +884,24 @@ fn dauer_sepa_list_constraints() -> Vec<HbciJobConstraint> {
         ),
         HbciJobConstraint::new("orderid", "DauerSEPAList2.orderid", Some("")),
         HbciJobConstraint::new("maxentries", "DauerSEPAList2.maxentries", Some("")),
+    ]
+}
+
+fn dauer_last_sepa_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("src.bic", "DauerLastSEPAList1.My.bic", None::<String>),
+        HbciJobConstraint::new("src.iban", "DauerLastSEPAList1.My.iban", None::<String>),
+        HbciJobConstraint::new("src.country", "DauerLastSEPAList1.My.KIK.country", Some("")),
+        HbciJobConstraint::new("src.blz", "DauerLastSEPAList1.My.KIK.blz", Some("")),
+        HbciJobConstraint::new("src.number", "DauerLastSEPAList1.My.number", Some("")),
+        HbciJobConstraint::new("src.subnumber", "DauerLastSEPAList1.My.subnumber", Some("")),
+        HbciJobConstraint::new(
+            "_sepadescriptor",
+            "DauerLastSEPAList1.sepadescr",
+            Some(PAIN_008_001_02_URN),
+        ),
+        HbciJobConstraint::new("orderid", "DauerLastSEPAList1.orderid", Some("")),
+        HbciJobConstraint::new("maxentries", "DauerLastSEPAList1.maxentries", Some("")),
     ]
 }
 

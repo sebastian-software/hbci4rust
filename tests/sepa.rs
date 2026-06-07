@@ -1,8 +1,9 @@
 use hbci4rust::sepa::{
     CAMT_052_001_01_URN, CAMT_052_001_02_URN, CAMT_052_001_04_URN, CAMT_052_001_07_URN,
     CAMT_052_001_08_URN, ENDTOEND_ID_NOTPROVIDED, PAIN_001_001_02_URN, PAIN_008_001_01_URN,
-    SepaKind, SepaVersion, generate_pain_001_001_02_transfer,
+    PAIN_008_001_02_URN, SepaKind, SepaVersion, generate_pain_001_001_02_transfer,
     generate_pain_008_001_01_direct_debit, parse_camt_report_shell, parse_pain_001_transfers,
+    parse_pain_008_direct_debits,
 };
 use hbci4rust::{HbciErrorKind, Properties};
 
@@ -291,6 +292,76 @@ fn pain_008_generator_writes_single_direct_debit_defaults_like_original() {
     assert!(xml.contains(r#"<InstdAmt Ccy="EUR">12.30</InstdAmt>"#));
     assert!(xml.contains("<Dbtr><Nm>Debtor Name</Nm></Dbtr>"));
     assert!(xml.contains("<Ustrd>Direct debit usage</Ustrd>"));
+}
+
+#[test]
+fn pain_008_parser_reads_direct_debit_fields_like_original() {
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="{PAIN_008_001_02_URN}">
+  <CstmrDrctDbtInitn>
+    <GrpHdr><InitgPty><Nm>Creditor Group Name</Nm></InitgPty></GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMT-DLS</PmtInfId>
+      <PmtTpInf>
+        <SvcLvl><Cd>SEPA</Cd></SvcLvl>
+        <LclInstrm><Cd>CORE</Cd></LclInstrm>
+        <SeqTp>FRST</SeqTp>
+      </PmtTpInf>
+      <ReqdColltnDt>2026-01-02</ReqdColltnDt>
+      <Cdtr><Nm>Creditor Name</Nm></Cdtr>
+      <CdtrAcct><Id><IBAN>DE02123456780000000000</IBAN></Id></CdtrAcct>
+      <CdtrAgt><FinInstnId><BIC>MARKDEF1100</BIC></FinInstnId></CdtrAgt>
+      <CdtrSchmeId><Id><PrvtId><Othr><Id>DE98ZZZ09999999999</Id></Othr></PrvtId></Id></CdtrSchmeId>
+      <DrctDbtTxInf>
+        <PmtId><EndToEndId>E2E-DLS</EndToEndId></PmtId>
+        <InstdAmt Ccy="EUR">19.95</InstdAmt>
+        <DrctDbtTx><MndtRltdInf><MndtId>MND-DLS</MndtId><DtOfSgntr>2026-01-04</DtOfSgntr></MndtRltdInf></DrctDbtTx>
+        <DbtrAgt><FinInstnId><BIC>DEUTDEDB277</BIC></FinInstnId></DbtrAgt>
+        <Dbtr><Nm>Debtor Name</Nm></Dbtr>
+        <DbtrAcct><Id><IBAN>DE99123456780000000000</IBAN></Id></DbtrAcct>
+        <Purp><Cd>GDDS</Cd></Purp>
+        <RmtInf><Ustrd>Recurring debit usage</Ustrd></RmtInf>
+      </DrctDbtTxInf>
+    </PmtInf>
+  </CstmrDrctDbtInitn>
+</Document>"#
+    );
+
+    let debits = parse_pain_008_direct_debits(&xml).expect("PAIN.008.001.02 parses");
+
+    assert_eq!(debits.len(), 1);
+    let debit = &debits[0];
+    assert_eq!(debit.creditor.name.as_deref(), Some("Creditor Name"));
+    assert_eq!(
+        debit.creditor.iban.as_deref(),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(debit.creditor.bic.as_deref(), Some("MARKDEF1100"));
+    assert_eq!(debit.debtor.name.as_deref(), Some("Debtor Name"));
+    assert_eq!(debit.debtor.iban.as_deref(), Some("DE99123456780000000000"));
+    assert_eq!(debit.debtor.bic.as_deref(), Some("DEUTDEDB277"));
+    assert_eq!(
+        debit.value.as_ref().map(|value| value.value.as_str()),
+        Some("19.95")
+    );
+    assert_eq!(
+        debit.value.as_ref().and_then(|value| value.curr.as_deref()),
+        Some("EUR")
+    );
+    assert_eq!(debit.usage, ["Recurring debit usage".to_owned()]);
+    assert_eq!(debit.collection_date.as_deref(), Some("2026-01-02"));
+    assert_eq!(debit.end_to_end_id.as_deref(), Some("E2E-DLS"));
+    assert_eq!(debit.payment_info_id.as_deref(), Some("PMT-DLS"));
+    assert_eq!(debit.purpose_code.as_deref(), Some("GDDS"));
+    assert_eq!(debit.debit_type.as_deref(), Some("CORE"));
+    assert_eq!(debit.sequence_type.as_deref(), Some("FRST"));
+    assert_eq!(debit.creditor_id.as_deref(), Some("DE98ZZZ09999999999"));
+    assert_eq!(debit.mandate_id.as_deref(), Some("MND-DLS"));
+    assert_eq!(
+        debit.mandate_date_of_signature.as_deref(),
+        Some("2026-01-04")
+    );
 }
 
 #[test]

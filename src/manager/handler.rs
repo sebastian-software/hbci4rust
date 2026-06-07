@@ -24,7 +24,8 @@ use crate::passport::{
 };
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
 use crate::sepa::{
-    CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, parse_pain_001_transfers,
+    CAMT_052_001_01_URN, PAIN_001_001_02_URN, PAIN_008_001_01_URN, PAIN_008_001_02_URN,
+    parse_pain_001_transfers, parse_pain_008_direct_debits,
 };
 use crate::swift::decode_umlauts;
 use crate::tools::Properties;
@@ -1110,6 +1111,7 @@ fn render_job_into_custom_message(
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
+        "DauerLastSEPAList" => render_dauer_last_sepa_list(message, job, index, passport),
         "DauerLastSEPANew" => render_dauer_last_sepa_new(message, job, index, passport),
         "FestCondList" => render_fest_cond_list(message, job, index),
         "FestList" => render_fest_list(message, job, index, passport),
@@ -1371,6 +1373,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKDDE",
             lowlevel_segment: "DauerLastSEPANew1",
             path: "CustomMsg.GV.DauerLastSEPANew1",
+        }),
+        "DauerLastSEPAList" => Ok(OrderhashSourceJobInfo {
+            code: "HKDDB",
+            lowlevel_segment: "DauerLastSEPAList1",
+            path: "CustomMsg.GV.DauerLastSEPAList1",
         }),
         "DauerSEPAEdit" => Ok(OrderhashSourceJobInfo {
             code: "HKCDN",
@@ -1716,6 +1723,14 @@ fn dauer_last_sepa_new_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.DauerLastSEPANewRes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.DauerLastSEPANewRes1", index + 1)
+    }
+}
+
+fn dauer_last_sepa_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.DauerLastSEPAListRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.DauerLastSEPAListRes1", index + 1)
     }
 }
 
@@ -2317,6 +2332,46 @@ fn render_dauer_sepa_list(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "DauerSEPAList2.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_dauer_last_sepa_list(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.DauerLastSEPAList1");
+    let account = effective_job_my_account(job, passport, "DauerLastSEPAList1", "src");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerLastSEPAList requires src.iban, src.number, or a passport account for the current DauerLastSEPAList1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "DauerLastSEPAList1.sepadescr", "_sepadescriptor")
+            .unwrap_or(PAIN_008_001_02_URN),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.orderid"),
+        job_param(job, "DauerLastSEPAList1.orderid", "orderid"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "DauerLastSEPAList1.maxentries", "maxentries"),
     )?;
 
     Ok(())
@@ -4811,6 +4866,9 @@ impl ParsedResponseStatus {
             "DauerSEPAList" => self
                 .dauer_list_result_for_root(dauer_sepa_list_response_root(index))
                 .map(HbciJobResultData::DauerList),
+            "DauerLastSEPAList" => self
+                .dauer_last_sepa_list_result_for_root(dauer_last_sepa_list_response_root(index))
+                .map(HbciJobResultData::DauerList),
             "DauerSEPANew" => self
                 .dauer_new_result_for_root(dauer_sepa_new_response_root(index))
                 .map(HbciJobResultData::DauerNew),
@@ -4900,6 +4958,9 @@ impl ParsedResponseStatus {
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
+            "DauerLastSEPAList" => {
+                self.content_result_data([dauer_last_sepa_list_response_root(index)])
+            }
             "DauerLastSEPANew" => {
                 self.content_result_data([dauer_last_sepa_new_response_root(index)])
             }
@@ -5008,6 +5069,13 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         Some(GvrDauerList {
             entries: vec![dauer_list_entry_from_values(&self.values, &root)],
+        })
+    }
+
+    fn dauer_last_sepa_list_result_for_root(&self, root: String) -> Option<GvrDauerList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrDauerList {
+            entries: vec![dauer_last_sepa_list_entry_from_values(&self.values, &root)],
         })
     }
 
@@ -5625,6 +5693,78 @@ fn dauer_list_entry_from_values(
         purposecode: pain_transfer
             .as_ref()
             .and_then(|transfer| transfer.purpose_code.clone()),
+        debit_type: None,
+        sequence_type: None,
+        creditor_id: None,
+        mandate_id: None,
+        mandate_date_of_signature: None,
+        end_to_end_id: None,
+        sepadescr: optional_value(values, &format!("{prefix}.sepadescr")),
+        sepapain_raw,
+    }
+}
+
+fn dauer_last_sepa_list_entry_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> GvrDauerListEntry {
+    let sepapain_raw = optional_value(values, &format!("{prefix}.sepapain"));
+    let direct_debit = sepapain_raw
+        .as_deref()
+        .and_then(|pain| parse_pain_008_direct_debits(pain).ok())
+        .and_then(|direct_debits| direct_debits.into_iter().next());
+
+    GvrDauerListEntry {
+        my: ktv_int_account_from_values(values, &format!("{prefix}.My")),
+        other: direct_debit
+            .as_ref()
+            .map(|direct_debit| direct_debit.debtor.clone())
+            .unwrap_or_default(),
+        value: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.value.clone()),
+        key: None,
+        addkey: None,
+        usage: direct_debit
+            .as_ref()
+            .map(|direct_debit| direct_debit.usage.clone())
+            .unwrap_or_default(),
+        nextdate: None,
+        orderid: optional_value(values, &format!("{prefix}.orderid")),
+        firstdate: optional_value(values, &format!("{prefix}.DauerDetails.firstdate")),
+        timeunit: optional_value(values, &format!("{prefix}.DauerDetails.timeunit")),
+        turnus: optional_i32(values, &format!("{prefix}.DauerDetails.turnus")),
+        execday: optional_i32(values, &format!("{prefix}.DauerDetails.execday")),
+        exectime: optional_value(values, &format!("{prefix}.DauerDetails.exectime")),
+        lastdate: optional_value(values, &format!("{prefix}.DauerDetails.lastdate")),
+        aussetzung: dauer_list_aussetzung_from_values(values, &format!("{prefix}.Aussetzung")),
+        can_change: optional_jn(values, &format!("{prefix}.canchange")).unwrap_or(true),
+        can_skip: optional_jn(values, &format!("{prefix}.canskip")).unwrap_or(true),
+        can_delete: optional_jn(values, &format!("{prefix}.candel")).unwrap_or(true),
+        pmtinfid: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.payment_info_id.clone()),
+        purposecode: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.purpose_code.clone()),
+        debit_type: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.debit_type.clone()),
+        sequence_type: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.sequence_type.clone()),
+        creditor_id: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.creditor_id.clone()),
+        mandate_id: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.mandate_id.clone()),
+        mandate_date_of_signature: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.mandate_date_of_signature.clone()),
+        end_to_end_id: direct_debit
+            .as_ref()
+            .and_then(|direct_debit| direct_debit.end_to_end_id.clone()),
         sepadescr: optional_value(values, &format!("{prefix}.sepadescr")),
         sepapain_raw,
     }
@@ -5737,7 +5877,7 @@ fn update_passport_job_persistent_data_from_results(
 ) {
     for (job, result) in jobs.iter().zip(results) {
         match result.job_name.as_str() {
-            "DauerList" | "DauerSEPAList" => {
+            "DauerList" | "DauerSEPAList" | "DauerLastSEPAList" => {
                 let Some(order_id) = result
                     .result_data
                     .get("content.orderid")
