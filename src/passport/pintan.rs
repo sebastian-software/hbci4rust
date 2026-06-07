@@ -13,6 +13,8 @@ pub struct PinTanPassport {
     data: PinTanPassportData,
     #[serde(skip)]
     sca: PinTanScaState,
+    #[serde(skip)]
+    pin: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +52,7 @@ impl PinTanPassport {
         Self {
             data,
             sca: PinTanScaState::default(),
+            pin: None,
         }
     }
 
@@ -67,6 +70,18 @@ impl PinTanPassport {
 
     pub fn clear_sca_state(&mut self) {
         self.sca = PinTanScaState::default();
+    }
+
+    pub fn pin(&self) -> Option<&str> {
+        self.pin.as_deref()
+    }
+
+    pub fn set_pin(&mut self, pin: impl Into<String>) {
+        self.pin = Some(pin.into());
+    }
+
+    pub fn clear_pin(&mut self) {
+        self.pin = None;
     }
 
     pub fn host(&self) -> Option<&str> {

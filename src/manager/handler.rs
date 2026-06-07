@@ -110,6 +110,11 @@ where
         request_tan_for_sca(&self.passport, callback.as_deref()).await
     }
 
+    pub async fn request_pin(&mut self) -> HbciResult<String> {
+        let callback = super::callback();
+        request_pin(&mut self.passport, callback.as_deref()).await
+    }
+
     pub fn add_to_queue(&mut self, job: HbciJob) {
         self.queue.push(job);
     }
@@ -544,6 +549,39 @@ fn format_sca_challenge_message(secmech: &Properties, challenge: &str) -> String
         .unwrap_or("null");
 
     format!("{name}\n{inputinfo}\n\n{challenge}")
+}
+
+async fn request_pin(
+    passport: &mut PinTanPassport,
+    callback: Option<&dyn HbciCallback>,
+) -> HbciResult<String> {
+    if let Some(pin) = passport.pin() {
+        return Ok(pin.to_owned());
+    }
+    let Some(callback) = callback else {
+        return Err(HbciError::new(
+            HbciErrorKind::Callback,
+            "callback required for PIN",
+        ));
+    };
+
+    let response = callback
+        .handle(CallbackEvent {
+            reason: CallbackReason::NeedPtPin,
+            message: "Please enter your PIN for PIN/TAN now".to_owned(),
+            data_type: CallbackDataType::Secret,
+            current_value: None,
+        })
+        .await?;
+    let Some(pin) = response.value.filter(|value| !value.is_empty()) else {
+        return Err(HbciError::new(
+            HbciErrorKind::Callback,
+            "PIN must not be of length zero",
+        ));
+    };
+
+    passport.set_pin(pin.clone());
+    Ok(pin)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

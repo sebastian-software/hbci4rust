@@ -3228,6 +3228,105 @@ async fn handler_errors_when_tan_callback_returns_empty_value() {
 }
 
 #[tokio::test]
+async fn handler_requests_pin_once_and_caches_response() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(ScriptedCallback {
+            events: events.clone(),
+            responses: Arc::new(Mutex::new(VecDeque::from([CallbackResponse::value(
+                "12345",
+            )]))),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+
+    let first = handler.request_pin().await.expect("PIN callback succeeds");
+    let second = handler.request_pin().await.expect("cached PIN is reused");
+
+    assert_eq!(first, "12345");
+    assert_eq!(second, "12345");
+    assert_eq!(handler.passport().pin(), Some("12345"));
+
+    let events = events.lock().expect("callback event lock");
+    let pin_events = events
+        .iter()
+        .filter(|event| event.reason == CallbackReason::NeedPtPin)
+        .collect::<Vec<_>>();
+    assert_eq!(pin_events.len(), 1);
+    assert_eq!(pin_events[0].data_type, CallbackDataType::Secret);
+    assert_eq!(
+        pin_events[0].message,
+        "Please enter your PIN for PIN/TAN now"
+    );
+    assert_eq!(pin_events[0].current_value, None);
+    drop(events);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_reuses_cached_pin_without_callback() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(RecordingCallback {
+            events: events.clone(),
+        }),
+    )
+    .expect("runtime init");
+
+    let mut passport = PinTanPassport::new(PinTanPassportData::default());
+    passport.set_pin("cached-pin");
+    let mut handler = HbciHandler::new("300", passport);
+
+    let pin = handler.request_pin().await.expect("cached PIN is reused");
+
+    assert_eq!(pin, "cached-pin");
+    assert!(
+        events
+            .lock()
+            .expect("callback event lock")
+            .iter()
+            .all(|event| event.reason != CallbackReason::NeedPtPin)
+    );
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
+async fn handler_errors_when_pin_callback_returns_empty_value() {
+    let _guard = RUNTIME_CALLBACK_TEST_LOCK.lock().await;
+    done().expect("runtime reset");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    init(
+        BTreeMap::<String, String>::new(),
+        Arc::new(ScriptedCallback {
+            events,
+            responses: Arc::new(Mutex::new(VecDeque::from([CallbackResponse::empty()]))),
+        }),
+    )
+    .expect("runtime init");
+
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let mut handler = HbciHandler::new("300", passport);
+
+    let err = handler
+        .request_pin()
+        .await
+        .expect_err("empty PIN is rejected");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Callback);
+    assert_eq!(handler.passport().pin(), None);
+    done().expect("runtime reset");
+}
+
+#[tokio::test]
 async fn handler_renders_kums_all_request_like_original() {
     let passport = PinTanPassport::new(PinTanPassportData {
         host: Some("https://fints.example.test/fints".to_owned()),

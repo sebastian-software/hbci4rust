@@ -1,4 +1,4 @@
-use hbci4rust::{HbciErrorKind, UserSig};
+use hbci4rust::{HbciErrorKind, PinTanPassport, PinTanPassportData, UserSig};
 
 #[test]
 fn usersig_encodes_pin_and_tan_like_hbci4java() {
@@ -52,4 +52,17 @@ fn usersig_rejects_non_latin1_text() {
         UserSig::encode(Some("1234"), Some("\u{1F510}")).expect_err("non-latin1 TAN is rejected");
 
     assert_eq!(err.kind(), HbciErrorKind::Unsupported);
+}
+
+#[test]
+fn pintan_passport_caches_and_clears_runtime_pin() {
+    let mut passport = PinTanPassport::new(PinTanPassportData::default());
+
+    assert_eq!(passport.pin(), None);
+
+    passport.set_pin("12345");
+    assert_eq!(passport.pin(), Some("12345"));
+
+    passport.clear_pin();
+    assert_eq!(passport.pin(), None);
 }
