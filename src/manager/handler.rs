@@ -9,11 +9,12 @@ use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
     GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond, GvrFestCondList,
-    GvrInfoList, GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms,
-    GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo, GvrTanList,
-    GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
-    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrFestList, GvrFestListEntry, GvrFestListProlong, GvrInfoList, GvrInfoListInfo, GvrInfoOrder,
+    GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus,
+    GvrStatusEntry, GvrTanInfo, GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList,
+    GvrTermUeb, GvrTermUebEdit, GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus,
+    HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus,
+    HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1054,6 +1055,7 @@ fn render_job_into_custom_message(
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
         "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
         "FestCondList" => render_fest_cond_list(message, job, index),
+        "FestList" => render_fest_list(message, job, index, passport),
         "InfoList" => render_info_list(message, job, index),
         "InfoOrder" => render_info_order(message, job, index),
         "InstUebSEPA" => render_inst_ueb_sepa(message, job, index, passport),
@@ -1365,6 +1367,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "FestCondList3",
             path: "CustomMsg.GV.FestCondList3",
         }),
+        "FestList" => Ok(OrderhashSourceJobInfo {
+            code: "HKFGB",
+            lowlevel_segment: "FestList4",
+            path: "CustomMsg.GV.FestList4",
+        }),
         "VoPAuth" => Ok(OrderhashSourceJobInfo {
             code: "HKVPA",
             lowlevel_segment: "VoPAuth1",
@@ -1446,6 +1453,14 @@ fn fest_cond_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.FestCondListRes3".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.FestCondListRes3", index + 1)
+    }
+}
+
+fn fest_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.FestListRes4".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.FestListRes4", index + 1)
     }
 }
 
@@ -1682,6 +1697,35 @@ fn render_fest_cond_list(message: &mut HbciMessage, job: &HbciJob, index: usize)
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "FestCondList3.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_fest_list(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.FestList4");
+    let account = effective_job_account(job, passport, "FestList4", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "FestList requires my.number or a passport account for the current FestList4 renderer",
+        ));
+    }
+
+    set_national_account_values(message, &segment, &account)?;
+    message.set_value(
+        &format!("{segment}.allaccounts"),
+        job_param(job, "FestList4.allaccounts", "dummy").unwrap_or("N"),
     )?;
 
     Ok(())
@@ -3048,6 +3092,9 @@ impl ParsedResponseStatus {
             "FestCondList" => self
                 .fest_cond_list_result_for_root(fest_cond_list_response_root(index))
                 .map(HbciJobResultData::FestCondList),
+            "FestList" => self
+                .fest_list_result_for_root(fest_list_response_root(index))
+                .map(HbciJobResultData::FestList),
             "InfoList" => self
                 .info_list_result_for_root(info_list_response_root(index))
                 .map(HbciJobResultData::InfoList),
@@ -3098,6 +3145,7 @@ impl ParsedResponseStatus {
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
             "FestCondList" => self.content_result_data([fest_cond_list_response_root(index)]),
+            "FestList" => self.content_result_data([fest_list_response_root(index)]),
             "InfoList" => self.content_result_data([info_list_response_root(index)]),
             "InfoOrder" => self.content_result_data([info_order_response_root(index)]),
             "InstUebSEPA" => self.content_result_data([inst_ueb_sepa_response_root(index)]),
@@ -3224,6 +3272,13 @@ impl ParsedResponseStatus {
             .collect();
 
         Some(GvrFestCondList { entries })
+    }
+
+    fn fest_list_result_for_root(&self, root: String) -> Option<GvrFestList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrFestList {
+            entries: vec![fest_list_entry_from_values(&self.values, &root)],
+        })
     }
 
     fn status_response_roots(&self) -> Vec<String> {
@@ -3433,6 +3488,38 @@ fn fest_cond_from_values(
         version: optional_value(values, &format!("{root}.FestCondVersion.version")),
         date: optional_value(values, &format!("{root}.FestCondVersion.date")),
         time: optional_value(values, &format!("{root}.FestCondVersion.time")),
+    })
+}
+
+fn fest_list_entry_from_values(values: &BTreeMap<String, String>, root: &str) -> GvrFestListEntry {
+    GvrFestListEntry {
+        anlagekonto: national_account_from_values(values, &format!("{root}.Anlagekto")),
+        belastungskonto: national_account_from_values(values, &format!("{root}.Belastungskto")),
+        ausbuchungskonto: national_account_from_values(values, &format!("{root}.Ausbuchungskto")),
+        zinskonto: national_account_from_values(values, &format!("{root}.Zinskto")),
+        id: optional_value(values, &format!("{root}.kontakt")),
+        anlagebetrag: value_from_values(values, &format!("{root}.Anlagebetrag")),
+        zinsbetrag: value_from_values(values, &format!("{root}.Zinsbetrag")),
+        konditionen: fest_cond_from_values(values, root, &format!("{root}.FestCond")),
+        verlaengern: optional_value(values, &format!("{root}.wiederanlage"))
+            .is_some_and(|value| value == "2"),
+        kontoauszug: optional_i32(values, &format!("{root}.kontoauszug")).unwrap_or_default(),
+        status: optional_i32(values, &format!("{root}.status")).unwrap_or_default(),
+        verlaengerung: fest_list_prolong_from_values(values, &format!("{root}.Prolong")),
+    }
+}
+
+fn fest_list_prolong_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Option<GvrFestListProlong> {
+    let laufzeit = optional_i32(values, &format!("{prefix}.laufzeit"))?;
+
+    Some(GvrFestListProlong {
+        laufzeit,
+        betrag: value_from_values(values, &format!("{prefix}.BTG")),
+        verlaengern: optional_value(values, &format!("{prefix}.wiederanlage"))
+            .is_some_and(|value| value == "2"),
     })
 }
 

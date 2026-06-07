@@ -436,6 +436,7 @@ impl HbciJob {
             "KUmsAll" | "KUmsAllCamt" | "KUmsNew" | "SaldoReq" | "SaldoReqAll" => {
                 self.check_account_crc("my", callback).await
             }
+            "FestList" => self.check_account_crc("my", callback).await,
             _ => Ok(()),
         }
     }
@@ -752,6 +753,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "DauerSEPADel" => dauer_sepa_del_constraints(),
         "DauerSEPANew" => dauer_sepa_new_constraints(),
         "FestCondList" => fest_cond_list_constraints(),
+        "FestList" => fest_list_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
@@ -1309,6 +1311,16 @@ fn fest_cond_list_constraints() -> Vec<HbciJobConstraint> {
     vec![
         HbciJobConstraint::new("curr", "FestCondList3.curr", Some("EUR")),
         HbciJobConstraint::new("maxentries", "FestCondList3.maxentries", Some("")),
+    ]
+}
+
+fn fest_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.number", "FestList4.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "FestList4.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("my.blz", "FestList4.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.country", "FestList4.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dummy", "FestList4.allaccounts", Some("N")),
     ]
 }
 

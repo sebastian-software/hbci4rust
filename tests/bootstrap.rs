@@ -718,6 +718,49 @@ fn fest_cond_list_exposes_original_near_constraints() {
 }
 
 #[test]
+fn fest_list_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("FestList").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 5);
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("account number constraint")
+            .destination_name,
+        "FestList4.KTV.number"
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("bank code constraint")
+            .destination_name,
+        "FestList4.KTV.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("dummy")
+            .expect("all accounts constraint")
+            .default_value
+            .as_deref(),
+        Some("N")
+    );
+    assert_eq!(job.constraint("maxentries"), None);
+
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    assert_eq!(
+        job.lowlevel_param("FestList4.KTV.number"),
+        Some("1234567890")
+    );
+}
+
+#[test]
 fn dauer_sepa_list_exposes_original_near_v2_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -7148,6 +7191,122 @@ async fn handler_collects_fest_cond_list_result_like_original() {
     assert_eq!(second.zinssatz, Some(2500));
     assert_eq!(second.zinsmethode, Some(GvrFestCond::METHOD_30_365));
     assert!(second.maxbetrag.is_none());
+}
+
+#[tokio::test]
+async fn handler_renders_fest_list_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut fest_list = handler.new_job("FestList").expect("job is in registry");
+    fest_list
+        .try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    fest_list
+        .try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+
+    handler.add_to_queue(fest_list);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "FestList");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains("HKFGB:3:4+1234567890::280:10020030++N'"),
+        "{body}"
+    );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_collects_fest_list_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIFGB:3:4+55555::280:10020030+FEST-ID+10000,00:EUR+20240701:20250701:1,234:A:1000,00:EUR:50000,00:EUR:COND1:One year+1234567890::280:10020030+J+2+1+22222::280:10020030+33333::280:10020030+CONDVER1:20240601:120000+123,45:EUR+1+12:11000,00:EUR:2",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut job = handler.new_job("FestList").expect("job is in registry");
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "FestList");
+    assert_eq!(
+        result
+            .result_data
+            .get("content.FestCond.condid")
+            .map(String::as_str),
+        Some("COND1")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.Prolong.laufzeit")
+            .map(String::as_str),
+        Some("12")
+    );
+
+    let Some(HbciJobResultData::FestList(fest_list)) = result.result.as_ref() else {
+        panic!("expected FestList result data");
+    };
+    assert_eq!(fest_list.entries.len(), 1);
+
+    let entry = &fest_list.entries[0];
+    assert_eq!(entry.id.as_deref(), Some("FEST-ID"));
+    assert!(entry.verlaengern);
+    assert_eq!(entry.kontoauszug, 1);
+    assert_eq!(entry.status, 1);
+    assert_eq!(
+        entry
+            .anlagekonto
+            .as_ref()
+            .and_then(|account| account.number.as_deref()),
+        Some("55555")
+    );
+    assert_eq!(
+        entry
+            .belastungskonto
+            .as_ref()
+            .and_then(|account| account.country.as_deref()),
+        Some("DE")
+    );
+    assert_eq!(
+        entry
+            .anlagebetrag
+            .as_ref()
+            .map(|value| value.value.as_str()),
+        Some("10000.00")
+    );
+    assert_eq!(
+        entry.zinsbetrag.as_ref().map(|value| value.value.as_str()),
+        Some("123.45")
+    );
+
+    let condition = entry.konditionen.as_ref().expect("condition");
+    assert_eq!(condition.id.as_deref(), Some("COND1"));
+    assert_eq!(condition.zinssatz, Some(1234));
+    assert_eq!(condition.zinsmethode, Some(GvrFestCond::METHOD_30_360));
+    assert_eq!(condition.version.as_deref(), Some("CONDVER1"));
+
+    let prolong = entry.verlaengerung.as_ref().expect("prolongation");
+    assert_eq!(prolong.laufzeit, 12);
+    assert!(prolong.verlaengern);
+    assert_eq!(
+        prolong.betrag.as_ref().map(|value| value.curr.as_deref()),
+        Some(Some("EUR"))
+    );
 }
 
 #[tokio::test]

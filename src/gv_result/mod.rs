@@ -654,6 +654,7 @@ pub enum HbciJobResultData {
     DauerList(GvrDauerList),
     DauerNew(GvrDauerNew),
     FestCondList(GvrFestCondList),
+    FestList(GvrFestList),
     InfoList(GvrInfoList),
     InfoOrder(GvrInfoOrder),
     InstUebSepa(GvrInstUebSepa),
@@ -746,6 +747,34 @@ pub struct GvrFestCond {
     pub version: Option<String>,
     pub date: Option<String>,
     pub time: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrFestList {
+    pub entries: Vec<GvrFestListEntry>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrFestListEntry {
+    pub anlagekonto: Option<Konto>,
+    pub belastungskonto: Option<Konto>,
+    pub ausbuchungskonto: Option<Konto>,
+    pub zinskonto: Option<Konto>,
+    pub id: Option<String>,
+    pub anlagebetrag: Option<Value>,
+    pub zinsbetrag: Option<Value>,
+    pub konditionen: Option<GvrFestCond>,
+    pub verlaengern: bool,
+    pub kontoauszug: i32,
+    pub status: i32,
+    pub verlaengerung: Option<GvrFestListProlong>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrFestListProlong {
+    pub laufzeit: i32,
+    pub betrag: Option<Value>,
+    pub verlaengern: bool,
 }
 
 impl GvrFestCond {
