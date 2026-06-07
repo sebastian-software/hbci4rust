@@ -79,6 +79,7 @@ Evidence:
 - ADR 0268
 - ADR 0269
 - ADR 0270
+- ADR 0271
 
 ## Protocol And Offline Parity
 

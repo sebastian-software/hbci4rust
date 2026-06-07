@@ -382,10 +382,10 @@ impl HbciJob {
 
         let params = self.sepa_generation_params(lowlevel_segment);
         let xml = match self.name.as_str() {
-            "DauerLastSEPANew" | "LastB2BSEPA" | "LastCOR1SEPA" | "LastSEPA" => {
+            "DauerLastSEPANew" | "LastB2BSEPA" | "LastSEPA" => {
                 generate_pain_008_001_01_direct_debit(&params)?
             }
-            "MultiLastB2BSEPA" | "MultiLastCOR1SEPA" | "MultiLastSEPA" => {
+            "MultiLastB2BSEPA" | "MultiLastSEPA" => {
                 let total = sum_sepa_transaction_values(&params)?;
                 self.set_frontend_and_lowlevel_param("Total.value", total.value);
                 if let Some(currency) = total.curr {
@@ -415,10 +415,8 @@ impl HbciJob {
             "DauerLastSEPANew" => Some("DauerLastSEPANew1"),
             "InstUebSEPA" => Some("InstUebSEPA1"),
             "LastB2BSEPA" => Some("LastB2BSEPA1"),
-            "LastCOR1SEPA" => Some("LastCOR1SEPA1"),
             "LastSEPA" => Some("LastSEPA1"),
             "MultiLastB2BSEPA" => Some("SammelLastB2BSEPA1"),
-            "MultiLastCOR1SEPA" => Some("SammelLastCOR1SEPA1"),
             "MultiLastSEPA" => Some("SammelLastSEPA1"),
             "MultiUebSEPA" => Some("SammelUebSEPA1"),
             "TermMultiUebSEPA" => Some("TermSammelUebSEPA1"),
@@ -472,11 +470,7 @@ impl HbciJob {
     fn sepa_generation_param_name(&self, name: &str) -> String {
         if matches!(
             self.name.as_str(),
-            "MultiLastB2BSEPA"
-                | "MultiLastCOR1SEPA"
-                | "MultiLastSEPA"
-                | "MultiUebSEPA"
-                | "TermMultiUebSEPA"
+            "MultiLastB2BSEPA" | "MultiLastSEPA" | "MultiUebSEPA" | "TermMultiUebSEPA"
         ) {
             name.to_owned()
         } else {
@@ -883,11 +877,9 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "InfoOrder" => info_order_constraints(),
         "Last" => last_constraints(),
         "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
-        "LastCOR1SEPA" => last_sepa_constraints("LastCOR1SEPA1", "COR1"),
         "LastSEPA" => last_sepa_constraints("LastSEPA1", "CORE"),
         "MultiLast" => multi_last_constraints(),
         "MultiLastB2BSEPA" => multi_last_sepa_constraints("SammelLastB2BSEPA1", "B2B"),
-        "MultiLastCOR1SEPA" => multi_last_sepa_constraints("SammelLastCOR1SEPA1", "COR1"),
         "MultiLastSEPA" => multi_last_sepa_constraints("SammelLastSEPA1", "CORE"),
         "MultiUeb" => multi_ueb_constraints(),
         "Kontoauszug" => kontoauszug_constraints(),
