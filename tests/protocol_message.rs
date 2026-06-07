@@ -268,6 +268,59 @@ fn renders_custom_message_with_repeated_saldo_gv() {
 }
 
 #[test]
+fn renders_hktan_challenge_params_with_middle_gaps_like_original_challenge_info_deg_test() {
+    let syntax = load_protocol_spec("300")
+        .expect("known protocol version loads")
+        .parse_syntax()
+        .expect("syntax parses");
+
+    let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg").expect("message tree builds");
+
+    set_all(
+        &mut message,
+        [
+            ("CustomMsg.MsgHead.dialogid", "H11051813102140"),
+            ("CustomMsg.MsgHead.msgnum", "3"),
+            ("CustomMsg.MsgTail.msgnum", "3"),
+            ("CustomMsg.GV.TAN2Step5", "requested"),
+            ("CustomMsg.GV.TAN2Step5.process", "1"),
+            ("CustomMsg.GV.TAN2Step5.ordersegcode", "HKDAN"),
+            ("CustomMsg.GV.TAN2Step5.OrderAccount.number", "12345678"),
+            ("CustomMsg.GV.TAN2Step5.OrderAccount.KIK.country", "DE"),
+            ("CustomMsg.GV.TAN2Step5.OrderAccount.KIK.blz", "12345678"),
+            ("CustomMsg.GV.TAN2Step5.orderhash", "B12345"),
+            ("CustomMsg.GV.TAN2Step5.notlasttan", "N"),
+            ("CustomMsg.GV.TAN2Step5.challengeklass", "43"),
+            ("CustomMsg.GV.TAN2Step5.ChallengeKlassParams.param2", "201,"),
+            (
+                "CustomMsg.GV.TAN2Step5.ChallengeKlassParams.param3",
+                "12345",
+            ),
+            (
+                "CustomMsg.GV.TAN2Step5.ChallengeKlassParams.param5",
+                "Param 5",
+            ),
+        ],
+    );
+
+    message
+        .prepare_outgoing()
+        .expect("message sequences and size are prepared");
+    let rendered = message.to_fints_string().expect("message renders");
+    let msg_size = message
+        .value("CustomMsg.MsgHead.msgsize")
+        .expect("message size is set");
+
+    assert_eq!(msg_size, format!("{:012}", rendered.len()));
+    assert_eq!(
+        rendered,
+        "HNHBK:1:3+000000000139+300+H11051813102140+3'\
+         HKTAN:2:5+1+HKDAN+::12345678::280:12345678+@5@12345+++N+++43+:201,:12345::Param 5'\
+         HNHBS:3:1+3'"
+    );
+}
+
+#[test]
 fn renders_hbci_quoted_data_element_values() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
