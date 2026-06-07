@@ -124,7 +124,7 @@ Evidence:
 - [x] v1 uses the Rust-native encrypted PinTAN passport format.
 - [x] Storage tests cover roundtrips of persistent data.
 - [x] Runtime PIN caching and clearing are tested.
-- [ ] Release candidate reviews KDF, AEAD, and envelope metadata against ADR
+- [x] Release candidate reviews KDF, AEAD, and envelope metadata against ADR
   0008 and current dependency docs.
 - [ ] A persisted-format migration test is added before the first storage
   format revision.
@@ -134,7 +134,9 @@ Evidence:
 - `src/passport/storage.rs`
 - `src/passport/pintan.rs`
 - `tests/passport.rs`
+- `docs/reference/passport-storage-security.md`
 - ADR 0008
+- ADR 0251
 
 ## License, Packaging, And Metadata
 

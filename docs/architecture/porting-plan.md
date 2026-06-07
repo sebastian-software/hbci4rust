@@ -56,5 +56,7 @@ Out:
   PinTAN dialog smoke hook.
 - `docs/reference/packaging.md` records crate metadata, package-list, and
   attribution review for release hardening.
+- `docs/reference/passport-storage-security.md` records the KDF, AEAD, envelope,
+  and validation review for Rust-native PinTAN passport storage.
 - `docs/architecture/release-checklist.md` records the operational v1 release
   acceptance checks.

@@ -73,6 +73,9 @@ TanMethodOption
 Out-of-v1 boundaries remain unchanged: no chipcard, PCSC, CTAPI, DDV,
 RDH/RAH/RSA key-file live support, or Java passport import/export.
 
+The storage security review is recorded in
+`docs/reference/passport-storage-security.md`.
+
 ## Callback Surface
 
 Callbacks are async and event/response based:

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng};
-use chacha20poly1305::{Key, XChaCha20Poly1305};
+use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -14,7 +14,10 @@ use crate::passport::PinTanPassportData;
 const FORMAT: &str = "hbci4rust-pintan-passport";
 const VERSION: u8 = 1;
 const SALT_LEN: usize = 16;
+const NONCE_LEN: usize = 24;
 const KEY_LEN: usize = 32;
+const KDF_ALGORITHM: &str = "argon2id";
+const AEAD_ALGORITHM: &str = "xchacha20poly1305";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Envelope {
@@ -39,15 +42,10 @@ pub struct PassportStorage;
 
 impl PassportStorage {
     pub fn save_to_vec(data: &PinTanPassportData, passphrase: &[u8]) -> HbciResult<Vec<u8>> {
-        if passphrase.is_empty() {
-            return Err(HbciError::new(
-                HbciErrorKind::InvalidArgument,
-                "passport passphrase must not be empty",
-            ));
-        }
+        validate_passphrase(passphrase)?;
 
         let kdf = KdfParams {
-            algorithm: "argon2id".to_owned(),
+            algorithm: KDF_ALGORITHM.to_owned(),
             memory_cost_kib: 19 * 1024,
             time_cost: 2,
             parallelism: 1,
@@ -77,7 +75,7 @@ impl PassportStorage {
             format: FORMAT.to_owned(),
             version: VERSION,
             kdf,
-            aead: "xchacha20poly1305".to_owned(),
+            aead: AEAD_ALGORITHM.to_owned(),
             salt: salt.to_vec(),
             nonce: nonce.to_vec(),
             ciphertext,
@@ -93,6 +91,8 @@ impl PassportStorage {
     }
 
     pub fn load_from_slice(bytes: &[u8], passphrase: &[u8]) -> HbciResult<PinTanPassportData> {
+        validate_passphrase(passphrase)?;
+
         let envelope: Envelope = serde_json::from_slice(bytes).map_err(|err| {
             HbciError::with_source(
                 HbciErrorKind::Storage,
@@ -101,20 +101,13 @@ impl PassportStorage {
             )
         })?;
 
-        if envelope.format != FORMAT || envelope.version != VERSION {
-            return Err(HbciError::new(
-                HbciErrorKind::Storage,
-                "unsupported passport envelope format",
-            ));
-        }
+        validate_envelope(&envelope)?;
 
         let mut key_bytes = derive_key(passphrase, &envelope.salt, &envelope.kdf)?;
         let cipher = XChaCha20Poly1305::new(Key::from_slice(&key_bytes));
+        let nonce = XNonce::from_slice(&envelope.nonce);
         let plaintext = cipher
-            .decrypt(
-                envelope.nonce.as_slice().into(),
-                envelope.ciphertext.as_slice(),
-            )
+            .decrypt(nonce, envelope.ciphertext.as_slice())
             .map_err(|err| {
                 HbciError::with_source(HbciErrorKind::Storage, "failed to decrypt passport", err)
             })?;
@@ -148,8 +141,54 @@ impl PassportStorage {
     }
 }
 
+fn validate_passphrase(passphrase: &[u8]) -> HbciResult<()> {
+    if passphrase.is_empty() {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "passport passphrase must not be empty",
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_envelope(envelope: &Envelope) -> HbciResult<()> {
+    if envelope.format != FORMAT || envelope.version != VERSION {
+        return Err(HbciError::new(
+            HbciErrorKind::Storage,
+            "unsupported passport envelope format",
+        ));
+    }
+    if envelope.aead != AEAD_ALGORITHM {
+        return Err(HbciError::new(
+            HbciErrorKind::Storage,
+            "unsupported passport AEAD",
+        ));
+    }
+    if envelope.salt.len() != SALT_LEN {
+        return Err(HbciError::new(
+            HbciErrorKind::Storage,
+            "invalid passport salt length",
+        ));
+    }
+    if envelope.nonce.len() != NONCE_LEN {
+        return Err(HbciError::new(
+            HbciErrorKind::Storage,
+            "invalid passport nonce length",
+        ));
+    }
+    if envelope.ciphertext.is_empty() {
+        return Err(HbciError::new(
+            HbciErrorKind::Storage,
+            "invalid passport ciphertext",
+        ));
+    }
+
+    Ok(())
+}
+
 fn derive_key(passphrase: &[u8], salt: &[u8], params: &KdfParams) -> HbciResult<[u8; KEY_LEN]> {
-    if params.algorithm != "argon2id" {
+    if params.algorithm != KDF_ALGORITHM {
         return Err(HbciError::new(
             HbciErrorKind::Storage,
             "unsupported passport KDF",

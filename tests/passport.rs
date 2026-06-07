@@ -1,5 +1,6 @@
 use hbci4rust::tools::Properties;
-use hbci4rust::{HbciErrorKind, PinTanPassport, PinTanPassportData, UserSig};
+use hbci4rust::{HbciErrorKind, PassportStorage, PinTanPassport, PinTanPassportData, UserSig};
+use serde_json::Value;
 
 #[test]
 fn usersig_encodes_pin_and_tan_like_hbci4java() {
@@ -94,4 +95,108 @@ fn pintan_passport_stores_rust_native_persistent_data() {
         Some(data)
     );
     assert!(passport.get_persistent_data("dauer_ORDER123").is_none());
+}
+
+#[test]
+fn passport_storage_envelope_records_reviewed_crypto_metadata() {
+    let data = storage_passport_data();
+    let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
+        .expect("passport saves");
+    let envelope: Value = serde_json::from_slice(&bytes).expect("envelope is JSON");
+
+    assert_eq!(envelope["format"], "hbci4rust-pintan-passport");
+    assert_eq!(envelope["version"], 1);
+    assert_eq!(envelope["kdf"]["algorithm"], "argon2id");
+    assert_eq!(envelope["kdf"]["memory_cost_kib"], 19 * 1024);
+    assert_eq!(envelope["kdf"]["time_cost"], 2);
+    assert_eq!(envelope["kdf"]["parallelism"], 1);
+    assert_eq!(envelope["aead"], "xchacha20poly1305");
+    assert_eq!(envelope["salt"].as_array().expect("salt array").len(), 16);
+    assert_eq!(envelope["nonce"].as_array().expect("nonce array").len(), 24);
+    assert!(
+        !envelope["ciphertext"]
+            .as_array()
+            .expect("ciphertext array")
+            .is_empty()
+    );
+
+    let text = String::from_utf8(bytes).expect("envelope is utf-8 JSON");
+    assert!(!text.contains("secret-user"));
+    assert!(!text.contains("secret-tan-media"));
+    assert!(!text.contains("dauer_SECRET"));
+}
+
+#[test]
+fn passport_storage_rejects_empty_passphrases_on_save_and_load() {
+    let data = storage_passport_data();
+    let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
+        .expect("passport saves");
+
+    let save_err =
+        PassportStorage::save_to_vec(&data, b"").expect_err("empty save passphrase is rejected");
+    let load_err = PassportStorage::load_from_slice(&bytes, b"")
+        .expect_err("empty load passphrase is rejected");
+
+    assert_eq!(save_err.kind(), HbciErrorKind::InvalidArgument);
+    assert_eq!(load_err.kind(), HbciErrorKind::InvalidArgument);
+}
+
+#[test]
+fn passport_storage_rejects_wrong_passphrase_and_tampered_metadata() {
+    let data = storage_passport_data();
+    let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
+        .expect("passport saves");
+
+    let wrong_passphrase = PassportStorage::load_from_slice(&bytes, b"wrong passphrase")
+        .expect_err("wrong passphrase cannot decrypt");
+    assert_eq!(wrong_passphrase.kind(), HbciErrorKind::Storage);
+    assert_eq!(wrong_passphrase.message(), "failed to decrypt passport");
+
+    let mut envelope: Value = serde_json::from_slice(&bytes).expect("envelope parses");
+
+    envelope["aead"] = Value::String("aes-gcm".to_owned());
+    let err = PassportStorage::load_from_slice(
+        &serde_json::to_vec(&envelope).expect("tampered envelope serializes"),
+        b"correct horse battery staple",
+    )
+    .expect_err("unsupported AEAD is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Storage);
+    assert_eq!(err.message(), "unsupported passport AEAD");
+
+    envelope["aead"] = Value::String("xchacha20poly1305".to_owned());
+    envelope["nonce"] = Value::Array(Vec::new());
+    let err = PassportStorage::load_from_slice(
+        &serde_json::to_vec(&envelope).expect("tampered envelope serializes"),
+        b"correct horse battery staple",
+    )
+    .expect_err("invalid nonce is rejected before decrypt");
+    assert_eq!(err.kind(), HbciErrorKind::Storage);
+    assert_eq!(err.message(), "invalid passport nonce length");
+
+    envelope["nonce"] =
+        serde_json::from_slice::<Value>(&bytes).expect("envelope parses")["nonce"].clone();
+    envelope["kdf"]["algorithm"] = Value::String("pbkdf2".to_owned());
+    let err = PassportStorage::load_from_slice(
+        &serde_json::to_vec(&envelope).expect("tampered envelope serializes"),
+        b"correct horse battery staple",
+    )
+    .expect_err("unsupported KDF is rejected");
+    assert_eq!(err.kind(), HbciErrorKind::Storage);
+    assert_eq!(err.message(), "unsupported passport KDF");
+}
+
+fn storage_passport_data() -> PinTanPassportData {
+    PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "secret-user".to_owned(),
+        customer_id: Some("secret-customer".to_owned()),
+        tan_media: Some("secret-tan-media".to_owned()),
+        persistent_data: std::collections::BTreeMap::from([(
+            "dauer_SECRET".to_owned(),
+            Properties::from([("DauerDetails.firstdate".to_owned(), "2026-01-02".to_owned())]),
+        )]),
+        ..PinTanPassportData::default()
+    }
 }
