@@ -155,6 +155,10 @@ where
         self.dialog = dialog_context_from_init_values(&values)?;
         self.dialog_status = HbciDialogStatus::new();
         self.dialog_status.set_init_status(init_status);
+        if let Some(init_status) = self.dialog_status.init_status.as_ref() {
+            self.passport
+                .update_allowed_twostep_mechanisms_from_status(init_status);
+        }
         self.passport
             .update_parameter_data_from_values(&values, "DialogInitRes");
         self.passport

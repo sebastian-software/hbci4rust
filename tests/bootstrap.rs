@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use hbci4rust::{
     CallbackDataType, CallbackEvent, CallbackReason, CallbackResponse, ChallengeInfo, CommResponse,
-    HbciCallback, HbciHandler, HbciJobResultData, HbciResult, Konto, Limit, OrderHashMode,
-    PassportStorage, PinTanPassport, PinTanPassportData, ReplayCommClient, Value, done, init,
+    HbciCallback, HbciHandler, HbciJobResultData, HbciMsgStatus, HbciResult, HbciReturnValue,
+    HbciStatus, Konto, Limit, OrderHashMode, PassportStorage, PinTanPassport, PinTanPassportData,
+    ReplayCommClient, Value, done, init,
     protocol::{load_protocol_spec, parse_wire_message},
     sepa::CAMT_052_001_01_URN,
 };
@@ -1588,6 +1589,7 @@ fn rust_native_passport_storage_roundtrips() {
             "2".to_owned(),
         )]),
         twostep_mechanisms: BTreeMap::new(),
+        allowed_twostep_mechanisms: vec!["921".to_owned(), "922".to_owned()],
     };
 
     let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
@@ -1768,6 +1770,43 @@ fn passport_extracts_twostep_mechanisms_from_bpd_like_hbci4java_set_bpd() {
 }
 
 #[test]
+fn passport_imports_allowed_twostep_mechanisms_from_3920_return_values() {
+    let mut passport = PinTanPassport::new(PinTanPassportData {
+        allowed_twostep_mechanisms: vec!["900".to_owned()],
+        ..PinTanPassportData::default()
+    });
+    let mut first = HbciReturnValue::new("3920", "Zugelassene TAN-Verfahren");
+    first.params = vec!["921".to_owned(), "922".to_owned(), "921".to_owned()];
+    let mut second = HbciReturnValue::new("3920", "Weitere TAN-Verfahren");
+    second.params = vec!["923".to_owned(), String::new()];
+    let mut ignored = HbciReturnValue::new("0010", "OK");
+    ignored.params = vec!["999".to_owned()];
+    let status = HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([first, ignored]),
+        HbciStatus::from_return_values([second]),
+    );
+
+    let updated = passport.update_allowed_twostep_mechanisms_from_status(&status);
+
+    assert_eq!(updated, 3);
+    assert_eq!(passport.allowed_twostep_mechanisms(), ["921", "922", "923"]);
+    assert_eq!(
+        passport.update_allowed_twostep_mechanisms_from_status(&status),
+        0
+    );
+
+    let empty_status = HbciMsgStatus::from_statuses(
+        HbciStatus::from_return_values([HbciReturnValue::new("3920", "Keine Parameter")]),
+        HbciStatus::default(),
+    );
+    assert_eq!(
+        passport.update_allowed_twostep_mechanisms_from_status(&empty_status),
+        0
+    );
+    assert_eq!(passport.allowed_twostep_mechanisms(), ["921", "922", "923"]);
+}
+
+#[test]
 fn passport_imports_bpd_and_upd_parameter_data_from_dialog_init_values() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
@@ -1859,6 +1898,29 @@ async fn handler_init_imports_upd_accounts_from_replay_response() {
 
     let size = &body["HNHBK:1:3+".len().."HNHBK:1:3+".len() + 12];
     assert_eq!(size, format!("{:012}", body.len()));
+}
+
+#[tokio::test]
+async fn handler_init_imports_allowed_twostep_mechanisms_from_3920_response() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        country: "DE".to_owned(),
+        blz: "12345678".to_owned(),
+        host: Some("https://fints.example.test/fints".to_owned()),
+        user_id: "user".to_owned(),
+        customer_id: Some("customer".to_owned()),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+3920::Zugelassene TAN-Verfahren:922:921:922+0010::Initialisiert",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+
+    handler.init().await.expect("dialog init replay response");
+
+    assert_eq!(
+        handler.passport().allowed_twostep_mechanisms(),
+        ["921", "922"]
+    );
 }
 
 #[tokio::test]

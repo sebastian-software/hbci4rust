@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::gv_result::{Konto, Limit, Value};
+use crate::dialog::KnownReturncode;
+use crate::gv_result::{HbciMsgStatus, Konto, Limit, Value};
 use crate::tools::{ParameterFinder, ParameterQuery, Properties};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +80,10 @@ impl PinTanPassport {
 
     pub fn twostep_mechanisms(&self) -> &BTreeMap<String, Properties> {
         &self.data.twostep_mechanisms
+    }
+
+    pub fn allowed_twostep_mechanisms(&self) -> &[String] {
+        &self.data.allowed_twostep_mechanisms
     }
 
     pub fn only_bpd_gvs(&self) -> bool {
@@ -255,6 +260,29 @@ impl PinTanPassport {
         updated
     }
 
+    pub fn update_allowed_twostep_mechanisms_from_status(
+        &mut self,
+        status: &HbciMsgStatus,
+    ) -> usize {
+        let mut mechanisms = status
+            .return_values_for_code(KnownReturncode::W3920)
+            .into_iter()
+            .flat_map(|value| value.params.iter())
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        mechanisms.sort();
+        mechanisms.dedup();
+
+        if mechanisms.is_empty() || mechanisms == self.data.allowed_twostep_mechanisms {
+            return 0;
+        }
+
+        let updated = mechanisms.len();
+        self.data.allowed_twostep_mechanisms = mechanisms;
+        updated
+    }
+
     pub fn tan2step_parameter(&self, name: &str) -> Option<String> {
         if let Some(value) = self
             .current_twostep_mechanism()
@@ -387,6 +415,8 @@ pub struct PinTanPassportData {
     pub bpd_parameters: Properties,
     #[serde(default)]
     pub twostep_mechanisms: BTreeMap<String, Properties>,
+    #[serde(default)]
+    pub allowed_twostep_mechanisms: Vec<String>,
 }
 
 fn fill_from_account(account: &mut Konto, source: &Konto) {
