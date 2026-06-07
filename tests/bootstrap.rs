@@ -3415,6 +3415,158 @@ async fn handler_prepares_process2_step1_hktan_asks_callback_for_required_tan_me
 }
 
 #[tokio::test]
+async fn handler_auto_queues_process2_hktan_for_tan_required_task() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        tan_media: Some("push-app".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    handler
+        .try_add_to_queue_with_initial_tan_job(saldo)
+        .expect("task and HKTAN queue");
+
+    assert_eq!(handler.queued_jobs().len(), 2);
+    assert_eq!(handler.queued_jobs()[0].name(), "SaldoReq");
+    assert_eq!(handler.queued_jobs()[1].name(), "TAN2Step");
+    assert_eq!(handler.queued_jobs()[1].param("process"), Some("4"));
+    assert_eq!(
+        handler.queued_jobs()[1].param("ordersegcode"),
+        Some("HKSAL")
+    );
+    assert_eq!(handler.queued_jobs()[1].param("tanmedia"), Some("push-app"));
+
+    let status = handler.execute().await.expect("replay response");
+    assert!(status.success);
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 6);
+    assert!(
+        body.contains("HKSAL:3:7+DE02123456780000000000:MARKDEF1100:0001234567::280:12345678+N'")
+    );
+    let hktan = fints_segment(&body, "HKTAN");
+    let fields = hktan.split('+').collect::<Vec<_>>();
+    assert_eq!(fields.get(1).copied(), Some("4"));
+    assert_eq!(fields.get(2).copied(), Some("HKSAL"));
+    assert_eq!(fields.last().copied(), Some("push-app"));
+}
+
+#[test]
+fn handler_auto_queue_keeps_non_tan_required_task_without_hktan() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "N".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let mut handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    handler
+        .try_add_to_queue_with_initial_tan_job(saldo)
+        .expect("only task queues");
+
+    assert_eq!(handler.queued_jobs().len(), 1);
+    assert_eq!(handler.queued_jobs()[0].name(), "SaldoReq");
+}
+
+#[test]
+fn handler_auto_queue_rejects_process1_tan_required_task_until_multimessage_support() {
+    let passport = passport_with_cached_pin(PinTanPassportData {
+        tan_method: Some("921".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.segcode".to_owned(),
+                "HKSAL".to_owned(),
+            ),
+            (
+                "Params.PinTanPar1.ParPinTan.PinTanGV1.needtan".to_owned(),
+                "J".to_owned(),
+            ),
+            (
+                "Params.SaldoPar7.SegHead.code".to_owned(),
+                "HISALS".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.secfunc".to_owned(),
+                "921".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.process".to_owned(),
+                "1".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..signed_pintan_data()
+    });
+    let mut handler = HbciHandler::new("300", passport);
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo.set_param_account("my", &giro_account());
+
+    let err = handler
+        .try_add_to_queue_with_initial_tan_job(saldo)
+        .expect_err("process 1 auto queueing is not available yet");
+
+    assert_eq!(err.kind(), hbci4rust::HbciErrorKind::Unsupported);
+    assert_eq!(
+        err.message(),
+        "process-1 automatic HKTAN queueing requires multi-message execution"
+    );
+    assert!(handler.queued_jobs().is_empty());
+}
+
+#[tokio::test]
 async fn handler_prepares_process2_hktan_from_stored_hitan_orderref() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let replay = ReplayCommClient::new([Ok(custom_msg_response(&[

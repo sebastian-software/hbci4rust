@@ -187,6 +187,16 @@ where
         Ok(())
     }
 
+    pub fn try_add_to_queue_with_initial_tan_job(&mut self, mut job: HbciJob) -> HbciResult<()> {
+        job.verify_constraints()?;
+        let hktan = self.initial_tan_job_for_queue(&job)?;
+        self.queue.push(job);
+        if let Some(hktan) = hktan {
+            self.queue.push(hktan);
+        }
+        Ok(())
+    }
+
     pub async fn try_add_to_queue_with_account_checks(
         &mut self,
         mut job: HbciJob,
@@ -200,6 +210,42 @@ where
 
     pub fn queued_jobs(&self) -> &[HbciJob] {
         &self.queue
+    }
+
+    fn initial_tan_job_for_queue(&self, task: &HbciJob) -> HbciResult<Option<HbciJob>> {
+        if task.name() == "TAN2Step" {
+            return Ok(None);
+        }
+        if self
+            .passport
+            .current_tan_method()
+            .unwrap_or(ONESTEP_TAN_METHOD_ID)
+            == ONESTEP_TAN_METHOD_ID
+        {
+            return Ok(None);
+        }
+
+        let task_info = orderhash_source_job_info(task.name())?;
+        if self
+            .passport
+            .pin_tan_info_for_segment_code(task_info.code)
+            .as_deref()
+            != Some("J")
+        {
+            return Ok(None);
+        }
+        if self.passport.tan2step_parameter("process").as_deref() == Some("1") {
+            return Err(HbciError::new(
+                HbciErrorKind::Unsupported,
+                "process-1 automatic HKTAN queueing requires multi-message execution",
+            ));
+        }
+
+        let tan_media = self.passport.tan_media_for_hktan_without_callback();
+        let mut hktan =
+            new_tan2step_process2_step1_job(&self.registry, task, tan_media.as_deref())?;
+        hktan.verify_constraints()?;
+        Ok(Some(hktan))
     }
 
     pub async fn init(&mut self) -> HbciResult<()> {
