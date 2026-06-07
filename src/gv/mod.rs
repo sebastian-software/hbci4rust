@@ -703,6 +703,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "KUmsAll" => kums_all_constraints(),
         "KUmsAllCamt" => kums_all_camt_constraints(),
         "KUmsNew" => kums_new_constraints(),
+        "KUmsZeitSEPA" => kums_zeit_sepa_constraints(),
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
         "TANMediaList" => tan_media_list_constraints(),
@@ -1158,6 +1159,18 @@ fn kums_all_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("enddate", "KUmsZeit7.enddate", Some("")),
         HbciJobConstraint::new("maxentries", "KUmsZeit7.maxentries", Some("")),
         HbciJobConstraint::new("dummy", "KUmsZeit7.allaccounts", Some("N")),
+    ]
+}
+
+fn kums_zeit_sepa_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.bic", "KUmsZeitSEPA7.KTV.bic", None::<String>),
+        HbciJobConstraint::new("my.iban", "KUmsZeitSEPA7.KTV.iban", None::<String>),
+        HbciJobConstraint::new("startdate", "KUmsZeitSEPA7.startdate", Some("")),
+        HbciJobConstraint::new("enddate", "KUmsZeitSEPA7.enddate", Some("")),
+        HbciJobConstraint::new("maxentries", "KUmsZeitSEPA7.maxentries", Some("")),
+        HbciJobConstraint::new("offset", "KUmsZeitSEPA7.offset", Some("")),
+        HbciJobConstraint::new("all", "KUmsZeitSEPA7.allaccounts", Some("N")),
     ]
 }
 

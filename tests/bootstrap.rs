@@ -143,6 +143,13 @@ fn custom_msg_response(body_segments: &[&str]) -> CommResponse {
     custom_msg_response_for_request("0", 1, body_segments)
 }
 
+fn custom_msg_response_with_hbci_version(
+    hbci_version: &str,
+    body_segments: &[&str],
+) -> CommResponse {
+    fints_response_with_hbci_version(hbci_version, "DIALOG1", 1, "0", 1, body_segments)
+}
+
 fn custom_msg_response_for_request(
     ref_dialog_id: &str,
     ref_msgnum: u32,
@@ -158,8 +165,27 @@ fn fints_response(
     ref_msgnum: u32,
     body_segments: &[&str],
 ) -> CommResponse {
-    let mut body =
-        format!("HNHBK:1:3+000000000123+300+{dialog_id}+{msgnum}+{ref_dialog_id}:{ref_msgnum}'");
+    fints_response_with_hbci_version(
+        "300",
+        dialog_id,
+        msgnum,
+        ref_dialog_id,
+        ref_msgnum,
+        body_segments,
+    )
+}
+
+fn fints_response_with_hbci_version(
+    hbci_version: &str,
+    dialog_id: &str,
+    msgnum: u32,
+    ref_dialog_id: &str,
+    ref_msgnum: u32,
+    body_segments: &[&str],
+) -> CommResponse {
+    let mut body = format!(
+        "HNHBK:1:3+000000000123+{hbci_version}+{dialog_id}+{msgnum}+{ref_dialog_id}:{ref_msgnum}'"
+    );
     for segment in body_segments {
         body.push_str(segment);
         body.push('\'');
@@ -236,11 +262,28 @@ fn assert_signed_dialog_end_request(body: &str, dialog_id: &str, msgnum: &str) {
 }
 
 fn assert_signed_custom_msg_request(body: &str, dialog_id: &str, msgnum: &str, tail_seq: usize) {
-    assert_signed_custom_msg_request_bytes(body.as_bytes(), dialog_id, msgnum, tail_seq);
+    assert_signed_custom_msg_request_for_version(body, "300", dialog_id, msgnum, tail_seq);
+}
+
+fn assert_signed_custom_msg_request_for_version(
+    body: &str,
+    hbci_version: &str,
+    dialog_id: &str,
+    msgnum: &str,
+    tail_seq: usize,
+) {
+    assert_signed_custom_msg_request_bytes(
+        body.as_bytes(),
+        hbci_version,
+        dialog_id,
+        msgnum,
+        tail_seq,
+    );
 }
 
 fn assert_signed_custom_msg_request_bytes(
     body: &[u8],
+    hbci_version: &str,
     dialog_id: &str,
     msgnum: &str,
     tail_seq: usize,
@@ -248,12 +291,17 @@ fn assert_signed_custom_msg_request_bytes(
     let text = String::from_utf8_lossy(body);
     assert!(text.starts_with("HNHBK:1:3+"), "{text}");
     assert!(
-        text.contains(&format!("+300+{dialog_id}+{msgnum}'")),
+        text.contains(&format!("+{hbci_version}+{dialog_id}+{msgnum}'")),
         "{text}"
     );
-    assert!(text.contains("HNSHK:2:4+PIN:"), "{text}");
+    if hbci_version == "300" {
+        assert!(text.contains("HNSHK:2:4+PIN:"), "{text}");
+    } else {
+        assert!(text.contains("HNSHK:2:3+"), "{text}");
+    }
+    let sig_tail_version = if hbci_version == "300" { "2" } else { "1" };
     assert!(
-        text.contains(&format!("HNSHA:{}:2+", tail_seq - 1)),
+        text.contains(&format!("HNSHA:{}:{sig_tail_version}+", tail_seq - 1)),
         "{text}"
     );
     assert!(
@@ -263,9 +311,10 @@ fn assert_signed_custom_msg_request_bytes(
 
     let sig_head = fints_segment(&text, "HNSHK");
     let sig_tail = fints_segment(&text, "HNSHA");
+    let checkref_index = if hbci_version == "300" { 3 } else { 2 };
     let sig_head_checkref = sig_head
         .split('+')
-        .nth(3)
+        .nth(checkref_index)
         .expect("HNSHK has check reference");
     let sig_tail_parts = sig_tail.split('+').collect::<Vec<_>>();
 
@@ -1057,6 +1106,48 @@ fn kums_all_exposes_original_near_constraints() {
     );
     assert_eq!(kums.constraint("offset"), None);
     assert_eq!(kums.constraint("my.curr"), None);
+}
+
+#[test]
+fn kums_zeit_sepa_exposes_original_near_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("plus", passport);
+    let kums = handler.new_job("KUmsZeitSEPA").expect("job is in registry");
+
+    assert_eq!(kums.constraints().len(), 7);
+    assert_eq!(
+        kums.constraint("my.iban")
+            .expect("iban constraint")
+            .destination_name,
+        "KUmsZeitSEPA7.KTV.iban"
+    );
+    assert_eq!(kums.constraint("my.country"), None);
+    assert_eq!(
+        kums.constraint("startdate")
+            .expect("startdate constraint")
+            .destination_name,
+        "KUmsZeitSEPA7.startdate"
+    );
+    assert_eq!(
+        kums.constraint("enddate")
+            .expect("enddate constraint")
+            .destination_name,
+        "KUmsZeitSEPA7.enddate"
+    );
+    assert_eq!(
+        kums.constraint("offset")
+            .expect("offset constraint")
+            .destination_name,
+        "KUmsZeitSEPA7.offset"
+    );
+    assert_eq!(
+        kums.constraint("all")
+            .expect("allaccounts constraint")
+            .default_value
+            .as_deref(),
+        Some("N")
+    );
+    assert_eq!(kums.constraint("dummy"), None);
 }
 
 #[test]
@@ -4927,7 +5018,7 @@ async fn handler_renders_tan2step5_with_applied_challenge_params_like_original()
         "{}",
         String::from_utf8_lossy(body)
     );
-    assert_signed_custom_msg_request_bytes(body, "0", "1", 5);
+    assert_signed_custom_msg_request_bytes(body, "300", "0", "1", 5);
 }
 
 #[tokio::test]
@@ -4990,7 +5081,7 @@ async fn handler_prepares_process1_hktan_orderhash_from_rendered_task_segment() 
     let requests = replay.requests().expect("requests");
     let body = &requests[0].body;
     let rendered = String::from_utf8_lossy(body);
-    assert_signed_custom_msg_request_bytes(body, "0", "1", 5);
+    assert_signed_custom_msg_request_bytes(body, "300", "0", "1", 5);
     assert!(rendered.contains("HKTAN:3:5+1+HKSAL+DE02123456780000000000"));
     assert!(rendered.contains("sms-name'"), "{rendered}");
 
@@ -5242,7 +5333,7 @@ async fn handler_executes_process1_flow_automatically_and_merges_status() {
     assert_eq!(requests.len(), 2);
     let hktan_body = &requests[0].body;
     let hktan_text = String::from_utf8_lossy(hktan_body);
-    assert_signed_custom_msg_request_bytes(hktan_body, "0", "1", 5);
+    assert_signed_custom_msg_request_bytes(hktan_body, "300", "0", "1", 5);
     assert!(hktan_text.contains("HKTAN:3:5+1+HKSAL+DE02123456780000000000"));
     assert!(hktan_text.contains("photo-app'"), "{hktan_text}");
     assert!(!hktan_text.contains("HKSAL:3:7+"), "{hktan_text}");
@@ -6671,6 +6762,45 @@ async fn handler_renders_kums_all_request_like_original() {
 }
 
 #[tokio::test]
+async fn handler_renders_kums_zeit_sepa_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response_with_hbci_version(
+        "220",
+        &["HIRMG:2:2+0010::OK"],
+    ))]);
+    let mut handler = HbciHandler::with_comm("plus", passport, replay.clone());
+    let mut kums = handler.new_job("KUmsZeitSEPA").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+    kums.try_set_param("all", "J")
+        .expect("allaccounts flag is accepted");
+    kums.try_set_param_date("startdate", "2026-06-01")
+        .expect("start date is accepted");
+    kums.try_set_param_date("enddate", "2026-06-06")
+        .expect("end date is accepted");
+    kums.try_set_param_int("maxentries", 25)
+        .expect("maxentries is accepted");
+    kums.try_set_param("offset", "PAGE-2")
+        .expect("offset is accepted");
+
+    handler.add_to_queue(kums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "KUmsZeitSEPA");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains(
+            "HKKAZ:3:7+DE02123456780000000000:MARKDEF1100+J+20260601+20260606+25+PAGE-2'"
+        )
+    );
+    assert_signed_custom_msg_request_for_version(&body, "220", "0", "1", 5);
+}
+
+#[tokio::test]
 async fn handler_collects_kums_all_raw_result_data() {
     let passport = passport_with_cached_pin(signed_pintan_data());
     let booked = mt940_booked_payload();
@@ -6733,6 +6863,45 @@ async fn handler_collects_kums_all_raw_result_data() {
             Some("3.00 EUR")
         );
     }
+}
+
+#[tokio::test]
+async fn handler_collects_kums_zeit_sepa_raw_result_data() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let booked = mt940_booked_payload();
+    let notbooked = mt942_unbooked_payload();
+    let segment = kums_response_segment("HIKAZ", &booked, &notbooked);
+    let replay = ReplayCommClient::new([Ok(custom_msg_response_with_hbci_version(
+        "220",
+        &["HIRMG:2:2+0010::OK", segment.as_str()],
+    ))]);
+    let mut handler = HbciHandler::with_comm("plus", passport, replay);
+    let mut kums = handler.new_job("KUmsZeitSEPA").expect("job is in registry");
+    kums.set_param_account("my", &giro_account());
+
+    handler.add_to_queue(kums);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "KUmsZeitSEPA");
+    assert_eq!(
+        result.result_data.get("content.booked").map(String::as_str),
+        Some(booked.as_str())
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.notbooked")
+            .map(String::as_str),
+        Some(notbooked.as_str())
+    );
+
+    let Some(HbciJobResultData::KUms(mut kums_result)) = result.result.clone() else {
+        panic!("expected KUms result data");
+    };
+    assert_eq!(kums_result.get_flat_data().len(), 1);
+    assert_eq!(kums_result.get_flat_data_unbooked().len(), 1);
 }
 
 #[tokio::test]

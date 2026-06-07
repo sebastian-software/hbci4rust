@@ -1055,6 +1055,7 @@ fn render_job_into_custom_message(
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
+        "KUmsZeitSEPA" => render_kums_zeit_sepa(message, job, index, passport),
         "SEPAInfo" => render_sepa_info(message, index),
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
@@ -1305,6 +1306,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "KUmsZeit7",
             path: "CustomMsg.GV.KUmsZeit7",
         }),
+        "KUmsZeitSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKKAZ",
+            lowlevel_segment: "KUmsZeitSEPA7",
+            path: "CustomMsg.GV.KUmsZeitSEPA7",
+        }),
         "KUmsAllCamt" => Ok(OrderhashSourceJobInfo {
             code: "HKCAZ",
             lowlevel_segment: "KUmsZeitCamt1",
@@ -1538,6 +1544,55 @@ fn render_kums_all(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "KUmsZeit7.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_kums_zeit_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.KUmsZeitSEPA7");
+    let account = effective_job_account(job, passport, "KUmsZeitSEPA7", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "KUmsZeitSEPA requires my.iban or a passport account for the current KUmsZeitSEPA7 tracer renderer",
+        ));
+    }
+
+    set_account_values(message, &segment, &account)?;
+    message.set_value(
+        &format!("{segment}.allaccounts"),
+        job_param(job, "KUmsZeitSEPA7.allaccounts", "all").unwrap_or("N"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.startdate"),
+        job_param(job, "KUmsZeitSEPA7.startdate", "startdate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.enddate"),
+        job_param(job, "KUmsZeitSEPA7.enddate", "enddate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "KUmsZeitSEPA7.maxentries", "maxentries"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.offset"),
+        job_param(job, "KUmsZeitSEPA7.offset", "offset"),
     )?;
 
     Ok(())
@@ -2780,6 +2835,9 @@ impl ParsedResponseStatus {
                 (!result.entries.is_empty()).then_some(HbciJobResultData::SaldoReq(result))
             }
             "KUmsAll" => self.kums_result_for_root(kums_response_root("KUmsZeitRes7", index)),
+            "KUmsZeitSEPA" => {
+                self.kums_result_for_root(kums_response_root("KUmsZeitSEPARes7", index))
+            }
             "KUmsAllCamt" => {
                 self.kums_all_camt_result_for_root(kums_response_root("KUmsZeitCamtRes1", index))
             }
@@ -2807,6 +2865,9 @@ impl ParsedResponseStatus {
                 self.content_result_data([term_ueb_sepa_list_response_root(index)])
             }
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
+            "KUmsZeitSEPA" => {
+                self.content_result_data([kums_response_root("KUmsZeitSEPARes7", index)])
+            }
             "KUmsAllCamt" => {
                 self.content_result_data([kums_response_root("KUmsZeitCamtRes1", index)])
             }
