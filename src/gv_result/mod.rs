@@ -670,6 +670,7 @@ pub enum HbciJobResultData {
     TanList(GvrTanList),
     TanMediaList(GvrTanMediaList),
     VoP(GvrVoP),
+    WPDepotList(GvrWPDepotList),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -986,6 +987,12 @@ pub struct GvrTermUebListEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GvrVoP {
     pub result: Option<VoPResult>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrWPDepotList {
+    pub data_535: Vec<String>,
+    pub rest: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

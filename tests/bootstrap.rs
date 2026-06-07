@@ -811,6 +811,73 @@ fn vop_exposes_original_near_constraints_and_binary_pollingid() {
 }
 
 #[test]
+fn wp_depot_list_exposes_original_near_v6_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("WPDepotList").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 6);
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("my.number constraint")
+            .destination_name,
+        "WPDepotList6.Depot.number"
+    );
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("my.number constraint")
+            .default_value
+            .as_deref(),
+        None
+    );
+    assert_eq!(
+        job.constraint("my.subnumber")
+            .expect("my.subnumber constraint")
+            .destination_name,
+        "WPDepotList6.Depot.subnumber"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("my.country constraint")
+            .destination_name,
+        "WPDepotList6.Depot.KIK.country"
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("my.blz constraint")
+            .destination_name,
+        "WPDepotList6.Depot.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("quality")
+            .expect("quality constraint")
+            .destination_name,
+        "WPDepotList6.quality"
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "WPDepotList6.maxentries"
+    );
+    assert!(job.constraint("offset").is_none());
+    assert!(job.constraint("curr").is_none());
+
+    job.try_set_param("my.number", "DEPOT1")
+        .expect("depot number is accepted");
+    job.try_set_param("quality", "1")
+        .expect("quality is accepted");
+    job.try_set_param("maxentries", "20")
+        .expect("maxentries is accepted");
+    assert_eq!(
+        job.lowlevel_param("WPDepotList6.Depot.number"),
+        Some("DEPOT1")
+    );
+    assert_eq!(job.lowlevel_param("WPDepotList6.quality"), Some("1"));
+    assert_eq!(job.lowlevel_param("WPDepotList6.maxentries"), Some("20"));
+}
+
+#[test]
 fn fest_cond_list_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -12132,6 +12199,53 @@ async fn handler_renders_and_collects_vop_single_result_like_original() {
 
     assert!(
         body.contains("HKVPP:3:1+pain.002.001.10+@9@POLL-ID-1+10+0'"),
+        "{body}"
+    );
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_wp_depot_list_raw_data_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIWPD:3:6+@10@Depot [\\]~",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut depot_list = handler.new_job("WPDepotList").expect("job is in registry");
+    depot_list
+        .try_set_param("my.number", "DEPOT1")
+        .expect("depot number is accepted");
+    depot_list
+        .try_set_param("quality", "1")
+        .expect("quality is accepted");
+    depot_list
+        .try_set_param("maxentries", "20")
+        .expect("maxentries is accepted");
+
+    handler.add_to_queue(depot_list);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "WPDepotList");
+    let Some(HbciJobResultData::WPDepotList(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected WPDepotList result data");
+    };
+    assert_eq!(result.data_535, vec!["Depot ÄÖÜß".to_owned()]);
+    assert_eq!(result.rest, None);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.data535")
+            .map(String::as_str),
+        Some("Depot [\\]~")
+    );
+
+    let requests = replay.requests().expect("requests");
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+
+    assert!(
+        body.contains("HKWPD:3:6+DEPOT1::280:12345678++1+20'"),
         "{body}"
     );
     assert_signed_custom_msg_request(&body, "0", "1", 5);
