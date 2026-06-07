@@ -1054,6 +1054,7 @@ fn render_job_into_custom_message(
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
         "CardList" => render_card_list(message, job, index, passport),
+        "DauerList" => render_dauer_list(message, job, index, passport),
         "DauerSEPADel" => render_dauer_sepa_del(message, job, index, passport),
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
@@ -1271,6 +1272,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKAZK",
             lowlevel_segment: "CardList2",
             path: "CustomMsg.GV.CardList2",
+        }),
+        "DauerList" => Ok(OrderhashSourceJobInfo {
+            code: "HKDAB",
+            lowlevel_segment: "DauerList5",
+            path: "CustomMsg.GV.DauerList5",
         }),
         "DauerSEPAList" => Ok(OrderhashSourceJobInfo {
             code: "HKCDB",
@@ -1518,6 +1524,14 @@ fn dauer_sepa_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.DauerSEPAListRes2".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.DauerSEPAListRes2", index + 1)
+    }
+}
+
+fn dauer_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.DauerListRes5".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.DauerListRes5", index + 1)
     }
 }
 
@@ -2087,6 +2101,41 @@ fn render_dauer_sepa_list(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "DauerSEPAList2.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_dauer_list(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.DauerList5");
+    let account = effective_job_account(job, passport, "DauerList5", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerList requires my.number or a passport account for the current DauerList5 renderer",
+        ));
+    }
+
+    set_national_account_values(message, &segment, &account)?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.orderid"),
+        job_param(job, "DauerList5.orderid", "orderid"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "DauerList5.maxentries", "maxentries"),
     )?;
 
     Ok(())
@@ -3309,6 +3358,9 @@ impl ParsedResponseStatus {
             "CardList" => self
                 .card_list_result_for_root(card_list_response_root(index))
                 .map(HbciJobResultData::CardList),
+            "DauerList" => self
+                .dauer_list_result_for_root(dauer_list_response_root(index))
+                .map(HbciJobResultData::DauerList),
             "DauerSEPADel" => self
                 .dauer_edit_result_for_root(dauer_sepa_edit_response_root(index))
                 .map(HbciJobResultData::DauerEdit),
@@ -3379,6 +3431,7 @@ impl ParsedResponseStatus {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
             "CardList" => self.content_result_data([card_list_response_root(index)]),
+            "DauerList" => self.content_result_data([dauer_list_response_root(index)]),
             "DauerSEPADel" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
@@ -4056,23 +4109,25 @@ fn dauer_list_entry_from_values(
         .as_deref()
         .and_then(|pain| parse_pain_001_transfers(pain).ok())
         .and_then(|transfers| transfers.into_iter().next());
+    let classic_other = classic_dauer_list_other_account_from_values(values, prefix);
 
     GvrDauerListEntry {
         my: ktv_int_account_from_values(values, &format!("{prefix}.My")),
         other: pain_transfer
             .as_ref()
             .map(|transfer| transfer.destination.clone())
-            .unwrap_or_default(),
+            .unwrap_or(classic_other),
         value: pain_transfer
             .as_ref()
-            .and_then(|transfer| transfer.value.clone()),
-        key: None,
-        addkey: None,
+            .and_then(|transfer| transfer.value.clone())
+            .or_else(|| value_from_values(values, &format!("{prefix}.BTG"))),
+        key: optional_value(values, &format!("{prefix}.key")),
+        addkey: optional_value(values, &format!("{prefix}.addkey")),
         usage: pain_transfer
             .as_ref()
             .map(|transfer| transfer.usage.clone())
-            .unwrap_or_default(),
-        nextdate: None,
+            .unwrap_or_else(|| classic_dauer_list_usage_from_values(values, prefix)),
+        nextdate: optional_value(values, &format!("{prefix}.date")),
         orderid: optional_value(values, &format!("{prefix}.orderid")),
         firstdate: optional_value(values, &format!("{prefix}.DauerDetails.firstdate")),
         timeunit: optional_value(values, &format!("{prefix}.DauerDetails.timeunit")),
@@ -4093,6 +4148,26 @@ fn dauer_list_entry_from_values(
         sepadescr: optional_value(values, &format!("{prefix}.sepadescr")),
         sepapain_raw,
     }
+}
+
+fn classic_dauer_list_other_account_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Konto {
+    let mut other = ktv_int_account_from_values(values, &format!("{prefix}.Other"));
+    other.name = optional_value(values, &format!("{prefix}.name"));
+    other.name2 = optional_value(values, &format!("{prefix}.name2"));
+    other
+}
+
+fn classic_dauer_list_usage_from_values(
+    values: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Vec<String> {
+    counted_value_keys(values, &format!("{prefix}.usage.usage"))
+        .into_iter()
+        .filter_map(|key| optional_value(values, &key))
+        .collect()
 }
 
 fn term_ueb_list_entry_from_values(
@@ -4178,7 +4253,7 @@ fn update_passport_job_persistent_data_from_results(
 ) {
     for (job, result) in jobs.iter().zip(results) {
         match result.job_name.as_str() {
-            "DauerSEPAList" => {
+            "DauerList" | "DauerSEPAList" => {
                 let Some(order_id) = result
                     .result_data
                     .get("content.orderid")

@@ -435,6 +435,7 @@ impl HbciJob {
     ) -> HbciResult<()> {
         match self.name.as_str() {
             "CardList" => self.check_account_crc("my", callback).await,
+            "DauerList" => self.check_account_crc("my", callback).await,
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
@@ -750,6 +751,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "AccInfo" => acc_info_constraints(),
         "CardList" => card_list_constraints(),
+        "DauerList" => dauer_list_constraints(),
         "DauerSEPAEdit" => dauer_sepa_edit_constraints(),
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
@@ -800,6 +802,17 @@ fn dauer_sepa_list_constraints() -> Vec<HbciJobConstraint> {
         ),
         HbciJobConstraint::new("orderid", "DauerSEPAList2.orderid", Some("")),
         HbciJobConstraint::new("maxentries", "DauerSEPAList2.maxentries", Some("")),
+    ]
+}
+
+fn dauer_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.country", "DauerList5.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "DauerList5.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "DauerList5.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "DauerList5.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("orderid", "DauerList5.orderid", Some("")),
+        HbciJobConstraint::new("maxentries", "DauerList5.maxentries", Some("")),
     ]
 }
 

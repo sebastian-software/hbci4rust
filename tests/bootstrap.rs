@@ -941,6 +941,69 @@ fn dauer_sepa_list_exposes_original_near_v2_constraints() {
 }
 
 #[test]
+fn dauer_list_exposes_original_near_v5_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("DauerList").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 6);
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .destination_name,
+        "DauerList5.KTV.KIK.country"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("bank code constraint")
+            .destination_name,
+        "DauerList5.KTV.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("account number constraint")
+            .destination_name,
+        "DauerList5.KTV.number"
+    );
+    assert_eq!(
+        job.constraint("my.subnumber")
+            .expect("subnumber constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("orderid")
+            .expect("orderid constraint")
+            .destination_name,
+        "DauerList5.orderid"
+    );
+    assert_eq!(
+        job.constraint("maxentries")
+            .expect("maxentries constraint")
+            .destination_name,
+        "DauerList5.maxentries"
+    );
+
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    job.try_set_param_int("maxentries", 10)
+        .expect("max entries is accepted");
+    assert_eq!(
+        job.lowlevel_param("DauerList5.KTV.number"),
+        Some("1234567890")
+    );
+    assert_eq!(job.lowlevel_param("DauerList5.maxentries"), Some("10"));
+}
+
+#[test]
 fn dauer_sepa_new_exposes_original_near_v1_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -4271,6 +4334,120 @@ async fn handler_collects_card_list_result_like_original() {
     let limit = entry.limit.as_ref().expect("card limit");
     assert_eq!(limit.value, "500.00");
     assert_eq!(limit.curr.as_deref(), Some("EUR"));
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_dauer_list_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIDAB:3:5+1234567890::280:10020030+99887766::280:20030040+Receiver Name+Receiver Name 2+12,30:EUR+51+000+Usage one:Usage two+20250701+ORDER123+20250101:M:2:15:20261231+J:20250201:20250301:1:5,00:EUR+J+N+J",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("DauerList").expect("job is in registry");
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+    job.try_set_param("orderid", "ORDER123")
+        .expect("order id is accepted");
+    job.try_set_param_int("maxentries", 10)
+        .expect("max entries is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "DauerList");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.BTG.value")
+            .map(String::as_str),
+        Some("12.30")
+    );
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.usage.usage_2")
+            .map(String::as_str),
+        Some("Usage two")
+    );
+
+    let Some(HbciJobResultData::DauerList(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected DauerList result data");
+    };
+    assert_eq!(result.entries.len(), 1);
+    let entry = &result.entries[0];
+    assert_eq!(entry.my.number.as_deref(), Some("1234567890"));
+    assert_eq!(entry.my.blz.as_deref(), Some("10020030"));
+    assert_eq!(entry.other.number.as_deref(), Some("99887766"));
+    assert_eq!(entry.other.blz.as_deref(), Some("20030040"));
+    assert_eq!(entry.other.name.as_deref(), Some("Receiver Name"));
+    assert_eq!(entry.other.name2.as_deref(), Some("Receiver Name 2"));
+    assert_eq!(
+        entry.value.as_ref().map(|value| value.value.as_str()),
+        Some("12.30")
+    );
+    assert_eq!(
+        entry.value.as_ref().and_then(|value| value.curr.as_deref()),
+        Some("EUR")
+    );
+    assert_eq!(entry.key.as_deref(), Some("51"));
+    assert_eq!(entry.addkey.as_deref(), Some("000"));
+    assert_eq!(
+        entry.usage,
+        ["Usage one".to_owned(), "Usage two".to_owned()]
+    );
+    assert_eq!(entry.nextdate.as_deref(), Some("2025-07-01"));
+    assert_eq!(entry.orderid.as_deref(), Some("ORDER123"));
+    assert_eq!(entry.firstdate.as_deref(), Some("2025-01-01"));
+    assert_eq!(entry.timeunit.as_deref(), Some("M"));
+    assert_eq!(entry.turnus, Some(2));
+    assert_eq!(entry.execday, Some(15));
+    assert_eq!(entry.lastdate.as_deref(), Some("2026-12-31"));
+    assert!(entry.can_change);
+    assert!(!entry.can_skip);
+    assert!(entry.can_delete);
+    let aussetzung = entry.aussetzung.as_ref().expect("aussetzung");
+    assert!(aussetzung.annual);
+    assert_eq!(aussetzung.startdate.as_deref(), Some("2025-02-01"));
+    assert_eq!(aussetzung.enddate.as_deref(), Some("2025-03-01"));
+    assert_eq!(aussetzung.number.as_deref(), Some("1"));
+    assert_eq!(
+        aussetzung
+            .newvalue
+            .as_ref()
+            .map(|value| value.value.as_str()),
+        Some("5.00")
+    );
+
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("dauer_ORDER123")
+        .expect("dauer persistent data");
+    assert_eq!(
+        snapshot.get("DauerDetails.firstdate").map(String::as_str),
+        Some("2025-01-01")
+    );
+    assert_eq!(snapshot.get("BTG.value").map(String::as_str), Some("12.30"));
+    assert_eq!(
+        snapshot.get("usage.usage_2").map(String::as_str),
+        Some("Usage two")
+    );
+    assert!(!snapshot.contains_key("orderid"));
+    assert!(!snapshot.keys().any(|key| key.starts_with("SegHead.")));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains("HKDAB:3:5+1234567890::280:10020030+ORDER123+10'"),
+        "{body}"
+    );
 }
 
 #[tokio::test]
