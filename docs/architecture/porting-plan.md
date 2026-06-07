@@ -42,3 +42,5 @@ Out:
 - `docs/architecture/result-coverage.md` records the current upstream
   `GVR*.java` to Rust typed result coverage and the intentional
   `WPStammData` boundary.
+- `docs/reference/java-to-rust-mapping.md` maps major hbci4java concepts to the
+  current original-near Rust API.
