@@ -47,6 +47,6 @@ the second HKTAN confirmation result.
 Open follow-up work:
 
 - define result aggregation for automatic multi-message execution;
-- decide whether failed `process=2` submissions keep or clear SCA state;
+- failed `process=2` submissions keep SCA state per ADR 0239;
 - support process variant 1 automatic execution once the multi-message runner exists;
 - cover decoupled process `S` status polling separately.
