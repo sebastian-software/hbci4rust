@@ -8,9 +8,9 @@ use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerList, GvrDauerListAussetzung,
-    GvrDauerListEntry, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo, GvrTanMediaList,
-    HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult, HbciJobResultData,
-    HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
+    GvrDauerListEntry, GvrDauerNew, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo, GvrTanMediaInfo,
+    GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
+    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -374,6 +374,7 @@ where
         let raw_response = Some(String::from_utf8_lossy(&response.body).into_owned());
         let global_status = response_status.global_status();
 
+        let queued_jobs = self.queue.clone();
         let results = self
             .queue
             .drain(..)
@@ -396,7 +397,11 @@ where
             })
             .collect::<Vec<_>>();
         update_passport_tan_media_names_from_results(&mut self.passport, &results);
-        update_passport_dauer_persistent_data_from_results(&mut self.passport, &results);
+        update_passport_dauer_persistent_data_from_results(
+            &mut self.passport,
+            &queued_jobs,
+            &results,
+        );
         let success =
             http_success && response_status.global_is_ok() && results.iter().all(|job| job.success);
 
@@ -1042,6 +1047,7 @@ fn render_job_into_custom_message(
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
+        "DauerSEPANew" => render_dauer_sepa_new(message, job, index, passport),
         "KUmsAll" => render_kums_all(message, job, index, passport),
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
@@ -1234,6 +1240,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "DauerSEPAList2",
             path: "CustomMsg.GV.DauerSEPAList2",
         }),
+        "DauerSEPANew" => Ok(OrderhashSourceJobInfo {
+            code: "HKCDE",
+            lowlevel_segment: "DauerSEPANew1",
+            path: "CustomMsg.GV.DauerSEPANew1",
+        }),
         "KUmsAll" => Ok(OrderhashSourceJobInfo {
             code: "HKKAZ",
             lowlevel_segment: "KUmsZeit7",
@@ -1314,6 +1325,14 @@ fn dauer_sepa_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.DauerSEPAListRes2".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.DauerSEPAListRes2", index + 1)
+    }
+}
+
+fn dauer_sepa_new_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.DauerSEPANewRes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.DauerSEPANewRes1", index + 1)
     }
 }
 
@@ -1493,6 +1512,80 @@ fn render_dauer_sepa_list(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "DauerSEPAList2.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_dauer_sepa_new(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.DauerSEPANew1");
+    let account = standing_order_sepa_account(job, passport, "DauerSEPANew1");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "DauerSEPANew requires src.iban, src.number, or a passport account for the current DauerSEPANew1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "DauerSEPANew1.sepadescr", "_sepadescriptor").unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "DauerSEPANew1.sepapain",
+        "_sepapain",
+        "DauerSEPANew requires caller-provided _sepapain until PAIN generation is ported",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.firstdate"),
+        job,
+        "DauerSEPANew1.DauerDetails.firstdate",
+        "firstdate",
+        "DauerSEPANew requires firstdate",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.timeunit"),
+        job,
+        "DauerSEPANew1.DauerDetails.timeunit",
+        "timeunit",
+        "DauerSEPANew requires timeunit",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.turnus"),
+        job,
+        "DauerSEPANew1.DauerDetails.turnus",
+        "turnus",
+        "DauerSEPANew requires turnus",
+    )?;
+    set_required_message_value_from_job(
+        message,
+        &format!("{segment}.DauerDetails.execday"),
+        job,
+        "DauerSEPANew1.DauerDetails.execday",
+        "execday",
+        "DauerSEPANew requires execday",
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.DauerDetails.lastdate"),
+        job_param(job, "DauerSEPANew1.DauerDetails.lastdate", "lastdate"),
     )?;
 
     Ok(())
@@ -1786,6 +1879,49 @@ fn dauer_sepa_list_account(job: &HbciJob, passport: &PinTanPassport) -> Konto {
     account
 }
 
+fn standing_order_sepa_account(
+    job: &HbciJob,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+) -> Konto {
+    let mut account = passport.first_account().cloned().unwrap_or_default();
+
+    overlay_account_param(
+        &mut account.iban,
+        job_param(job, &format!("{lowlevel_segment}.My.iban"), "src.iban"),
+    );
+    overlay_account_param(
+        &mut account.bic,
+        job_param(job, &format!("{lowlevel_segment}.My.bic"), "src.bic"),
+    );
+    overlay_account_param(
+        &mut account.country,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.KIK.country"),
+            "src.country",
+        ),
+    );
+    overlay_account_param(
+        &mut account.blz,
+        job_param(job, &format!("{lowlevel_segment}.My.KIK.blz"), "src.blz"),
+    );
+    overlay_account_param(
+        &mut account.number,
+        job_param(job, &format!("{lowlevel_segment}.My.number"), "src.number"),
+    );
+    overlay_account_param(
+        &mut account.subnumber,
+        job_param(
+            job,
+            &format!("{lowlevel_segment}.My.subnumber"),
+            "src.subnumber",
+        ),
+    );
+
+    account
+}
+
 fn job_param<'a>(job: &'a HbciJob, lowlevel_name: &str, frontend_name: &str) -> Option<&'a str> {
     job.lowlevel_param(lowlevel_name)
         .or_else(|| job.param(frontend_name))
@@ -1800,6 +1936,26 @@ fn job_param_required<'a>(
 ) -> HbciResult<&'a str> {
     job_param(job, lowlevel_name, frontend_name)
         .ok_or_else(|| HbciError::new(HbciErrorKind::InvalidArgument, message))
+}
+
+fn set_required_message_value_from_job(
+    message: &mut HbciMessage,
+    path: &str,
+    job: &HbciJob,
+    lowlevel_name: &str,
+    frontend_name: &str,
+    error_message: &str,
+) -> HbciResult<()> {
+    let value = job_param_required(job, lowlevel_name, frontend_name, error_message)?;
+    message.set_value(path, value)
+}
+
+fn sepa_binary_value(value: &str) -> String {
+    if value.starts_with('B') || value.starts_with('N') {
+        value.to_owned()
+    } else {
+        format!("B{value}")
+    }
 }
 
 fn tan_orderhash_param(job: &HbciJob) -> Option<String> {
@@ -2078,6 +2234,9 @@ impl ParsedResponseStatus {
             "DauerSEPAList" => self
                 .dauer_list_result_for_root(dauer_sepa_list_response_root(index))
                 .map(HbciJobResultData::DauerList),
+            "DauerSEPANew" => self
+                .dauer_new_result_for_root(dauer_sepa_new_response_root(index))
+                .map(HbciJobResultData::DauerNew),
             "SaldoReq" => self
                 .saldo_result_for_index(index, passport)
                 .map(HbciJobResultData::SaldoReq),
@@ -2101,6 +2260,7 @@ impl ParsedResponseStatus {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
+            "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
             "KUmsAllCamt" => {
                 self.content_result_data([kums_response_root("KUmsZeitCamtRes1", index)])
@@ -2174,6 +2334,13 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         Some(GvrDauerList {
             entries: vec![dauer_list_entry_from_values(&self.values, &root)],
+        })
+    }
+
+    fn dauer_new_result_for_root(&self, root: String) -> Option<GvrDauerNew> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrDauerNew {
+            order_id: optional_value(&self.values, &format!("{root}.orderid")),
         })
     }
 
@@ -2411,22 +2578,39 @@ fn update_passport_tan_media_names_from_results(
 
 fn update_passport_dauer_persistent_data_from_results(
     passport: &mut PinTanPassport,
+    jobs: &[HbciJob],
     results: &[HbciJobResult],
 ) {
-    for result in results {
-        if result.job_name != "DauerSEPAList" {
-            continue;
-        }
-        let Some(order_id) = result
-            .result_data
-            .get("content.orderid")
-            .filter(|order_id| !order_id.is_empty())
-        else {
-            continue;
-        };
-        let snapshot = dauer_persistent_snapshot(&result.result_data);
-        if !snapshot.is_empty() {
-            passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+    for (job, result) in jobs.iter().zip(results) {
+        match result.job_name.as_str() {
+            "DauerSEPAList" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot = dauer_persistent_snapshot(&result.result_data);
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+                }
+            }
+            "DauerSEPANew" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot =
+                    dauer_sepa_request_persistent_snapshot(job, passport, "DauerSEPANew1");
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -2446,6 +2630,78 @@ fn dauer_persistent_snapshot(result_data: &BTreeMap<String, String>) -> Properti
     }
 
     snapshot
+}
+
+fn dauer_sepa_request_persistent_snapshot(
+    job: &HbciJob,
+    passport: &PinTanPassport,
+    lowlevel_segment: &str,
+) -> Properties {
+    let mut snapshot = Properties::new();
+    let prefix = format!("{lowlevel_segment}.");
+
+    for (key, value) in job.lowlevel_params() {
+        let Some(suffix) = key.strip_prefix(&prefix) else {
+            continue;
+        };
+        if suffix.starts_with("sepa.") {
+            continue;
+        }
+        snapshot.insert(
+            suffix.to_owned(),
+            snapshot_value_for_request_suffix(suffix, value),
+        );
+    }
+
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    insert_optional_snapshot_value(&mut snapshot, "My.bic", account.bic.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.iban", account.iban.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.KIK.country", account.country.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.KIK.blz", account.blz.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.number", account.number.as_deref());
+    insert_optional_snapshot_value(&mut snapshot, "My.subnumber", account.subnumber.as_deref());
+
+    if !snapshot.contains_key("sepadescr") {
+        snapshot.insert("sepadescr".to_owned(), PAIN_001_001_02_URN.to_owned());
+    }
+    if !snapshot.contains_key("sepapain")
+        && let Some(sepapain) = job_param(job, &format!("{lowlevel_segment}.sepapain"), "_sepapain")
+    {
+        snapshot.insert("sepapain".to_owned(), sepa_binary_value(sepapain));
+    }
+
+    for (suffix, frontend) in [
+        ("DauerDetails.firstdate", "firstdate"),
+        ("DauerDetails.timeunit", "timeunit"),
+        ("DauerDetails.turnus", "turnus"),
+        ("DauerDetails.execday", "execday"),
+        ("DauerDetails.lastdate", "lastdate"),
+    ] {
+        if !snapshot.contains_key(suffix)
+            && let Some(value) = job_param(job, &format!("{lowlevel_segment}.{suffix}"), frontend)
+        {
+            snapshot.insert(suffix.to_owned(), value.to_owned());
+        }
+    }
+
+    snapshot
+}
+
+fn snapshot_value_for_request_suffix(suffix: &str, value: &str) -> String {
+    if suffix == "sepapain" {
+        sepa_binary_value(value)
+    } else {
+        value.to_owned()
+    }
+}
+
+fn insert_optional_snapshot_value(snapshot: &mut Properties, key: &str, value: Option<&str>) {
+    if snapshot.contains_key(key) {
+        return;
+    }
+    if let Some(value) = value.filter(|value| !value.is_empty()) {
+        snapshot.insert(key.to_owned(), value.to_owned());
+    }
 }
 
 fn update_passport_accounts_from_sepa_info(

@@ -651,6 +651,7 @@ impl Display for HbciJobResult {
 pub enum HbciJobResultData {
     AccInfo(GvrAccInfo),
     DauerList(GvrDauerList),
+    DauerNew(GvrDauerNew),
     SaldoReq(GvrSaldoReq),
     KUms(GvrKUms),
     TanMediaList(GvrTanMediaList),
@@ -729,6 +730,11 @@ pub struct GvrDauerListAussetzung {
     pub enddate: Option<String>,
     pub number: Option<String>,
     pub newvalue: Option<Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrDauerNew {
+    pub order_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

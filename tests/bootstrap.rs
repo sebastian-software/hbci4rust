@@ -519,6 +519,60 @@ fn dauer_sepa_list_exposes_original_near_v2_constraints() {
 }
 
 #[test]
+fn dauer_sepa_new_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("DauerSEPANew").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 26);
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban constraint")
+            .destination_name,
+        "DauerSEPANew1.My.iban"
+    );
+    assert_eq!(
+        job.constraint("src.bic")
+            .expect("source bic constraint")
+            .destination_name,
+        "DauerSEPANew1.My.bic"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_001_001_02_URN)
+    );
+    assert_eq!(
+        job.constraint("_sepapain")
+            .expect("sepa pain")
+            .destination_name,
+        "DauerSEPANew1.sepapain"
+    );
+    assert_eq!(
+        job.constraint("firstdate")
+            .expect("firstdate constraint")
+            .destination_name,
+        "DauerSEPANew1.DauerDetails.firstdate"
+    );
+    assert_eq!(
+        job.constraint("lastdate")
+            .expect("lastdate constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        job.constraint("endtoendid")
+            .expect("endtoendid dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("NOTPROVIDED")
+    );
+}
+
+#[test]
 fn kums_all_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -3340,6 +3394,93 @@ async fn handler_renders_and_collects_dauer_sepa_list_envelope_like_original() {
     assert!(
         body.contains(
             "HKCDB:3:2+DE02123456780000000000:MARKDEF1100+urn?:sepade?:xsd?:pain.001.001.02++10'"
+        ),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_dauer_sepa_new_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HICDE:3:1+ORDERNEW",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("DauerSEPANew").expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param("_sepapain", "<Document/>")
+        .expect("raw pain is accepted for first generator-free slice");
+    job.try_set_param_date("firstdate", "2025-11-01")
+        .expect("firstdate is accepted");
+    job.try_set_param("timeunit", "M")
+        .expect("timeunit is accepted");
+    job.try_set_param_int("turnus", 1)
+        .expect("turnus is accepted");
+    job.try_set_param_int("execday", 1)
+        .expect("execday is accepted");
+    job.try_set_param_date("lastdate", "2026-12-31")
+        .expect("lastdate is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "DauerSEPANew");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderid")
+            .map(String::as_str),
+        Some("ORDERNEW")
+    );
+    let Some(HbciJobResultData::DauerNew(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected DauerNew result data");
+    };
+    assert_eq!(result.order_id.as_deref(), Some("ORDERNEW"));
+
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("dauer_ORDERNEW")
+        .expect("dauer new persistent data");
+    assert_eq!(
+        snapshot.get("My.iban").map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        snapshot.get("My.bic").map(String::as_str),
+        Some("MARKDEF1100")
+    );
+    assert_eq!(
+        snapshot.get("sepadescr").map(String::as_str),
+        Some(PAIN_001_001_02_URN)
+    );
+    assert_eq!(
+        snapshot.get("sepapain").map(String::as_str),
+        Some("B<Document/>")
+    );
+    assert_eq!(
+        snapshot.get("DauerDetails.firstdate").map(String::as_str),
+        Some("2025-11-01")
+    );
+    assert_eq!(
+        snapshot.get("DauerDetails.lastdate").map(String::as_str),
+        Some("2026-12-31")
+    );
+    assert!(!snapshot.keys().any(|key| key.starts_with("sepa.")));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKCDE:3:1+DE02123456780000000000:MARKDEF1100+urn?:sepade?:xsd?:pain.001.001.02+@11@<Document/>+20251101:M:1:1:20261231'"
         ),
         "{body}"
     );
