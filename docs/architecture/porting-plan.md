@@ -51,5 +51,7 @@ Out:
   statement and SEPA workflows.
 - `docs/reference/live-bank-tests.md` describes the ignored, env-gated live
   PinTAN dialog smoke hook.
+- `docs/reference/packaging.md` records crate metadata, package-list, and
+  attribution review for release hardening.
 - `docs/architecture/release-checklist.md` records the operational v1 release
   acceptance checks.

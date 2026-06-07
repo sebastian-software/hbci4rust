@@ -3,7 +3,7 @@ name = "hbci4rust"
 version = "0.1.0"
 edition = "2024"
 license = "LGPL-2.1-or-later"
-repository = "https://github.com/hbci4j/hbci4java"
+repository = "https://github.com/sebastian-software/hbci4rust"
 description = "Original-near Rust port scaffold for hbci4java, focused on FinTS PinTAN/HBCI-Plus."
 readme = "README.md"
 
