@@ -733,6 +733,54 @@ fn ueb_sepa_exposes_original_near_v1_constraints() {
 }
 
 #[test]
+fn term_ueb_sepa_exposes_original_near_v1_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let job = handler.new_job("TermUebSEPA").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 22);
+    assert_eq!(
+        job.constraint("src.iban")
+            .expect("source iban constraint")
+            .destination_name,
+        "TermUebSEPA1.My.iban"
+    );
+    assert_eq!(
+        job.constraint("_sepadescriptor")
+            .expect("sepa descriptor")
+            .default_value
+            .as_deref(),
+        Some(PAIN_001_001_02_URN)
+    );
+    assert_eq!(
+        job.constraint("_sepapain")
+            .expect("sepa pain")
+            .destination_name,
+        "TermUebSEPA1.sepapain"
+    );
+    assert_eq!(
+        job.constraint("date")
+            .expect("date constraint")
+            .destination_name,
+        "TermUebSEPA1.sepa.date"
+    );
+    assert_eq!(
+        job.constraint("date")
+            .expect("date constraint")
+            .default_value
+            .as_deref(),
+        None
+    );
+    assert_eq!(
+        job.constraint("endtoendid")
+            .expect("endtoendid dummy constraint")
+            .default_value
+            .as_deref(),
+        Some("NOTPROVIDED")
+    );
+}
+
+#[test]
 fn kums_all_exposes_original_near_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -3775,6 +3823,84 @@ async fn handler_renders_ueb_sepa_with_generated_pain_like_original() {
     assert!(body.contains("<PmtInfId>SEPA-UEB</PmtInfId>"), "{body}");
     assert!(body.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
     assert!(body.contains("<Ustrd>Transfer usage</Ustrd>"));
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_term_ueb_sepa_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HICSE:3:1+ORDERTERM",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("TermUebSEPA").expect("job is in registry");
+    job.try_set_param("src.iban", "DE02123456780000000000")
+        .expect("source iban is accepted");
+    job.try_set_param("src.bic", "MARKDEF1100")
+        .expect("source bic is accepted");
+    job.try_set_param("src.name", "Sender Name")
+        .expect("source name is accepted");
+    job.try_set_param("dst.name", "Receiver Name")
+        .expect("destination name is accepted");
+    job.try_set_param("dst.iban", "DE99123456780000000000")
+        .expect("destination iban is accepted");
+    job.try_set_param("dst.bic", "DEUTDEDB277")
+        .expect("destination bic is accepted");
+    job.try_set_param("btg.value", "12.30")
+        .expect("amount value is accepted");
+    job.try_set_param("usage", "Term usage")
+        .expect("usage is accepted");
+    job.try_set_param("sepaid", "SEPA-TERM")
+        .expect("sepa id is accepted");
+    job.try_set_param_date("date", "2025-12-15")
+        .expect("date is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "TermUebSEPA");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderid")
+            .map(String::as_str),
+        Some("ORDERTERM")
+    );
+    let Some(HbciJobResultData::TermUeb(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected TermUeb result data");
+    };
+    assert_eq!(result.order_id.as_deref(), Some("ORDERTERM"));
+
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("termueb_ORDERTERM")
+        .expect("term ueb persistent data");
+    assert_eq!(
+        snapshot.get("My.iban").map(String::as_str),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(
+        snapshot.get("sepadescr").map(String::as_str),
+        Some(PAIN_001_001_02_URN)
+    );
+    let generated_pain = snapshot
+        .get("sepapain")
+        .expect("generated pain is persisted");
+    assert!(generated_pain.starts_with("B<?xml"), "{generated_pain}");
+    assert!(generated_pain.contains("<MsgId>SEPA-TERM</MsgId>"));
+    assert!(generated_pain.contains("<ReqdExctnDt>2025-12-15</ReqdExctnDt>"));
+    assert!(!snapshot.keys().any(|key| key.starts_with("sepa.")));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(body.contains("HKCSE:3:1+DE02123456780000000000:MARKDEF1100+"));
+    assert!(body.contains("<MsgId>SEPA-TERM</MsgId>"), "{body}");
+    assert!(body.contains("<ReqdExctnDt>2025-12-15</ReqdExctnDt>"));
 }
 
 #[tokio::test]

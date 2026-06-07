@@ -653,6 +653,7 @@ pub enum HbciJobResultData {
     DauerEdit(GvrDauerEdit),
     DauerList(GvrDauerList),
     DauerNew(GvrDauerNew),
+    TermUeb(GvrTermUeb),
     SaldoReq(GvrSaldoReq),
     KUms(GvrKUms),
     TanMediaList(GvrTanMediaList),
@@ -742,6 +743,11 @@ pub struct GvrDauerNew {
 pub struct GvrDauerEdit {
     pub order_id: Option<String>,
     pub order_id_old: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrTermUeb {
+    pub order_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

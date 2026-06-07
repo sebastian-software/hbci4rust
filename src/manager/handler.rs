@@ -9,9 +9,9 @@ use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
     GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrKUms, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
-    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, Saldo,
-    Value,
+    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, HbciDialogStatus, HbciExecStatus,
+    HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus,
+    Konto, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -398,7 +398,7 @@ where
             })
             .collect::<Vec<_>>();
         update_passport_tan_media_names_from_results(&mut self.passport, &results);
-        update_passport_dauer_persistent_data_from_results(
+        update_passport_job_persistent_data_from_results(
             &mut self.passport,
             &queued_jobs,
             &results,
@@ -1059,6 +1059,7 @@ fn render_job_into_custom_message(
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
+        "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
         "UebSEPA" => render_ueb_sepa(message, job, index, passport),
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
@@ -1259,6 +1260,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "DauerSEPADel1",
             path: "CustomMsg.GV.DauerSEPADel1",
         }),
+        "TermUebSEPA" => Ok(OrderhashSourceJobInfo {
+            code: "HKCSE",
+            lowlevel_segment: "TermUebSEPA1",
+            path: "CustomMsg.GV.TermUebSEPA1",
+        }),
         "UebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCCS",
             lowlevel_segment: "UebSEPA1",
@@ -1368,6 +1374,14 @@ fn tan_media_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TANMediaListRes4".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TANMediaListRes4", index + 1)
+    }
+}
+
+fn term_ueb_sepa_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.TermUebSEPARes1".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.TermUebSEPARes1", index + 1)
     }
 }
 
@@ -1595,6 +1609,43 @@ fn render_ueb_sepa(
         "UebSEPA1.sepapain",
         "_sepapain",
         "UebSEPA requires _sepapain or SEPA parameters for PAIN generation",
+    )?;
+    message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
+
+    Ok(())
+}
+
+fn render_term_ueb_sepa(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let lowlevel_segment = "TermUebSEPA1";
+    let segment = format!("{root}.{lowlevel_segment}");
+    let account = standing_order_sepa_account(job, passport, lowlevel_segment);
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "TermUebSEPA requires src.iban, src.number, or a passport account for the current TermUebSEPA1 renderer",
+        ));
+    }
+
+    set_ktv_int_account_values(message, &format!("{segment}.My"), &account)?;
+    message.set_value(
+        &format!("{segment}.sepadescr"),
+        job_param(job, "TermUebSEPA1.sepadescr", "_sepadescriptor").unwrap_or(PAIN_001_001_02_URN),
+    )?;
+    let sepapain = job_param_required(
+        job,
+        "TermUebSEPA1.sepapain",
+        "_sepapain",
+        "TermUebSEPA requires _sepapain or SEPA parameters for PAIN generation",
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
 
@@ -2407,6 +2458,9 @@ impl ParsedResponseStatus {
             "DauerSEPANew" => self
                 .dauer_new_result_for_root(dauer_sepa_new_response_root(index))
                 .map(HbciJobResultData::DauerNew),
+            "TermUebSEPA" => self
+                .term_ueb_result_for_root(term_ueb_sepa_response_root(index))
+                .map(HbciJobResultData::TermUeb),
             "SaldoReq" => self
                 .saldo_result_for_index(index, passport)
                 .map(HbciJobResultData::SaldoReq),
@@ -2433,6 +2487,7 @@ impl ParsedResponseStatus {
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
             "DauerSEPANew" => self.content_result_data([dauer_sepa_new_response_root(index)]),
+            "TermUebSEPA" => self.content_result_data([term_ueb_sepa_response_root(index)]),
             "KUmsAll" => self.content_result_data([kums_response_root("KUmsZeitRes7", index)]),
             "KUmsAllCamt" => {
                 self.content_result_data([kums_response_root("KUmsZeitCamtRes1", index)])
@@ -2521,6 +2576,13 @@ impl ParsedResponseStatus {
         Some(GvrDauerEdit {
             order_id: optional_value(&self.values, &format!("{root}.orderid")),
             order_id_old: optional_value(&self.values, &format!("{root}.orderidold")),
+        })
+    }
+
+    fn term_ueb_result_for_root(&self, root: String) -> Option<GvrTermUeb> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrTermUeb {
+            order_id: optional_value(&self.values, &format!("{root}.orderid")),
         })
     }
 
@@ -2756,7 +2818,7 @@ fn update_passport_tan_media_names_from_results(
     }
 }
 
-fn update_passport_dauer_persistent_data_from_results(
+fn update_passport_job_persistent_data_from_results(
     passport: &mut PinTanPassport,
     jobs: &[HbciJob],
     results: &[HbciJobResult],
@@ -2816,6 +2878,20 @@ fn update_passport_dauer_persistent_data_from_results(
                     dauer_sepa_request_persistent_snapshot(job, passport, "DauerSEPANew1");
                 if !snapshot.is_empty() {
                     passport.set_persistent_data(format!("dauer_{order_id}"), snapshot);
+                }
+            }
+            "TermUebSEPA" => {
+                let Some(order_id) = result
+                    .result_data
+                    .get("content.orderid")
+                    .filter(|order_id| !order_id.is_empty())
+                else {
+                    continue;
+                };
+                let snapshot =
+                    dauer_sepa_request_persistent_snapshot(job, passport, "TermUebSEPA1");
+                if !snapshot.is_empty() {
+                    passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
                 }
             }
             _ => {}

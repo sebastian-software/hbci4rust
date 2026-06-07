@@ -26,9 +26,9 @@ pub use gv::{HbciJob, HbciJobConstraint, JobRegistry, PINTAN_JOB_NAMES};
 pub use gv_result::{
     GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerList, GvrDauerListAussetzung,
     GvrDauerListEntry, GvrKUms, GvrKUmsBTag, GvrKUmsLine, GvrSaldoReq, GvrSaldoReqInfo,
-    GvrTanMediaInfo, GvrTanMediaList, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
-    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, HbciStatusCode,
-    Konto, Limit, Saldo, Value,
+    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, HbciDialogStatus, HbciExecStatus,
+    HbciInstMessage, HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus,
+    HbciStatusCode, Konto, Limit, Saldo, Value,
 };
 pub use manager::{
     AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,
