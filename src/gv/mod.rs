@@ -490,14 +490,6 @@ impl HbciJob {
                 self.check_account_crc("my", callback).await
             }
             "FestList" | "FestListAll" => self.check_account_crc("my", callback).await,
-            "Last" => {
-                self.check_account_crc("my", callback).await?;
-                self.check_account_crc("other", callback).await
-            }
-            "StornoLast" => {
-                self.check_account_crc("my", callback).await?;
-                self.check_account_crc("other", callback).await
-            }
             "DauerEdit" | "DauerNew" | "Donation" | "TermUeb" | "TermUebEdit" | "Ueb"
             | "UebBZU" | "UebEil" | "UebGar" | "Umb" => {
                 self.check_account_crc("src", callback).await?;
@@ -869,7 +861,6 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "FestListAll" => fest_list_all_constraints(),
         "InfoList" => info_list_constraints(),
         "InfoOrder" => info_order_constraints(),
-        "Last" => last_constraints(),
         "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
         "LastSEPA" => last_sepa_constraints("LastSEPA1", "CORE"),
         "MultiLastB2BSEPA" => multi_last_sepa_constraints("SammelLastB2BSEPA1", "B2B"),
@@ -903,7 +894,6 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "SaldoReq" => saldo_req_constraints(),
         "SaldoReqAll" => saldo_req_all_constraints(),
         "Status" => status_constraints(),
-        "StornoLast" => storno_last_constraints(),
         "TANList" => Vec::new(),
         "TANMediaList" => tan_media_list_constraints(),
         "TAN2Step" => tan2step_constraints(),
@@ -1562,66 +1552,6 @@ fn multi_ueb_sepa_constraints_for(lowlevel_segment: &str) -> Vec<HbciJobConstrai
         )
         .indexed(true),
         HbciJobConstraint::new("purposecode", lowlevel("sepa.purposecode"), Some("")).indexed(true),
-    ]
-}
-
-fn last_constraints() -> Vec<HbciJobConstraint> {
-    let lowlevel_segment = "Last5";
-    let mut constraints = vec![
-        HbciJobConstraint::new("my.country", "Last5.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("my.blz", "Last5.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("my.number", "Last5.My.number", None::<String>),
-        HbciJobConstraint::new("my.subnumber", "Last5.My.subnumber", Some("")),
-        HbciJobConstraint::new("other.country", "Last5.Other.KIK.country", Some("DE")),
-        HbciJobConstraint::new("other.blz", "Last5.Other.KIK.blz", None::<String>),
-        HbciJobConstraint::new("other.number", "Last5.Other.number", None::<String>),
-        HbciJobConstraint::new("other.subnumber", "Last5.Other.subnumber", Some("")),
-        HbciJobConstraint::new("btg.value", "Last5.BTG.value", None::<String>),
-        HbciJobConstraint::new("btg.curr", "Last5.BTG.curr", None::<String>),
-        HbciJobConstraint::new("name", "Last5.name", None::<String>),
-        HbciJobConstraint::new("name2", "Last5.name2", Some("")),
-        HbciJobConstraint::new("type", "Last5.key", Some("05")),
-    ];
-
-    for index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let frontend = classic_usage_name(index);
-        let destination = format!("{lowlevel_segment}.usage.{frontend}");
-        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
-    }
-
-    constraints
-}
-
-fn storno_last_constraints() -> Vec<HbciJobConstraint> {
-    vec![
-        HbciJobConstraint::new("my.country", "LastObjection2.My.KIK.country", Some("DE")),
-        HbciJobConstraint::new("my.blz", "LastObjection2.My.KIK.blz", None::<String>),
-        HbciJobConstraint::new("my.number", "LastObjection2.My.number", None::<String>),
-        HbciJobConstraint::new("my.subnumber", "LastObjection2.My.subnumber", Some("")),
-        HbciJobConstraint::new(
-            "other.country",
-            "LastObjection2.Other.KIK.country",
-            Some("DE"),
-        ),
-        HbciJobConstraint::new("other.blz", "LastObjection2.Other.KIK.blz", None::<String>),
-        HbciJobConstraint::new(
-            "other.number",
-            "LastObjection2.Other.number",
-            None::<String>,
-        ),
-        HbciJobConstraint::new(
-            "other.subnumber",
-            "LastObjection2.Other.subnumber",
-            Some(""),
-        ),
-        HbciJobConstraint::new("btg.value", "LastObjection2.BTG.value", None::<String>),
-        HbciJobConstraint::new("btg.curr", "LastObjection2.BTG.curr", None::<String>),
-        HbciJobConstraint::new("name", "LastObjection2.name", None::<String>),
-        HbciJobConstraint::new("date", "LastObjection2.Timestamp.date", None::<String>),
-        HbciJobConstraint::new("name2", "LastObjection2.name2", Some("")),
-        HbciJobConstraint::new("primanota", "LastObjection2.primanota", Some("")),
-        HbciJobConstraint::new("time", "LastObjection2.Timestamp.time", Some("")),
-        HbciJobConstraint::new("orderid", "LastObjection2.orderid", Some("")),
     ]
 }
 

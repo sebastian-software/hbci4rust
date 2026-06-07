@@ -1313,7 +1313,6 @@ fn render_job_into_custom_message(
         "KUmsAllCamt" => render_kums_all_camt(message, job, index, passport),
         "KUmsNew" => render_kums_new(message, job, index, passport),
         "KUmsZeitSEPA" => render_kums_zeit_sepa(message, job, index, passport),
-        "Last" => render_last(message, job, index, passport),
         "LastB2BSEPA" => render_last_b2b_sepa(message, job, index, passport),
         "LastSEPA" => render_last_sepa(message, job, index, passport),
         "MultiLastB2BSEPA" => render_multi_last_b2b_sepa(message, job, index, passport),
@@ -1324,7 +1323,6 @@ fn render_job_into_custom_message(
         "SaldoReq" => render_saldo_request(message, job, index, passport),
         "SaldoReqAll" => render_saldo_request_all(message, job, index, passport),
         "Status" => render_status(message, job, index),
-        "StornoLast" => render_storno_last(message, job, index, passport),
         "TANList" => render_tan_list(message, index),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
@@ -1705,11 +1703,6 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "SammelLastB2BSEPA1",
             path: "CustomMsg.GV.SammelLastB2BSEPA1",
         }),
-        "Last" => Ok(OrderhashSourceJobInfo {
-            code: "HKLAS",
-            lowlevel_segment: "Last5",
-            path: "CustomMsg.GV.Last5",
-        }),
         "Donation" | "Ueb" => Ok(OrderhashSourceJobInfo {
             code: "HKUEB",
             lowlevel_segment: "Ueb5",
@@ -1799,11 +1792,6 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKPRO",
             lowlevel_segment: "Status4",
             path: "CustomMsg.GV.Status4",
-        }),
-        "StornoLast" => Ok(OrderhashSourceJobInfo {
-            code: "HKLSW",
-            lowlevel_segment: "LastObjection2",
-            path: "CustomMsg.GV.LastObjection2",
         }),
         "TANList" => Ok(OrderhashSourceJobInfo {
             code: "HKTAZ",
@@ -4104,174 +4092,6 @@ fn render_multi_ueb_sepa_job(
         &format!("{job_name} requires _sepapain or SEPA parameters for PAIN generation"),
     )?;
     message.set_value(&format!("{segment}.sepapain"), sepa_binary_value(sepapain))?;
-
-    Ok(())
-}
-
-fn render_last(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "Last5";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let my_account =
-        classic_national_job_account(job, passport.first_account().cloned(), "Last5", "My", "my");
-    if !has_account_identity(&my_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "Last requires my.number or a passport account for the current Last5 renderer",
-        ));
-    }
-    let other_account = classic_national_job_account(job, None, "Last5", "Other", "other");
-    if !has_account_identity(&other_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "Last requires other.number for the current Last5 renderer",
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &my_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &other_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        "Last5.name",
-        "name",
-        "Last requires name",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, "Last5.name2", "name2"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        "Last5.BTG.value",
-        "btg.value",
-        "Last requires btg.value",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        "Last5.BTG.curr",
-        "btg.curr",
-        "Last requires btg.curr",
-    )?;
-    message.set_value(
-        &format!("{segment}.key"),
-        job_param(job, "Last5.key", "type").unwrap_or("05"),
-    )?;
-    for usage_index in 0..CLASSIC_USAGE_LINE_COUNT {
-        let usage_name = classic_usage_frontend_name(usage_index);
-        set_optional_message_value(
-            message,
-            &format!("{segment}.usage.{usage_name}"),
-            job_param(job, &format!("Last5.usage.{usage_name}"), &usage_name),
-        )?;
-    }
-
-    Ok(())
-}
-
-fn render_storno_last(
-    message: &mut HbciMessage,
-    job: &HbciJob,
-    index: usize,
-    passport: &PinTanPassport,
-) -> HbciResult<()> {
-    let root = if index == 0 {
-        "CustomMsg.GV".to_owned()
-    } else {
-        format!("CustomMsg.GV_{}", index + 1)
-    };
-    let lowlevel_segment = "LastObjection2";
-    let segment = format!("{root}.{lowlevel_segment}");
-    let my_account = classic_national_job_account(
-        job,
-        passport.first_account().cloned(),
-        lowlevel_segment,
-        "My",
-        "my",
-    );
-    if !has_account_identity(&my_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "StornoLast requires my.number or a passport account for the current LastObjection2 renderer",
-        ));
-    }
-    let other_account = classic_national_job_account(job, None, lowlevel_segment, "Other", "other");
-    if !has_account_identity(&other_account) {
-        return Err(HbciError::new(
-            HbciErrorKind::InvalidArgument,
-            "StornoLast requires other.number for the current LastObjection2 renderer",
-        ));
-    }
-
-    set_classic_national_account_values(message, &format!("{segment}.My"), &my_account)?;
-    set_classic_national_account_values(message, &format!("{segment}.Other"), &other_account)?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.Timestamp.date"),
-        job,
-        "LastObjection2.Timestamp.date",
-        "date",
-        "StornoLast requires date",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.Timestamp.time"),
-        job_param(job, "LastObjection2.Timestamp.time", "time"),
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.value"),
-        job,
-        "LastObjection2.BTG.value",
-        "btg.value",
-        "StornoLast requires btg.value",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.BTG.curr"),
-        job,
-        "LastObjection2.BTG.curr",
-        "btg.curr",
-        "StornoLast requires btg.curr",
-    )?;
-    set_required_message_value_from_job(
-        message,
-        &format!("{segment}.name"),
-        job,
-        "LastObjection2.name",
-        "name",
-        "StornoLast requires name",
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.name2"),
-        job_param(job, "LastObjection2.name2", "name2"),
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.primanota"),
-        job_param(job, "LastObjection2.primanota", "primanota"),
-    )?;
-    set_optional_message_value(
-        message,
-        &format!("{segment}.orderid"),
-        job_param(job, "LastObjection2.orderid", "orderid"),
-    )?;
 
     Ok(())
 }
