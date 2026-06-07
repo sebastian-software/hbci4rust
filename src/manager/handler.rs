@@ -495,6 +495,55 @@ where
         Ok(status)
     }
 
+    pub async fn execute_with_tan2step(&mut self) -> HbciResult<HbciExecStatus> {
+        if self.queue.is_empty()
+            || self
+                .passport
+                .current_tan_method()
+                .unwrap_or(ONESTEP_TAN_METHOD_ID)
+                == ONESTEP_TAN_METHOD_ID
+            || !self.queue_contains_hktan_required_job()?
+        {
+            return self.execute().await;
+        }
+
+        if self.passport.tan2step_parameter("process").as_deref() == Some("1") {
+            if self.queue.len() != 1 {
+                return Err(HbciError::new(
+                    HbciErrorKind::Unsupported,
+                    "process-1 dispatcher currently supports exactly one TAN-required queued job",
+                ));
+            }
+            let job = self.queue.remove(0);
+            return self.execute_with_tan2step_process1(job).await;
+        }
+
+        if self.queue.len() == 1 {
+            let job = self.queue.remove(0);
+            self.try_add_to_queue_with_initial_tan_job(job)?;
+        }
+        self.execute_with_tan2step_process2().await
+    }
+
+    fn queue_contains_hktan_required_job(&self) -> HbciResult<bool> {
+        self.queue.iter().try_fold(false, |found, job| {
+            Ok(found || self.job_requires_hktan(job)?)
+        })
+    }
+
+    fn job_requires_hktan(&self, job: &HbciJob) -> HbciResult<bool> {
+        if job.name() == "TAN2Step" {
+            return Ok(false);
+        }
+
+        let task_info = orderhash_source_job_info(job.name())?;
+        Ok(self
+            .passport
+            .pin_tan_info_for_segment_code(task_info.code)
+            .as_deref()
+            == Some("J"))
+    }
+
     pub async fn close(&mut self) -> HbciResult<()> {
         if !self.dialog.is_open() {
             return Ok(());
