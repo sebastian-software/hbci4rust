@@ -15,6 +15,9 @@ use crate::passport::PinTanPassport;
 use crate::protocol::{HbciMessage, load_protocol_spec, parse_wire_message};
 use crate::sepa::CAMT_052_001_01_URN;
 use crate::swift::decode_umlauts;
+use crate::tools::Properties;
+
+use super::{ChallengeInfo, OrderHashMode};
 
 #[derive(Clone)]
 pub struct HbciHandler<C = DefaultCommClient> {
@@ -67,6 +70,20 @@ where
 
     pub fn new_job(&self, name: &str) -> HbciResult<HbciJob> {
         self.registry.new_job(name)
+    }
+
+    pub fn new_tan2step_process1_job(
+        &self,
+        task: &HbciJob,
+        challenge_info: Option<&ChallengeInfo>,
+    ) -> HbciResult<HbciJob> {
+        new_tan2step_process1_job(
+            &self.registry,
+            &self.hbci_version,
+            &self.passport,
+            task,
+            challenge_info,
+        )
     }
 
     pub fn add_to_queue(&mut self, job: HbciJob) {
@@ -396,6 +413,136 @@ fn render_job_into_custom_message(
         name => Err(HbciError::new(
             HbciErrorKind::Unsupported,
             format!("queued job rendering is not ported yet for {name}"),
+        )),
+    }
+}
+
+fn new_tan2step_process1_job(
+    registry: &JobRegistry,
+    hbci_version: &str,
+    passport: &PinTanPassport,
+    task: &HbciJob,
+    challenge_info: Option<&ChallengeInfo>,
+) -> HbciResult<HbciJob> {
+    let task_info = orderhash_source_job_info(task.name())?;
+    let task_segment = render_task_segment_for_orderhash(hbci_version, task, passport)?;
+    let order_hash_mode_code = passport.order_hash_mode_code().ok_or_else(|| {
+        HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "PinTAN BPD does not contain orderhashmode for current HKTAN segment version",
+        )
+    })?;
+    let order_hash =
+        OrderHashMode::from_code(&order_hash_mode_code)?.hash_segment(&task_segment)?;
+    let secmech = passport.current_secmech_info();
+
+    let mut hktan = registry.new_job("TAN2Step")?;
+    hktan.try_set_param("process", "1")?;
+    hktan.try_set_param("ordersegcode", task_info.code)?;
+    hktan.try_set_param("notlasttan", "N")?;
+    hktan.try_set_param("orderhash", order_hash)?;
+
+    if passport.tan2step_parameter("needorderaccount").as_deref() == Some("2")
+        && let Some(account) = task_order_account(task, passport)
+    {
+        hktan.set_param_account("orderaccount", &account);
+    }
+
+    if let Some(tan_media) = passport.tan_media().filter(|value| !value.is_empty()) {
+        hktan.try_set_param("tanmedia", tan_media)?;
+    }
+
+    apply_challenge_params_if_needed(&mut hktan, task_info.code, task, &secmech, challenge_info)?;
+
+    Ok(hktan)
+}
+
+fn render_task_segment_for_orderhash(
+    hbci_version: &str,
+    task: &HbciJob,
+    passport: &PinTanPassport,
+) -> HbciResult<String> {
+    let syntax = load_protocol_spec(hbci_version)?.parse_syntax()?;
+    let mut message = HbciMessage::from_syntax(&syntax, "CustomMsg")?;
+    let task_info = orderhash_source_job_info(task.name())?;
+
+    render_job_into_custom_message(&mut message, task, 0, passport)?;
+    message.set_value(&format!("{}.SegHead.seq", task_info.path), "3")?;
+    message
+        .element(task_info.path)
+        .ok_or_else(|| {
+            HbciError::new(
+                HbciErrorKind::Protocol,
+                format!("message element path {} is not defined", task_info.path),
+            )
+        })?
+        .to_fints_string()
+}
+
+fn task_order_account(task: &HbciJob, passport: &PinTanPassport) -> Option<Konto> {
+    let task_info = orderhash_source_job_info(task.name()).ok()?;
+    let account = effective_job_account(task, passport, task_info.lowlevel_segment, "my");
+    has_account_identity(&account).then_some(account)
+}
+
+fn apply_challenge_params_if_needed(
+    hktan: &mut HbciJob,
+    task_code: &str,
+    task: &HbciJob,
+    secmech: &Properties,
+    challenge_info: Option<&ChallengeInfo>,
+) -> HbciResult<()> {
+    if secmech.get("needchallengeklass").map(String::as_str) != Some("J") {
+        return Ok(());
+    }
+
+    let Some(challenge_info) = challenge_info else {
+        return Ok(());
+    };
+    let Some(applied) = challenge_info.apply_params(task_code, task.lowlevel_params(), secmech)?
+    else {
+        return Ok(());
+    };
+
+    for (name, value) in applied.to_hktan_params() {
+        hktan.try_set_param(name, value)?;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OrderhashSourceJobInfo {
+    code: &'static str,
+    lowlevel_segment: &'static str,
+    path: &'static str,
+}
+
+fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInfo> {
+    match job_name {
+        "KUmsAll" => Ok(OrderhashSourceJobInfo {
+            code: "HKKAZ",
+            lowlevel_segment: "KUmsZeit7",
+            path: "CustomMsg.GV.KUmsZeit7",
+        }),
+        "KUmsAllCamt" => Ok(OrderhashSourceJobInfo {
+            code: "HKCAZ",
+            lowlevel_segment: "KUmsZeitCamt1",
+            path: "CustomMsg.GV.KUmsZeitCamt1",
+        }),
+        "KUmsNew" => Ok(OrderhashSourceJobInfo {
+            code: "HKKAN",
+            lowlevel_segment: "KUmsNew7",
+            path: "CustomMsg.GV.KUmsNew7",
+        }),
+        "SaldoReq" | "SaldoReqAll" => Ok(OrderhashSourceJobInfo {
+            code: "HKSAL",
+            lowlevel_segment: "Saldo7",
+            path: "CustomMsg.GV.Saldo7",
+        }),
+        name => Err(HbciError::new(
+            HbciErrorKind::Unsupported,
+            format!("process-1 HKTAN preparation is not ported yet for {name}"),
         )),
     }
 }

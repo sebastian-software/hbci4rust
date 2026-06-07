@@ -1572,6 +1572,7 @@ fn rust_native_passport_storage_roundtrips() {
         filter: Some("Base64".to_owned()),
         tan_method: Some("921".to_owned()),
         tan_media: Some("phone".to_owned()),
+        tan_segment_version: Some("5".to_owned()),
         bpd_version: Some("5".to_owned()),
         upd_version: Some("7".to_owned()),
         bank_name: Some("Test Bank".to_owned()),
@@ -1582,6 +1583,10 @@ fn rust_native_passport_storage_roundtrips() {
         upd_usage: Some("1".to_owned()),
         user_name: Some("Max Mustermann".to_owned()),
         accounts: vec![giro_account()],
+        bpd_parameters: BTreeMap::from([(
+            "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+            "2".to_owned(),
+        )]),
     };
 
     let bytes = PassportStorage::save_to_vec(&data, b"correct horse battery staple")
@@ -1641,6 +1646,37 @@ fn passport_imports_accounts_from_dialog_init_upd_values() {
 }
 
 #[test]
+fn passport_resolves_orderhash_mode_from_bpd_like_hbci4java_query() {
+    let passport = PinTanPassport::new(PinTanPassportData {
+        tan_segment_version: Some("5".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params_1.TAN2StepPar4.ParTAN2Step.orderhashmode".to_owned(),
+                "1".to_owned(),
+            ),
+            (
+                "Params_2.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params_2.TAN2StepPar5.ParTAN2Step.needorderaccount".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+
+    assert_eq!(passport.order_hash_mode_code().as_deref(), Some("2"));
+    assert_eq!(
+        passport.tan2step_parameter("needorderaccount").as_deref(),
+        Some("2")
+    );
+    let secmech = passport.current_secmech_info();
+    assert_eq!(secmech.get("segversion").map(String::as_str), Some("5"));
+    assert_eq!(secmech.get("orderhashmode").map(String::as_str), Some("2"));
+}
+
+#[test]
 fn passport_imports_bpd_and_upd_parameter_data_from_dialog_init_values() {
     let syntax = load_protocol_spec("300")
         .expect("known protocol version loads")
@@ -1659,7 +1695,7 @@ fn passport_imports_bpd_and_upd_parameter_data_from_dialog_init_values() {
 
     let count = passport.update_parameter_data_from_values(&values, "DialogInitRes");
 
-    assert_eq!(count, 9);
+    assert_eq!(count, 10);
     assert_eq!(passport.bpd_version(), "5");
     assert_eq!(passport.upd_version(), "7");
     assert_eq!(passport.bank_name(), Some("Bank"));
@@ -1670,6 +1706,13 @@ fn passport_imports_bpd_and_upd_parameter_data_from_dialog_init_values() {
     assert_eq!(passport.upd_usage(), Some("0"));
     assert!(passport.only_bpd_gvs());
     assert_eq!(passport.user_name(), Some("Max Mustermann"));
+    assert_eq!(
+        passport
+            .bpd_parameters()
+            .get("BPA.KIK.blz")
+            .map(String::as_str),
+        Some("12345678")
+    );
 }
 
 #[tokio::test]
@@ -2353,6 +2396,78 @@ async fn handler_renders_tan2step5_with_applied_challenge_params_like_original()
         find_bytes(body, b"+++N+++10+100,99:::9876543210'HNHBS:3:1+1'").is_some(),
         "{}",
         String::from_utf8_lossy(body)
+    );
+}
+
+#[tokio::test]
+async fn handler_prepares_process1_hktan_orderhash_from_rendered_task_segment() {
+    const ORDER_SEGMENT: &str = "HKSAL:3:7+DE02123456780000000000+N'";
+
+    let passport = PinTanPassport::new(PinTanPassportData {
+        host: Some("https://fints.example.test/fints".to_owned()),
+        tan_segment_version: Some("5".to_owned()),
+        tan_media: Some("sms-name".to_owned()),
+        bpd_parameters: BTreeMap::from([
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.orderhashmode".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "Params.TAN2StepPar5.ParTAN2Step.needorderaccount".to_owned(),
+                "2".to_owned(),
+            ),
+        ]),
+        ..PinTanPassportData::default()
+    });
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut saldo = handler.new_job("SaldoReq").expect("job is in registry");
+    saldo
+        .try_set_param("my.iban", "DE02123456780000000000")
+        .expect("saldo account");
+
+    let hktan = handler
+        .new_tan2step_process1_job(&saldo, None)
+        .expect("process-1 HKTAN prepares");
+    let expected_hash = OrderHashMode::Sha1
+        .hash_segment(ORDER_SEGMENT)
+        .expect("order segment hashes");
+    let expected_lowlevel_hash = format!("B{expected_hash}");
+    assert_eq!(hktan.param("process"), Some("1"));
+    assert_eq!(hktan.param("ordersegcode"), Some("HKSAL"));
+    assert_eq!(hktan.param("notlasttan"), Some("N"));
+    assert_eq!(hktan.param("orderhash"), Some(expected_hash.as_str()));
+    assert_eq!(
+        hktan.lowlevel_param("TAN2Step5.orderhash"),
+        Some(expected_lowlevel_hash.as_str())
+    );
+    assert_eq!(
+        hktan.param("orderaccount.iban"),
+        Some("DE02123456780000000000")
+    );
+    assert_eq!(hktan.param("tanmedia"), Some("sms-name"));
+
+    handler
+        .try_add_to_queue(hktan)
+        .expect("prepared HKTAN verifies and queues");
+    let status = handler.execute().await.expect("replay response");
+    assert!(status.success);
+
+    let requests = replay.requests().expect("requests");
+    let body = &requests[0].body;
+    let rendered = String::from_utf8_lossy(body);
+    assert!(rendered.contains("HKTAN:2:5+1+HKSAL+DE02123456780000000000"));
+    assert!(rendered.contains("sms-name'"), "{rendered}");
+
+    let hash_prefix = b"+@20@";
+    let hash_start = find_bytes(body, hash_prefix).expect("HKTAN hash prefix");
+    let payload_start = hash_start + hash_prefix.len();
+    let payload_end = payload_start + 20;
+    assert_eq!(
+        &body[payload_start..payload_end],
+        OrderHashMode::Sha1
+            .hash_segment_bytes(ORDER_SEGMENT)
+            .expect("expected hash")
     );
 }
 

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::gv_result::{Konto, Limit, Value};
+use crate::tools::{ParameterFinder, ParameterQuery, Properties};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PinTanPassport {
@@ -56,6 +57,18 @@ impl PinTanPassport {
 
     pub fn upd_usage(&self) -> Option<&str> {
         self.data.upd_usage.as_deref()
+    }
+
+    pub fn tan_media(&self) -> Option<&str> {
+        self.data.tan_media.as_deref()
+    }
+
+    pub fn tan_segment_version(&self) -> &str {
+        self.data.tan_segment_version.as_deref().unwrap_or("5")
+    }
+
+    pub fn bpd_parameters(&self) -> &Properties {
+        &self.data.bpd_parameters
     }
 
     pub fn only_bpd_gvs(&self) -> bool {
@@ -193,6 +206,11 @@ impl PinTanPassport {
             self.data.max_message_size_kb = Some(max_message_size_kb);
             updated += 1;
         }
+        let bpd_parameters = prefixed_values(values, &format!("{prefix}.BPD."));
+        if !bpd_parameters.is_empty() {
+            self.data.bpd_parameters = bpd_parameters;
+            updated += 1;
+        }
 
         let supported_languages =
             counted_value_keys(values, &format!("{bpa_prefix}.SuppLangs.lang"))
@@ -225,6 +243,55 @@ impl PinTanPassport {
 
         updated
     }
+
+    pub fn tan2step_parameter(&self, name: &str) -> Option<String> {
+        let path = format!(
+            "Params*.TAN2StepPar{}.ParTAN2Step*.{name}",
+            self.tan_segment_version()
+        );
+        ParameterFinder::get_value(self.bpd_parameters(), Some(&path), None)
+    }
+
+    pub fn order_hash_mode_code(&self) -> Option<String> {
+        let query =
+            ParameterQuery::BPD_PINTAN_ORDERHASHMODE.with_parameters(&[self.tan_segment_version()]);
+        ParameterFinder::get_value_query(self.bpd_parameters(), &query, None)
+            .ok()
+            .flatten()
+    }
+
+    pub fn current_secmech_info(&self) -> Properties {
+        let mut info = Properties::new();
+        info.insert(
+            "segversion".to_owned(),
+            self.tan_segment_version().to_owned(),
+        );
+
+        if let Some(tan_method) = self
+            .data
+            .tan_method
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            info.insert("secfunc".to_owned(), tan_method.to_owned());
+        }
+
+        for name in [
+            "id",
+            "needchallengeklass",
+            "needorderaccount",
+            "orderhashmode",
+            "process",
+            "zkamethod_name",
+            "zkamethod_version",
+        ] {
+            if let Some(value) = self.tan2step_parameter(name) {
+                info.insert(name.to_owned(), value);
+            }
+        }
+
+        info
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -237,6 +304,8 @@ pub struct PinTanPassportData {
     pub filter: Option<String>,
     pub tan_method: Option<String>,
     pub tan_media: Option<String>,
+    #[serde(default)]
+    pub tan_segment_version: Option<String>,
     #[serde(default)]
     pub bpd_version: Option<String>,
     #[serde(default)]
@@ -257,6 +326,8 @@ pub struct PinTanPassportData {
     pub user_name: Option<String>,
     #[serde(default)]
     pub accounts: Vec<Konto>,
+    #[serde(default)]
+    pub bpd_parameters: Properties,
 }
 
 fn fill_from_account(account: &mut Konto, source: &Konto) {
@@ -428,4 +499,14 @@ fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String
             Some(value.to_owned())
         }
     })
+}
+
+fn prefixed_values(values: &BTreeMap<String, String>, prefix: &str) -> Properties {
+    values
+        .iter()
+        .filter_map(|(key, value)| {
+            key.strip_prefix(prefix)
+                .map(|key| (key.to_owned(), value.clone()))
+        })
+        .collect()
 }
