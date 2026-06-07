@@ -45,6 +45,7 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "LastB2BSEPA",
     "LastCOR1SEPA",
     "LastSEPA",
+    "MultiLast",
     "MultiLastB2BSEPA",
     "MultiLastCOR1SEPA",
     "MultiLastSEPA",
@@ -512,7 +513,9 @@ impl HbciJob {
             | "SaldoReq" | "SaldoReqAll" | "WPDepotList" | "WPDepotUms" => {
                 self.check_account_crc("my", callback).await
             }
-            "FestList" | "FestListAll" | "MultiUeb" => self.check_account_crc("my", callback).await,
+            "FestList" | "FestListAll" | "MultiLast" | "MultiUeb" => {
+                self.check_account_crc("my", callback).await
+            }
             "Last" => {
                 self.check_account_crc("my", callback).await?;
                 self.check_account_crc("other", callback).await
@@ -701,7 +704,7 @@ impl HbciJob {
             return binary_lowlevel_value(value);
         }
 
-        if self.name == "MultiUeb" && frontend_name == "data" {
+        if matches!(self.name.as_str(), "MultiLast" | "MultiUeb") && frontend_name == "data" {
             return binary_lowlevel_value(value);
         }
 
@@ -895,6 +898,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "LastB2BSEPA" => last_sepa_constraints("LastB2BSEPA1", "B2B"),
         "LastCOR1SEPA" => last_sepa_constraints("LastCOR1SEPA1", "COR1"),
         "LastSEPA" => last_sepa_constraints("LastSEPA1", "CORE"),
+        "MultiLast" => multi_last_constraints(),
         "MultiLastB2BSEPA" => multi_last_sepa_constraints("SammelLastB2BSEPA1", "B2B"),
         "MultiLastCOR1SEPA" => multi_last_sepa_constraints("SammelLastCOR1SEPA1", "COR1"),
         "MultiLastSEPA" => multi_last_sepa_constraints("SammelLastSEPA1", "CORE"),
@@ -1605,6 +1609,16 @@ fn last_constraints() -> Vec<HbciJobConstraint> {
 
 fn last_sepa_constraints(lowlevel_segment: &str, debit_type: &str) -> Vec<HbciJobConstraint> {
     last_sepa_constraints_for(lowlevel_segment, debit_type, true)
+}
+
+fn multi_last_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("data", "SammelLast6.data", None::<String>),
+        HbciJobConstraint::new("my.country", "SammelLast6.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "SammelLast6.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "SammelLast6.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "SammelLast6.KTV.subnumber", Some("")),
+    ]
 }
 
 fn multi_ueb_constraints() -> Vec<HbciJobConstraint> {
