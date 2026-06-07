@@ -94,7 +94,7 @@ Evidence:
 - [x] Failed process-2 submission state and process-2 transport retry state are
   replay-tested.
 - [x] Error/reporting behavior is reviewed for user-facing API clarity.
-- [ ] Additional bank-specific SCA variants discovered during live smoke tests
+- [x] Additional bank-specific SCA variants discovered during live smoke tests
   are converted into offline replay fixtures or documented as limitations.
 
 Evidence:
@@ -105,7 +105,9 @@ Evidence:
 - `tests/status.rs`
 - `tests/public_api.rs`
 - `docs/reference/error-reporting.md`
+- `docs/reference/live-bank-tests.md`
 - ADR 0250
+- ADR 0257
 
 ## Public API And Migration Docs
 
@@ -178,8 +180,8 @@ Evidence:
 
 - [x] Live PinTAN smoke testing is ignored and environment-gated.
 - [x] The live test command exits safely without credentials by default.
-- [ ] Manual live-bank observations, if any, are recorded without credentials.
-- [ ] Live observations are converted into deterministic replay fixtures or
+- [x] Manual live-bank observations, if any, are recorded without credentials.
+- [x] Live observations are converted into deterministic replay fixtures or
   explicit limitations before they influence acceptance.
 
 Evidence:
@@ -187,6 +189,9 @@ Evidence:
 ```sh
 cargo test --test live_bank -- --ignored
 ```
+
+- `docs/reference/live-bank-tests.md`
+- ADR 0257
 
 ## Release Declaration
 

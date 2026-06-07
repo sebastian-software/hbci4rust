@@ -82,6 +82,8 @@ CI acceptance is offline-only:
 
 Live-bank hooks are optional, ignored, and environment-gated. They must not
 store real credentials, and v1 acceptance does not depend on live bank access.
+The current live observation log records no manual observations for v1
+acceptance.
 
 Bank-specific SCA variants discovered during manual live smoke testing must be
 converted into deterministic replay fixtures or documented as explicit
@@ -130,3 +132,4 @@ Before any unsupported surface above becomes part of the public API:
 - ADR 0246: V1 Release Checklist
 - ADR 0252: Unsupported V1 Surface Reference
 - ADR 0255: Malformed Bank Response Evidence
+- ADR 0257: Live Smoke Observation Boundary

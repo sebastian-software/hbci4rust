@@ -48,6 +48,31 @@ cargo test --test live_bank -- --ignored
 Without `HBCI4RUST_LIVE_ENABLE=1`, the ignored test exits successfully without
 opening a network connection. This keeps accidental local invocations harmless.
 
+## Observation Log
+
+Snapshot date: 2026-06-07.
+
+No manual live-bank observations are currently recorded for v1 release
+acceptance. The current v1 evidence set is offline-only: deterministic replay
+tests, copied fixtures, parser/generator goldens, and documented limitations.
+
+Because no manual live-bank observations are part of the current evidence set:
+
+- no additional bank-specific SCA variants from live smoke testing are known;
+- no live observation currently needs conversion into replay fixtures;
+- no live observation currently needs an explicit limitation entry.
+
+When a manual live run is used to inform v1 acceptance, record it here without
+credentials, PINs, TANs, personal account data, or full endpoint secrets. Then
+convert the observation into deterministic replay coverage or an explicit
+limitation before it changes the release decision.
+
+Suggested anonymized fields:
+
+| Date | Bank Label | Scenario | Observation | Follow-Up |
+| --- | --- | --- | --- | --- |
+| _none_ | _none_ | _none_ | No manual observations recorded. | No replay or limitation needed. |
+
 ## Current Hook
 
 `live_pintan_dialog_init_and_close_from_env`:
@@ -61,6 +86,7 @@ opening a network connection. This keeps accidental local invocations harmless.
 ## References
 
 - `docs/adr/0236-optional-live-bank-test-hooks.md`
+- `docs/adr/0257-live-smoke-observation-boundary.md`
 - `tests/live_bank.rs`
 - `src/comm/mod.rs`
 - `src/manager/handler.rs`
