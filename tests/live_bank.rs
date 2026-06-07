@@ -45,6 +45,9 @@ impl HbciCallback for LiveEnvCallback {
             CallbackReason::NeedPtTanMedia => Ok(env_optional("HBCI4RUST_LIVE_TAN_MEDIA")
                 .map(CallbackResponse::value)
                 .unwrap_or_else(CallbackResponse::empty)),
+            CallbackReason::NeedPtDecoupled | CallbackReason::NeedPtDecoupledRetry => {
+                Ok(CallbackResponse::empty())
+            }
             CallbackReason::NeedConnection
             | CallbackReason::CloseConnection
             | CallbackReason::HaveInstMsg
