@@ -439,6 +439,7 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
+            "TermUebList" => self.check_account_crc("my", callback).await,
             _ => Ok(()),
         }
     }
@@ -766,6 +767,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
         "TermUebSEPAList" => term_ueb_sepa_list_constraints(),
+        "TermUebList" => term_ueb_list_constraints(),
         "InstUebSEPA" => inst_ueb_sepa_constraints(),
         "UebSEPA" => ueb_sepa_constraints(),
         "UmbSEPA" => umb_sepa_constraints(),
@@ -834,6 +836,18 @@ fn term_ueb_sepa_list_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("startdate", "TermUebSEPAList1.startdate", Some("")),
         HbciJobConstraint::new("enddate", "TermUebSEPAList1.enddate", Some("")),
         HbciJobConstraint::new("maxentries", "TermUebSEPAList1.maxentries", Some("")),
+    ]
+}
+
+fn term_ueb_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.country", "TermUebList3.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "TermUebList3.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "TermUebList3.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "TermUebList3.KTV.subnumber", Some("")),
+        HbciJobConstraint::new("startdate", "TermUebList3.startdate", Some("")),
+        HbciJobConstraint::new("enddate", "TermUebList3.enddate", Some("")),
+        HbciJobConstraint::new("maxentries", "TermUebList3.maxentries", Some("")),
     ]
 }
 

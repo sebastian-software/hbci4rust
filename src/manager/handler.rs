@@ -1078,6 +1078,7 @@ fn render_job_into_custom_message(
         "TANList" => render_tan_list(message, index),
         "TANMediaList" => render_tan_media_list(message, job, index),
         "TAN2Step" => render_tan2step(message, job, index),
+        "TermUebList" => render_term_ueb_list(message, job, index, passport),
         "TermUebSEPA" => render_term_ueb_sepa(message, job, index, passport),
         "TermUebSEPADel" => render_term_ueb_sepa_del(message, job, index, passport),
         "TermUebSEPAEdit" => render_term_ueb_sepa_edit(message, job, index, passport),
@@ -1297,6 +1298,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             code: "HKCDL",
             lowlevel_segment: "DauerSEPADel1",
             path: "CustomMsg.GV.DauerSEPADel1",
+        }),
+        "TermUebList" => Ok(OrderhashSourceJobInfo {
+            code: "HKTUB",
+            lowlevel_segment: "TermUebList3",
+            path: "CustomMsg.GV.TermUebList3",
         }),
         "TermUebSEPA" => Ok(OrderhashSourceJobInfo {
             code: "HKCSE",
@@ -1588,6 +1594,14 @@ fn term_ueb_sepa_list_response_root(index: usize) -> String {
         "CustomMsgRes.GVRes.TermUebSEPAListRes1".to_owned()
     } else {
         format!("CustomMsgRes.GVRes_{}.TermUebSEPAListRes1", index + 1)
+    }
+}
+
+fn term_ueb_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.TermUebListRes3".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.TermUebListRes3", index + 1)
     }
 }
 
@@ -2181,6 +2195,46 @@ fn render_term_ueb_sepa_list(
         message,
         &format!("{segment}.maxentries"),
         job_param(job, "TermUebSEPAList1.maxentries", "maxentries"),
+    )?;
+
+    Ok(())
+}
+
+fn render_term_ueb_list(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.TermUebList3");
+    let account = effective_job_account(job, passport, "TermUebList3", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "TermUebList requires my.number or a passport account for the current TermUebList3 renderer",
+        ));
+    }
+
+    set_national_account_values(message, &segment, &account)?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.startdate"),
+        job_param(job, "TermUebList3.startdate", "startdate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.enddate"),
+        job_param(job, "TermUebList3.enddate", "enddate"),
+    )?;
+    set_optional_message_value(
+        message,
+        &format!("{segment}.maxentries"),
+        job_param(job, "TermUebList3.maxentries", "maxentries"),
     )?;
 
     Ok(())
@@ -3401,6 +3455,9 @@ impl ParsedResponseStatus {
             "TermUebSEPAEdit" => self
                 .term_ueb_edit_result_for_root(term_ueb_sepa_edit_response_root(index))
                 .map(HbciJobResultData::TermUebEdit),
+            "TermUebList" => self
+                .term_ueb_list_result_for_root(term_ueb_list_response_root(index))
+                .map(HbciJobResultData::TermUebList),
             "TermUebSEPAList" => self
                 .term_ueb_list_result_for_root(term_ueb_sepa_list_response_root(index))
                 .map(HbciJobResultData::TermUebList),
@@ -3447,6 +3504,7 @@ impl ParsedResponseStatus {
             "TermUebSEPAEdit" => {
                 self.content_result_data([term_ueb_sepa_edit_response_root(index)])
             }
+            "TermUebList" => self.content_result_data([term_ueb_list_response_root(index)]),
             "TermUebSEPAList" => {
                 self.content_result_data([term_ueb_sepa_list_response_root(index)])
             }
@@ -4109,7 +4167,7 @@ fn dauer_list_entry_from_values(
         .as_deref()
         .and_then(|pain| parse_pain_001_transfers(pain).ok())
         .and_then(|transfers| transfers.into_iter().next());
-    let classic_other = classic_dauer_list_other_account_from_values(values, prefix);
+    let classic_other = classic_inland_other_account_from_values(values, prefix);
 
     GvrDauerListEntry {
         my: ktv_int_account_from_values(values, &format!("{prefix}.My")),
@@ -4126,7 +4184,7 @@ fn dauer_list_entry_from_values(
         usage: pain_transfer
             .as_ref()
             .map(|transfer| transfer.usage.clone())
-            .unwrap_or_else(|| classic_dauer_list_usage_from_values(values, prefix)),
+            .unwrap_or_else(|| classic_inland_usage_from_values(values, prefix)),
         nextdate: optional_value(values, &format!("{prefix}.date")),
         orderid: optional_value(values, &format!("{prefix}.orderid")),
         firstdate: optional_value(values, &format!("{prefix}.DauerDetails.firstdate")),
@@ -4150,7 +4208,7 @@ fn dauer_list_entry_from_values(
     }
 }
 
-fn classic_dauer_list_other_account_from_values(
+fn classic_inland_other_account_from_values(
     values: &BTreeMap<String, String>,
     prefix: &str,
 ) -> Konto {
@@ -4160,7 +4218,7 @@ fn classic_dauer_list_other_account_from_values(
     other
 }
 
-fn classic_dauer_list_usage_from_values(
+fn classic_inland_usage_from_values(
     values: &BTreeMap<String, String>,
     prefix: &str,
 ) -> Vec<String> {
@@ -4179,26 +4237,30 @@ fn term_ueb_list_entry_from_values(
         .as_deref()
         .and_then(|pain| parse_pain_001_transfers(pain).ok())
         .and_then(|transfers| transfers.into_iter().next());
+    let classic_other = classic_inland_other_account_from_values(values, prefix);
 
     GvrTermUebListEntry {
         my: ktv_int_account_from_values(values, &format!("{prefix}.My")),
         other: pain_transfer
             .as_ref()
             .map(|transfer| transfer.destination.clone())
-            .unwrap_or_default(),
+            .unwrap_or(classic_other),
         value: pain_transfer
             .as_ref()
-            .and_then(|transfer| transfer.value.clone()),
-        key: None,
-        addkey: None,
+            .and_then(|transfer| transfer.value.clone())
+            .or_else(|| value_from_values(values, &format!("{prefix}.BTG"))),
+        key: optional_value(values, &format!("{prefix}.key")),
+        addkey: optional_value(values, &format!("{prefix}.addkey")),
         usage: pain_transfer
             .as_ref()
             .map(|transfer| transfer.usage.clone())
-            .unwrap_or_default(),
+            .unwrap_or_else(|| classic_inland_usage_from_values(values, prefix)),
         date: pain_transfer
             .as_ref()
-            .and_then(|transfer| transfer.execution_date.clone()),
-        orderid: optional_value(values, &format!("{prefix}.orderid")),
+            .and_then(|transfer| transfer.execution_date.clone())
+            .or_else(|| optional_value(values, &format!("{prefix}.date"))),
+        orderid: optional_value(values, &format!("{prefix}.orderid"))
+            .or_else(|| optional_value(values, &format!("{prefix}.id"))),
         can_change: optional_jn(values, &format!("{prefix}.canchange")).unwrap_or(true),
         can_delete: optional_jn(values, &format!("{prefix}.candel")).unwrap_or(true),
         sepadescr: optional_value(values, &format!("{prefix}.sepadescr")),
@@ -4336,10 +4398,11 @@ fn update_passport_job_persistent_data_from_results(
                     passport.set_persistent_data(format!("termueb_{order_id}"), snapshot);
                 }
             }
-            "TermUebSEPAList" => {
+            "TermUebList" | "TermUebSEPAList" => {
                 let Some(order_id) = result
                     .result_data
                     .get("content.orderid")
+                    .or_else(|| result.result_data.get("content.id"))
                     .filter(|order_id| !order_id.is_empty())
                 else {
                     continue;
@@ -4362,7 +4425,12 @@ fn dauer_persistent_snapshot(result_data: &BTreeMap<String, String>) -> Properti
         let Some(suffix) = key.strip_prefix(prefix) else {
             continue;
         };
-        if suffix.starts_with("SegHead.") || suffix == "orderid" || suffix.ends_with(".orderid") {
+        if suffix.starts_with("SegHead.")
+            || suffix == "orderid"
+            || suffix.ends_with(".orderid")
+            || suffix == "id"
+            || suffix.ends_with(".id")
+        {
             continue;
         }
         snapshot.insert(suffix.to_owned(), value.clone());
