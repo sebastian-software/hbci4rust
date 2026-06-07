@@ -3,6 +3,7 @@
 This page maps common hbci4java concepts to their current Rust equivalents.
 The Rust port stays original-near for protocol behavior, job names, parameter
 keys, and tests, while using Rust-cased public types and async control flow.
+For a crate-root export review, see `docs/reference/public-api.md`.
 
 ## Naming Rule
 

@@ -2,6 +2,15 @@
 //!
 //! The crate keeps hbci4java concepts recognizable while choosing Rust-shaped
 //! public type names and async control flow.
+//!
+//! The primary v1 PinTAN/HBCI-Plus path is [`HbciHandler`] plus Java-named
+//! [`HbciJob`] values created with names such as `SaldoReq`. Crate-root
+//! re-exports are intentionally broad for the original-near port: callback,
+//! passport, communication, result, protocol, security-mechanism, and utility
+//! helpers stay visible while v1 parity hardens.
+//!
+//! See `docs/reference/public-api.md` for the crate-root export review and
+//! `docs/reference/java-to-rust-mapping.md` for migration-oriented examples.
 
 pub mod callback;
 pub mod comm;

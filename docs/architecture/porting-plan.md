@@ -46,6 +46,7 @@ Out:
   `WPStammData` boundary.
 - `docs/reference/java-to-rust-mapping.md` maps major hbci4java concepts to the
   current original-near Rust API.
+- `docs/reference/public-api.md` reviews the crate-root v1 export surface.
 - `docs/reference/live-bank-tests.md` describes the ignored, env-gated live
   PinTAN dialog smoke hook.
 - `docs/architecture/release-checklist.md` records the operational v1 release

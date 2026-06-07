@@ -100,8 +100,8 @@ Evidence:
 - [x] Callback reasons expose original hbci4java code mappings where ported.
 - [x] Common PinTAN runtime setup and a balance-request migration shape are
   documented.
-- [ ] API docs are reviewed for all exported v1 types.
-- [ ] At least one migration example is checked against the current public API.
+- [x] API docs are reviewed for the crate-root exported v1 types.
+- [x] At least one migration example is checked against the current public API.
 - [ ] Per-job migration examples are added for the highest-risk transfer and
   statement workflows, or explicitly deferred.
 
@@ -109,7 +109,9 @@ Evidence:
 
 - `README.md`
 - `src/lib.rs`
+- `docs/reference/public-api.md`
 - `docs/reference/java-to-rust-mapping.md`
+- `tests/public_api.rs`
 - `tests/bootstrap.rs`
 
 ## Passport Storage And Security
