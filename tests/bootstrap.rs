@@ -527,6 +527,54 @@ fn acc_info_exposes_original_near_v2_constraints() {
 }
 
 #[test]
+fn card_list_exposes_original_near_v2_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("CardList").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 4);
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .destination_name,
+        "CardList2.KTV.KIK.country"
+    );
+    assert_eq!(
+        job.constraint("my.country")
+            .expect("country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("my.blz")
+            .expect("bank code constraint")
+            .destination_name,
+        "CardList2.KTV.KIK.blz"
+    );
+    assert_eq!(
+        job.constraint("my.number")
+            .expect("account number constraint")
+            .destination_name,
+        "CardList2.KTV.number"
+    );
+    assert_eq!(
+        job.constraint("my.subnumber")
+            .expect("subnumber constraint")
+            .default_value
+            .as_deref(),
+        Some("")
+    );
+
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    assert_eq!(
+        job.lowlevel_param("CardList2.KTV.number"),
+        Some("1234567890")
+    );
+}
+
+#[test]
 fn info_list_exposes_original_near_v4_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -4142,6 +4190,87 @@ async fn handler_renders_and_collects_acc_info_like_original() {
         body.contains("HKKIF:3:2+0000000000::280:12345678+N'"),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn handler_renders_card_list_request_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_ok_response())]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("CardList").expect("job is in registry");
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "CardList");
+    assert!(status.job_results[0].result.is_none());
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains("HKAZK:3:2+1234567890::280:10020030'"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn handler_collects_card_list_result_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HIAZK:3:2+1+Girocard+CARD123+2+Max Mustermann+20240101+20261231+500,00:EUR+Primary card",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay);
+    let mut job = handler.new_job("CardList").expect("job is in registry");
+    job.try_set_param("my.number", "1234567890")
+        .expect("account number is accepted");
+    job.try_set_param("my.blz", "10020030")
+        .expect("bank code is accepted");
+
+    handler.add_to_queue(job);
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    let result = &status.job_results[0];
+    assert_eq!(result.job_name, "CardList");
+    assert_eq!(
+        result
+            .result_data
+            .get("content.cardbez")
+            .map(String::as_str),
+        Some("Girocard")
+    );
+    assert_eq!(
+        result
+            .result_data
+            .get("content.cardlimit.value")
+            .map(String::as_str),
+        Some("500.00")
+    );
+
+    let Some(HbciJobResultData::CardList(card_list)) = result.result.as_ref() else {
+        panic!("expected CardList result data");
+    };
+    assert_eq!(card_list.entries.len(), 1);
+    let entry = &card_list.entries[0];
+    assert_eq!(entry.card_type, Some(1));
+    assert_eq!(entry.card_number.as_deref(), Some("CARD123"));
+    assert_eq!(entry.card_order_number.as_deref(), Some("2"));
+    assert_eq!(entry.owner.as_deref(), Some("Max Mustermann"));
+    assert_eq!(entry.valid_from.as_deref(), Some("2024-01-01"));
+    assert_eq!(entry.valid_until.as_deref(), Some("2026-12-31"));
+    assert_eq!(entry.comment.as_deref(), Some("Primary card"));
+    let limit = entry.limit.as_ref().expect("card limit");
+    assert_eq!(limit.value, "500.00");
+    assert_eq!(limit.curr.as_deref(), Some("EUR"));
 }
 
 #[tokio::test]

@@ -24,15 +24,15 @@ pub use dialog::{DialogContext, KnownReturncode};
 pub use error::{HbciError, HbciErrorKind, HbciResult};
 pub use gv::{HbciJob, HbciJobConstraint, JobRegistry, PINTAN_JOB_NAMES};
 pub use gv_result::{
-    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerList, GvrDauerListAussetzung,
-    GvrDauerListEntry, GvrFestCond, GvrFestCondList, GvrFestList, GvrFestListEntry,
-    GvrFestListProlong, GvrInfoList, GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo,
-    GvrInstUebSepa, GvrKUms, GvrKUmsBTag, GvrKUmsLine, GvrKontoauszug, GvrKontoauszugEntry,
-    GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo, GvrTanList,
-    GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
-    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, HbciStatusCode, Konto,
-    KontoauszugFormat, Limit, Saldo, Value,
+    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrCardInfo, GvrCardList, GvrDauerList,
+    GvrDauerListAussetzung, GvrDauerListEntry, GvrFestCond, GvrFestCondList, GvrFestList,
+    GvrFestListEntry, GvrFestListProlong, GvrInfoList, GvrInfoListInfo, GvrInfoOrder,
+    GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrKUmsBTag, GvrKUmsLine, GvrKontoauszug,
+    GvrKontoauszugEntry, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo,
+    GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit,
+    GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
+    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, HbciStatusCode,
+    Konto, KontoauszugFormat, Limit, Saldo, Value,
 };
 pub use manager::{
     AccountCrcAlgs, AppliedChallengeParams, BankInfo, BankInfoRegistry, ChallengeHhdVersion,

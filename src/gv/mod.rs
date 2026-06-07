@@ -11,6 +11,7 @@ use crate::tools::Properties;
 
 pub const PINTAN_JOB_NAMES: &[&str] = &[
     "AccInfo",
+    "CardList",
     "DauerDel",
     "DauerEdit",
     "DauerLastSEPAList",
@@ -433,6 +434,7 @@ impl HbciJob {
         callback: Option<&dyn HbciCallback>,
     ) -> HbciResult<()> {
         match self.name.as_str() {
+            "CardList" => self.check_account_crc("my", callback).await,
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
@@ -747,6 +749,7 @@ impl HbciJobConstraint {
 fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
     match name {
         "AccInfo" => acc_info_constraints(),
+        "CardList" => card_list_constraints(),
         "DauerSEPAEdit" => dauer_sepa_edit_constraints(),
         "DauerSEPAList" => dauer_sepa_list_constraints(),
         "DauerSEPADel" => dauer_sepa_del_constraints(),
@@ -1212,6 +1215,15 @@ fn acc_info_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("my.number", "AccInfo2.KTV.number", None::<String>),
         HbciJobConstraint::new("my.subnumber", "AccInfo2.KTV.subnumber", Some("")),
         HbciJobConstraint::new("all", "AccInfo2.allaccounts", Some("N")),
+    ]
+}
+
+fn card_list_constraints() -> Vec<HbciJobConstraint> {
+    vec![
+        HbciJobConstraint::new("my.country", "CardList2.KTV.KIK.country", Some("DE")),
+        HbciJobConstraint::new("my.blz", "CardList2.KTV.KIK.blz", None::<String>),
+        HbciJobConstraint::new("my.number", "CardList2.KTV.number", None::<String>),
+        HbciJobConstraint::new("my.subnumber", "CardList2.KTV.subnumber", Some("")),
     ]
 }
 

@@ -9,15 +9,15 @@ use crate::dialog::DialogContext;
 use crate::error::{HbciError, HbciErrorKind, HbciResult};
 use crate::gv::{HbciJob, JobRegistry};
 use crate::gv_result::{
-    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrDauerEdit, GvrDauerList,
-    GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond, GvrFestCondList,
-    GvrFestList, GvrFestListEntry, GvrFestListProlong, GvrInfoList, GvrInfoListInfo, GvrInfoOrder,
-    GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrKontoauszug, GvrKontoauszugEntry, GvrSaldoReq,
-    GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo, GvrTanList, GvrTanListEntry,
-    GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit, GvrTermUebList,
-    GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage, HbciJobResult,
-    HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto, KontoauszugFormat, Saldo,
-    Value,
+    GvrAccInfo, GvrAccInfoAddress, GvrAccInfoEntry, GvrCardInfo, GvrCardList, GvrDauerEdit,
+    GvrDauerList, GvrDauerListAussetzung, GvrDauerListEntry, GvrDauerNew, GvrFestCond,
+    GvrFestCondList, GvrFestList, GvrFestListEntry, GvrFestListProlong, GvrInfoList,
+    GvrInfoListInfo, GvrInfoOrder, GvrInfoOrderInfo, GvrInstUebSepa, GvrKUms, GvrKontoauszug,
+    GvrKontoauszugEntry, GvrSaldoReq, GvrSaldoReqInfo, GvrStatus, GvrStatusEntry, GvrTanInfo,
+    GvrTanList, GvrTanListEntry, GvrTanMediaInfo, GvrTanMediaList, GvrTermUeb, GvrTermUebEdit,
+    GvrTermUebList, GvrTermUebListEntry, HbciDialogStatus, HbciExecStatus, HbciInstMessage,
+    HbciJobResult, HbciJobResultData, HbciMsgStatus, HbciReturnValue, HbciStatus, Konto,
+    KontoauszugFormat, Saldo, Value,
 };
 use crate::passport::{
     ONESTEP_TAN_METHOD_ID, PinTanPassport, TanMethodOption, TanMethodSelection, UserSig,
@@ -1053,6 +1053,7 @@ fn render_job_into_custom_message(
 ) -> HbciResult<()> {
     match job.name() {
         "AccInfo" => render_acc_info(message, job, index, passport),
+        "CardList" => render_card_list(message, job, index, passport),
         "DauerSEPADel" => render_dauer_sepa_del(message, job, index, passport),
         "DauerSEPAEdit" => render_dauer_sepa_edit(message, job, index, passport),
         "DauerSEPAList" => render_dauer_sepa_list(message, job, index, passport),
@@ -1266,6 +1267,11 @@ fn orderhash_source_job_info(job_name: &str) -> HbciResult<OrderhashSourceJobInf
             lowlevel_segment: "AccInfo2",
             path: "CustomMsg.GV.AccInfo2",
         }),
+        "CardList" => Ok(OrderhashSourceJobInfo {
+            code: "HKAZK",
+            lowlevel_segment: "CardList2",
+            path: "CustomMsg.GV.CardList2",
+        }),
         "DauerSEPAList" => Ok(OrderhashSourceJobInfo {
             code: "HKCDB",
             lowlevel_segment: "DauerSEPAList2",
@@ -1451,6 +1457,14 @@ fn acc_info_response_root(index: usize) -> String {
     }
 }
 
+fn card_list_response_root(index: usize) -> String {
+    if index == 0 {
+        "CustomMsgRes.GVRes.CardListRes2".to_owned()
+    } else {
+        format!("CustomMsgRes.GVRes_{}.CardListRes2", index + 1)
+    }
+}
+
 fn info_list_response_root(index: usize) -> String {
     if index == 0 {
         "CustomMsgRes.GVRes.InfoListRes4".to_owned()
@@ -1619,6 +1633,31 @@ fn render_saldo_job(
     if let Some(maxentries) = job_param(job, "Saldo7.maxentries", "maxentries") {
         message.set_value(&format!("{segment}.maxentries"), maxentries)?;
     }
+
+    Ok(())
+}
+
+fn render_card_list(
+    message: &mut HbciMessage,
+    job: &HbciJob,
+    index: usize,
+    passport: &PinTanPassport,
+) -> HbciResult<()> {
+    let root = if index == 0 {
+        "CustomMsg.GV".to_owned()
+    } else {
+        format!("CustomMsg.GV_{}", index + 1)
+    };
+    let segment = format!("{root}.CardList2");
+    let account = effective_job_account(job, passport, "CardList2", "my");
+    if !has_account_identity(&account) {
+        return Err(HbciError::new(
+            HbciErrorKind::InvalidArgument,
+            "CardList requires my.number or a passport account for the current CardList2 renderer",
+        ));
+    }
+
+    set_national_account_values(message, &segment, &account)?;
 
     Ok(())
 }
@@ -3267,6 +3306,9 @@ impl ParsedResponseStatus {
             "AccInfo" => self
                 .acc_info_result_for_root(acc_info_response_root(index))
                 .map(HbciJobResultData::AccInfo),
+            "CardList" => self
+                .card_list_result_for_root(card_list_response_root(index))
+                .map(HbciJobResultData::CardList),
             "DauerSEPADel" => self
                 .dauer_edit_result_for_root(dauer_sepa_edit_response_root(index))
                 .map(HbciJobResultData::DauerEdit),
@@ -3336,6 +3378,7 @@ impl ParsedResponseStatus {
     fn result_data_for_job(&self, job: &HbciJob, index: usize) -> BTreeMap<String, String> {
         match job.name() {
             "AccInfo" => self.content_result_data([acc_info_response_root(index)]),
+            "CardList" => self.content_result_data([card_list_response_root(index)]),
             "DauerSEPADel" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAEdit" => self.content_result_data([dauer_sepa_edit_response_root(index)]),
             "DauerSEPAList" => self.content_result_data([dauer_sepa_list_response_root(index)]),
@@ -3425,6 +3468,13 @@ impl ParsedResponseStatus {
         self.values.get(&format!("{root}.SegHead.code"))?;
         acc_info_entry_from_values(&self.values, &root).map(|entry| GvrAccInfo {
             entries: vec![entry],
+        })
+    }
+
+    fn card_list_result_for_root(&self, root: String) -> Option<GvrCardList> {
+        self.values.get(&format!("{root}.SegHead.code"))?;
+        Some(GvrCardList {
+            entries: vec![card_info_from_values(&self.values, &root)],
         })
     }
 
@@ -3916,6 +3966,19 @@ fn tan_info_from_values(values: &BTreeMap<String, String>, prefix: &str) -> Opti
         usage_date: optional_value(values, &format!("{prefix}.usagedate")),
         usage_time: optional_value(values, &format!("{prefix}.usagetime")),
     })
+}
+
+fn card_info_from_values(values: &BTreeMap<String, String>, prefix: &str) -> GvrCardInfo {
+    GvrCardInfo {
+        card_type: optional_i32(values, &format!("{prefix}.cardtype")),
+        card_number: optional_value(values, &format!("{prefix}.cardnumber")),
+        card_order_number: optional_value(values, &format!("{prefix}.nextcardnumber")),
+        owner: optional_value(values, &format!("{prefix}.name")),
+        valid_from: optional_value(values, &format!("{prefix}.validfrom")),
+        valid_until: optional_value(values, &format!("{prefix}.validuntil")),
+        limit: value_from_values(values, &format!("{prefix}.cardlimit")),
+        comment: optional_value(values, &format!("{prefix}.comment")),
+    }
 }
 
 fn acc_info_entry_from_values(

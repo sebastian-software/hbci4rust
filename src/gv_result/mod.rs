@@ -650,6 +650,7 @@ impl Display for HbciJobResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HbciJobResultData {
     AccInfo(GvrAccInfo),
+    CardList(GvrCardList),
     DauerEdit(GvrDauerEdit),
     DauerList(GvrDauerList),
     DauerNew(GvrDauerNew),
@@ -702,6 +703,23 @@ pub struct GvrAccInfoAddress {
     pub tel: Option<String>,
     pub fax: Option<String>,
     pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrCardList {
+    pub entries: Vec<GvrCardInfo>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvrCardInfo {
+    pub card_type: Option<i32>,
+    pub card_number: Option<String>,
+    pub card_order_number: Option<String>,
+    pub owner: Option<String>,
+    pub valid_from: Option<String>,
+    pub valid_until: Option<String>,
+    pub limit: Option<Value>,
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
