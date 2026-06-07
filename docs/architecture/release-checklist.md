@@ -39,6 +39,15 @@ The release candidate must record the exact output summary of these commands.
 Clippy warnings are visible during porting, but a v1 release candidate should
 not ship with new warnings unless a dedicated ADR accepts the warning.
 
+The command set can be run together with:
+
+```sh
+scripts/run-release-candidate-checks.sh
+```
+
+Use `scripts/run-release-candidate-checks.sh --package` for the final packaging
+pass after the last release-candidate commit.
+
 ## Source Surface Coverage
 
 - [x] Static high-level job registry covers all in-scope upstream `GV*.java`
@@ -177,6 +186,12 @@ Evidence:
 - ADR 0002
 - ADR 0249
 - ADR 0253
+
+The final packaging pass can be run with:
+
+```sh
+scripts/run-release-candidate-checks.sh --package
+```
 
 ## Optional Live Smoke
 

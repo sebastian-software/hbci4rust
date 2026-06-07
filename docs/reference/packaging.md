@@ -66,6 +66,8 @@ Before publishing any crate release:
 
 - rerun `cargo package --list` on the final release-candidate commit;
 - run `cargo publish --dry-run` or an equivalent local package verification;
+- use `scripts/run-release-candidate-checks.sh --package` to run the offline
+  gates and package checks with per-command logs under `target/release-gates/`;
 - rerun the upstream header review if the baseline or copied artifacts changed
   since `docs/reference/upstream-header-review.md`;
 - update `docs/architecture/release-checklist.md` with final command evidence.

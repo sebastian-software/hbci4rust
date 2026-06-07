@@ -69,3 +69,5 @@ Out:
   license/header inconsistency recheck for the pinned baseline.
 - `docs/architecture/release-checklist.md` records the operational v1 release
   acceptance checks.
+- `scripts/run-release-candidate-checks.sh` runs the release-candidate gate set
+  and can include final package checks with `--package`.
