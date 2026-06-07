@@ -70,6 +70,8 @@ pub const PINTAN_JOB_NAMES: &[&str] = &[
     "WPDepotUms",
 ];
 
+pub(crate) const CLASSIC_USAGE_LINE_COUNT: usize = 14;
+
 #[derive(Debug, Clone, Default)]
 pub struct JobRegistry {
     names: BTreeSet<&'static str>,
@@ -439,6 +441,10 @@ impl HbciJob {
             "Kontoauszug" | "KontoauszugPdf" | "KUmsAll" | "KUmsAllCamt" | "KUmsNew"
             | "SaldoReq" | "SaldoReqAll" => self.check_account_crc("my", callback).await,
             "FestList" => self.check_account_crc("my", callback).await,
+            "TermUeb" => {
+                self.check_account_crc("src", callback).await?;
+                self.check_account_crc("dst", callback).await
+            }
             "TermUebList" => self.check_account_crc("my", callback).await,
             _ => Ok(()),
         }
@@ -763,6 +769,7 @@ fn constraints_for_job(name: &str) -> Vec<HbciJobConstraint> {
         "InfoOrder" => info_order_constraints(),
         "Kontoauszug" => kontoauszug_constraints(),
         "KontoauszugPdf" => kontoauszug_pdf_constraints(),
+        "TermUeb" => term_ueb_constraints(),
         "TermUebSEPA" => term_ueb_sepa_constraints(),
         "TermUebSEPADel" => term_ueb_sepa_del_constraints(),
         "TermUebSEPAEdit" => term_ueb_sepa_edit_constraints(),
@@ -849,6 +856,41 @@ fn term_ueb_list_constraints() -> Vec<HbciJobConstraint> {
         HbciJobConstraint::new("enddate", "TermUebList3.enddate", Some("")),
         HbciJobConstraint::new("maxentries", "TermUebList3.maxentries", Some("")),
     ]
+}
+
+fn term_ueb_constraints() -> Vec<HbciJobConstraint> {
+    let mut constraints = vec![
+        HbciJobConstraint::new("src.country", "TermUeb4.My.KIK.country", Some("DE")),
+        HbciJobConstraint::new("src.blz", "TermUeb4.My.KIK.blz", None::<String>),
+        HbciJobConstraint::new("src.number", "TermUeb4.My.number", None::<String>),
+        HbciJobConstraint::new("src.subnumber", "TermUeb4.My.subnumber", Some("")),
+        HbciJobConstraint::new("dst.country", "TermUeb4.Other.KIK.country", Some("DE")),
+        HbciJobConstraint::new("dst.blz", "TermUeb4.Other.KIK.blz", None::<String>),
+        HbciJobConstraint::new("dst.number", "TermUeb4.Other.number", None::<String>),
+        HbciJobConstraint::new("dst.subnumber", "TermUeb4.Other.subnumber", Some("")),
+        HbciJobConstraint::new("btg.value", "TermUeb4.BTG.value", None::<String>),
+        HbciJobConstraint::new("btg.curr", "TermUeb4.BTG.curr", None::<String>),
+        HbciJobConstraint::new("name", "TermUeb4.name", None::<String>),
+        HbciJobConstraint::new("date", "TermUeb4.date", None::<String>),
+        HbciJobConstraint::new("name2", "TermUeb4.name2", Some("")),
+        HbciJobConstraint::new("key", "TermUeb4.key", Some("51")),
+    ];
+
+    for index in 0..CLASSIC_USAGE_LINE_COUNT {
+        let frontend = classic_usage_name(index);
+        let destination = format!("TermUeb4.usage.{frontend}");
+        constraints.push(HbciJobConstraint::new(frontend, destination, Some("")));
+    }
+
+    constraints
+}
+
+fn classic_usage_name(index: usize) -> String {
+    if index == 0 {
+        "usage".to_owned()
+    } else {
+        format!("usage_{}", index + 1)
+    }
 }
 
 fn term_ueb_sepa_del_constraints() -> Vec<HbciJobConstraint> {

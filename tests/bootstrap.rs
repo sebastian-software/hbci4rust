@@ -1404,6 +1404,72 @@ fn term_ueb_sepa_list_exposes_original_near_v1_constraints() {
 }
 
 #[test]
+fn term_ueb_exposes_original_near_v4_constraints() {
+    let passport = PinTanPassport::new(PinTanPassportData::default());
+    let handler = HbciHandler::new("300", passport);
+    let mut job = handler.new_job("TermUeb").expect("job is in registry");
+
+    assert_eq!(job.constraints().len(), 28);
+    assert_eq!(
+        job.constraint("src.number")
+            .expect("source account number constraint")
+            .destination_name,
+        "TermUeb4.My.number"
+    );
+    assert_eq!(
+        job.constraint("src.country")
+            .expect("source country constraint")
+            .default_value
+            .as_deref(),
+        Some("DE")
+    );
+    assert_eq!(
+        job.constraint("dst.number")
+            .expect("destination account number constraint")
+            .destination_name,
+        "TermUeb4.Other.number"
+    );
+    assert_eq!(
+        job.constraint("btg.value")
+            .expect("amount value constraint")
+            .destination_name,
+        "TermUeb4.BTG.value"
+    );
+    assert_eq!(
+        job.constraint("date")
+            .expect("date constraint")
+            .destination_name,
+        "TermUeb4.date"
+    );
+    assert_eq!(
+        job.constraint("key")
+            .expect("transaction key constraint")
+            .default_value
+            .as_deref(),
+        Some("51")
+    );
+    assert_eq!(
+        job.constraint("usage")
+            .expect("usage constraint")
+            .destination_name,
+        "TermUeb4.usage.usage"
+    );
+    assert_eq!(
+        job.constraint("usage_14")
+            .expect("usage_14 constraint")
+            .destination_name,
+        "TermUeb4.usage.usage_14"
+    );
+
+    job.try_set_param("usage_2", "Second usage")
+        .expect("second usage line is accepted");
+    assert_eq!(
+        job.lowlevel_param("TermUeb4.usage.usage_2"),
+        Some("Second usage")
+    );
+}
+
+#[test]
 fn term_ueb_list_exposes_original_near_v3_constraints() {
     let passport = PinTanPassport::new(PinTanPassportData::default());
     let handler = HbciHandler::new("300", passport);
@@ -5084,6 +5150,90 @@ async fn handler_renders_and_collects_term_ueb_sepa_like_original() {
     assert!(body.contains("HKCSE:3:1+DE02123456780000000000:MARKDEF1100+"));
     assert!(body.contains("<MsgId>SEPA-TERM</MsgId>"), "{body}");
     assert!(body.contains("<ReqdExctnDt>2025-12-15</ReqdExctnDt>"));
+}
+
+#[tokio::test]
+async fn handler_renders_and_collects_term_ueb_like_original() {
+    let passport = passport_with_cached_pin(signed_pintan_data());
+    let replay = ReplayCommClient::new([Ok(custom_msg_response(&[
+        "HIRMG:2:2+0010::OK",
+        "HITUE:3:4+ORDERTERM",
+    ]))]);
+    let mut handler = HbciHandler::with_comm("300", passport, replay.clone());
+    let mut job = handler.new_job("TermUeb").expect("job is in registry");
+    job.try_set_param("src.number", "1234567890")
+        .expect("source account number is accepted");
+    job.try_set_param("src.blz", "10020030")
+        .expect("source bank code is accepted");
+    job.try_set_param("dst.number", "99887766")
+        .expect("destination account number is accepted");
+    job.try_set_param("dst.blz", "20030040")
+        .expect("destination bank code is accepted");
+    job.try_set_param("name", "Receiver Name")
+        .expect("recipient name is accepted");
+    job.try_set_param("btg.value", "42.00")
+        .expect("amount value is accepted");
+    job.try_set_param("btg.curr", "EUR")
+        .expect("amount currency is accepted");
+    job.try_set_param("usage", "Term usage one")
+        .expect("first usage line is accepted");
+    job.try_set_param("usage_2", "Term usage two")
+        .expect("second usage line is accepted");
+    job.try_set_param_date("date", "2026-03-15")
+        .expect("date is accepted");
+
+    handler.try_add_to_queue(job).expect("constraints resolve");
+    let status = handler.execute().await.expect("replay response");
+
+    assert!(status.success);
+    assert_eq!(status.job_results[0].job_name, "TermUeb");
+    assert!(status.job_results[0].success);
+    assert_eq!(
+        status.job_results[0]
+            .result_data
+            .get("content.orderid")
+            .map(String::as_str),
+        Some("ORDERTERM")
+    );
+    let Some(HbciJobResultData::TermUeb(result)) = status.job_results[0].result.as_ref() else {
+        panic!("expected TermUeb result data");
+    };
+    assert_eq!(result.order_id.as_deref(), Some("ORDERTERM"));
+
+    let snapshot = handler
+        .passport()
+        .get_persistent_data("termueb_ORDERTERM")
+        .expect("term ueb persistent data");
+    assert_eq!(
+        snapshot.get("My.number").map(String::as_str),
+        Some("1234567890")
+    );
+    assert_eq!(
+        snapshot.get("Other.number").map(String::as_str),
+        Some("99887766")
+    );
+    assert_eq!(snapshot.get("BTG.value").map(String::as_str), Some("42.00"));
+    assert_eq!(snapshot.get("BTG.curr").map(String::as_str), Some("EUR"));
+    assert_eq!(
+        snapshot.get("usage.usage_2").map(String::as_str),
+        Some("Term usage two")
+    );
+    assert_eq!(snapshot.get("date").map(String::as_str), Some("2026-03-15"));
+    assert_eq!(snapshot.get("key").map(String::as_str), Some("51"));
+    assert!(!snapshot.contains_key("sepapain"));
+    assert!(!snapshot.keys().any(|key| key.starts_with("sepa.")));
+
+    let requests = replay.requests().expect("requests");
+    assert_eq!(requests.len(), 1);
+
+    let body = String::from_utf8(requests[0].body.clone()).expect("request body is text");
+    assert_signed_custom_msg_request(&body, "0", "1", 5);
+    assert!(
+        body.contains(
+            "HKTUE:3:4+1234567890::280:10020030+99887766::280:20030040+Receiver Name++42,:EUR+51++Term usage one:Term usage two+20260315'"
+        ),
+        "{body}"
+    );
 }
 
 #[tokio::test]
